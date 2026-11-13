@@ -1,0 +1,113 @@
+// Control-plane schema.
+//
+// Identity lives in Supabase Auth; this database holds the business records and
+// keys them by the Supabase user id, so no password material is ever stored
+// here. Tenant data (WhatsApp accounts, conversations) will hang off Workspace.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("SUPABASE_POSTGRES_URL")
+}
+
+enum GlobalRole {
+  USER
+  ADMIN
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  AGENT
+}
+
+enum PlanTier {
+  STARTER
+  GROWTH
+  SCALE
+}
+
+/// Mirrors `auth.users.id` from Supabase. Never create rows independently of a
+/// verified access token.
+model User {
+  id         String     @id @db.Uuid
+  email      String     @unique
+  fullName   String?    @map("full_name")
+  avatarUrl  String?    @map("avatar_url")
+  role       GlobalRole @default(USER)
+  lastSeenAt DateTime?  @map("last_seen_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  memberships WorkspaceMember[]
+  owned       Workspace[]       @relation("WorkspaceOwner")
+  whatsapp    WhatsAppAccount?
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  plan      PlanTier @default(STARTER)
+  ownerId   String   @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner   User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members WorkspaceMember[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole @default(AGENT)
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+enum WhatsAppStatus {
+  VERIFIED
+  FAILED
+}
+
+/// One Meta WhatsApp Business connection per user.
+///
+/// The access token and the webhook verify token are AES-256-GCM ciphertext at
+/// rest and are never returned to the browser — the API only exposes a four
+/// character hint. A row exists only for credentials Meta confirmed, so status
+/// is VERIFIED on write; FAILED is reserved for a later re-verify that fails.
+model WhatsAppAccount {
+  id                 String         @id @default(uuid()) @db.Uuid
+  userId             String         @unique @map("user_id") @db.Uuid
+  phoneNumberId      String         @map("phone_number_id")
+  businessAccountId  String         @map("business_account_id")
+  graphVersion       String         @map("graph_version")
+  displayPhoneNumber String?        @map("display_phone_number")
+  verifiedName       String?        @map("verified_name")
+  qualityRating      String?        @map("quality_rating")
+  businessName       String?        @map("business_name")
+  status             WhatsAppStatus @default(VERIFIED)
+  lastVerifiedAt     DateTime?      @map("last_verified_at")
+  accessTokenCipher  String         @map("access_token_cipher")
+  verifyTokenCipher  String         @map("verify_token_cipher")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_accounts")
+}

@@ -1,0 +1,1120 @@
+# PRODUCT REQUIREMENTS DOCUMENT (PRD)
+# Managed WhatsApp Automation SaaS
+
+**Version:** 5.0  
+**Product Type:** Centrally Managed WhatsApp Automation SaaS  
+**Business Model:** Subscription-Based Software Access  
+**Deployment Model:** One Central Application, Isolated Database Per Customer  
+**Architecture:** Shared Codebase, Centralized Infrastructure, Independent Customer Databases  
+**Automation:** Custom Backend (No n8n)
+
+---
+
+# 1. PRODUCT OVERVIEW
+
+## 1.1 Product Vision
+
+Build a subscription-based WhatsApp Automation SaaS platform that allows customers to purchase access through the company's website and automatically receive their own isolated WhatsApp Automation workspace after successful payment.
+
+The software will be developed, hosted, maintained, and controlled by our company.
+
+Customers purchase software access, not source code or a separate software deployment.
+
+## 1.2 Business Model
+
+Our company owns and manages:
+
+- Source code and Git repository.
+- Frontend and backend applications.
+- Hosting infrastructure.
+- Database infrastructure.
+- Customer account provisioning.
+- Application updates and maintenance.
+- Security and monitoring.
+- Subscription and billing operations.
+- Backup and recovery systems.
+
+Customers receive:
+
+- Login access to their own workspace.
+- Access to the features included in their subscription plan.
+- Their own isolated PostgreSQL database.
+- Their own WhatsApp Business account integration.
+- Their own contacts, messages, campaigns, automations, and reports.
+- Customer-specific usage and subscription information.
+
+Customers do not receive source code, backend access, database server credentials, or deployment infrastructure access.
+
+## 1.3 Core Product Concept
+
+**One Company Website → Customer Payment → Automatic Account Creation → Separate Customer Database → Workspace Access → WhatsApp Automation.**
+
+All customers use the same application, branding, UI, theme, and feature design.
+
+Only customer data, WhatsApp configuration, subscription details, and workspace information are different.
+
+## 1.4 Product Objectives
+
+1. Build a complete WhatsApp Automation SaaS platform.
+2. Sell subscriptions through our company landing page.
+3. Automate customer onboarding after verified payment.
+4. Create an independent PostgreSQL database for every customer.
+5. Maintain one common source code repository.
+6. Operate one centrally managed application.
+7. Keep all source code and infrastructure under company control.
+8. Support independent WhatsApp Business accounts for customers.
+9. Implement subscription expiry and renewal management.
+10. Eliminate n8n dependency.
+11. Support automated provisioning, backups, and maintenance.
+12. Scale customer onboarding without manually deploying separate projects.
+
+---
+
+# 2. BUSINESS WEBSITE AND CUSTOMER ONBOARDING
+
+## 2.1 Public Landing Page
+
+The public website will represent our company's WhatsApp Automation product.
+
+It must contain:
+
+- Company information.
+- Product introduction.
+- Product features.
+- How it works.
+- Pricing plans.
+- Subscription benefits.
+- Frequently asked questions.
+- Contact information.
+- Login button.
+- Registration or purchase button.
+- Terms and conditions.
+- Privacy policy.
+- Refund and cancellation policy.
+
+The landing page will use our company's logo, company name, and design system.
+
+Customer-specific branding is not required.
+
+## 2.2 Pricing and Subscription Plans
+
+Customers must be able to:
+
+- View available plans.
+- Compare plan features.
+- Select a subscription duration.
+- Review pricing.
+- Complete payment.
+- Receive subscription confirmation.
+
+Plan configuration must support:
+
+- Monthly subscriptions.
+- Annual subscriptions.
+- Plan upgrades.
+- Plan downgrades.
+- Subscription renewal.
+- Subscription cancellation.
+- Trial plans, if enabled.
+- Usage limits.
+
+Plan limits may include:
+
+- Number of WhatsApp phone numbers.
+- Number of team members.
+- Monthly messaging or campaign limits.
+- Number of contacts.
+- AI usage.
+- Automation limits.
+- Storage limits.
+
+Actual plan limits must be configurable by the company.
+
+## 2.3 Payment Integration
+
+Payment Gateway: Razorpay.
+
+Required features:
+
+- Checkout creation.
+- Payment verification.
+- Webhook processing.
+- Payment history.
+- Subscription creation.
+- Invoice or receipt generation.
+- Failed payment handling.
+- Refund status tracking.
+- Renewal processing.
+- Payment reconciliation.
+
+Payment access must never be granted based only on a frontend success redirect.
+
+The backend must verify the payment gateway response and webhook signature before activating an account.
+
+## 2.4 Automatic Customer Onboarding
+
+After successful payment:
+
+1. Receive payment confirmation.
+2. Verify the payment signature and transaction status.
+3. Verify the purchased plan and amount.
+4. Check whether the payment event has already been processed.
+5. Create the customer account.
+6. Create a unique customer workspace.
+7. Provision a separate PostgreSQL database.
+8. Run the required Prisma database migrations.
+9. Create the initial Business Owner user.
+10. Create the subscription record.
+11. Apply plan limits.
+12. Initialize customer configuration.
+13. Generate a secure account activation or password setup link.
+14. Send a welcome email.
+15. Provide the customer workspace URL.
+16. Allow the customer to log in and complete onboarding.
+
+Provisioning must be asynchronous so that payment webhooks do not remain blocked by lengthy database creation operations.
+
+## 2.5 Provisioning Status
+
+Each customer provisioning operation must have a trackable status.
+
+Supported statuses:
+
+- PAYMENT_VERIFIED
+- ACCOUNT_CREATING
+- DATABASE_PROVISIONING
+- DATABASE_MIGRATION
+- WORKSPACE_INITIALIZING
+- EMAIL_PENDING
+- ACTIVE
+- PROVISIONING_FAILED
+- SUSPENDED
+- CANCELLED
+
+If provisioning fails after payment, the system must retry safely or alert internal operations staff.
+
+A failed provisioning operation must not create duplicate customers, databases, or subscriptions.
+
+---
+
+# 3. CUSTOMER WORKSPACE AND ACCESS
+
+## 3.1 Workspace Access
+
+Customers access the software through our company's application domain.
+
+Recommended URL structure:
+
+- Main website: `www.yourcompany.com`
+- Application: `app.yourcompany.com`
+- Customer workspace: `app.yourcompany.com/workspace`
+
+A unique customer workspace identifier will determine the authenticated customer's database connection.
+
+The system may support unique customer subdomains in the future, but separate frontend and backend deployments are not required.
+
+## 3.2 Customer Isolation
+
+Every customer must have:
+
+- Unique customer ID.
+- Unique workspace ID.
+- Separate PostgreSQL database.
+- Separate database credentials.
+- Independent WhatsApp integration configuration.
+- Independent subscription.
+- Independent application data.
+
+The backend must resolve the customer's database using authenticated server-side workspace context.
+
+Customers must never be allowed to select or modify database connection strings themselves.
+
+## 3.3 Branding
+
+The same company branding must appear across all customer workspaces.
+
+All customers use:
+
+- Same company logo.
+- Same company name.
+- Same color palette.
+- Same typography.
+- Same dashboard design.
+- Same sidebar.
+- Same navigation.
+- Same feature layout.
+- Same responsive behavior.
+
+Customer-specific company logos and brand names are not required.
+
+## 3.4 Customer-Facing Roles
+
+### Business Owner
+
+- Manage business profile.
+- Connect WhatsApp Business account.
+- Manage contacts.
+- Create campaigns.
+- Manage chatbot.
+- Manage conversations.
+- View analytics.
+- Manage team members.
+- Configure automations.
+- View subscription information.
+
+### Manager
+
+- Manage campaigns.
+- Manage contacts.
+- View analytics.
+- Assign conversations.
+- Manage support activities.
+
+### Support Agent
+
+- View assigned conversations.
+- Reply to customers.
+- Update conversation status.
+- Add internal notes.
+- Escalate conversations.
+
+There will be no customer-facing Super Admin Panel.
+
+Internal company operations may use a separate restricted administrative interface or secure operational tooling for customer provisioning, subscription support, and infrastructure monitoring. This must not be exposed as a customer-facing feature.
+
+---
+
+# 4. TECHNOLOGY STACK
+
+| Layer | Technology |
+|---|---|
+| Public Website | Next.js |
+| Customer Dashboard | Next.js |
+| Programming Language | TypeScript |
+| UI Framework | Tailwind CSS |
+| UI Components | shadcn/ui |
+| Backend | NestJS |
+| Runtime | Node.js |
+| Database | PostgreSQL |
+| ORM | Prisma |
+| Authentication | NestJS JWT |
+| Password Hashing | Argon2id |
+| Background Jobs | Redis + BullMQ |
+| WhatsApp Integration | Meta WhatsApp Cloud API |
+| AI Integration | OpenAI API |
+| Payment Gateway | Razorpay |
+| File Storage | Supabase Storage or S3-compatible storage |
+| Email | Transactional Email Provider |
+| Deployment | Centralized Cloud / VPS Infrastructure |
+| Monitoring | Sentry |
+| Logging | Centralized Structured Logging |
+
+No n8n or external workflow automation platform will be required.
+
+Supabase Auth will not be used. PostgreSQL hosting may use a managed database provider, but authentication and authorization will be managed by NestJS.
+
+---
+
+# 5. AUTHENTICATION AND USER MANAGEMENT
+
+## 5.1 Authentication Architecture
+
+Authentication will be implemented using NestJS and the customer's own PostgreSQL database.
+
+Technologies:
+
+- NestJS Authentication Module.
+- Prisma ORM.
+- Argon2id password hashing.
+- JWT access tokens.
+- Rotating refresh tokens.
+- Email verification.
+- Password reset.
+- Role-based access control.
+
+## 5.2 Authentication Features
+
+- Account activation.
+- Login.
+- Logout.
+- Logout from all sessions.
+- Email verification.
+- Password reset.
+- Password change.
+- Session management.
+- Refresh-token rotation.
+- Refresh-token revocation.
+- Profile management.
+- Role-based permissions.
+
+## 5.3 Security Requirements
+
+- Access tokens must have a short expiry.
+- Refresh tokens must be rotated and stored securely.
+- Store refresh-token hashes rather than raw tokens.
+- Passwords must be hashed using Argon2id.
+- Verification and reset tokens must be single-use and expire.
+- Login and password-reset endpoints must be rate-limited.
+- Authentication events must be logged.
+- Sensitive operations must require authorization checks.
+- Customer sessions must be bound to the correct workspace.
+
+The application must never trust a customer-supplied workspace ID without verifying the authenticated user's membership.
+
+---
+
+# 6. CORE PRODUCT MODULES
+
+## MODULE 1: Customer Dashboard
+
+Display:
+
+- Total contacts.
+- Total campaigns.
+- Messages sent.
+- Messages delivered.
+- Messages read.
+- Failed messages.
+- Active conversations.
+- WhatsApp connection status.
+- Recent activity.
+- Campaign performance.
+- Subscription status.
+- Usage information.
+
+## MODULE 2: WhatsApp Business Integration
+
+Integration: Official Meta WhatsApp Business Cloud API.
+
+Features:
+
+- WhatsApp Business Embedded Signup.
+- Business account connection.
+- Phone number registration.
+- WhatsApp Business Account ID management.
+- Phone Number ID management.
+- Secure access-token management.
+- Webhook configuration.
+- Incoming message processing.
+- Outgoing message processing.
+- Delivery status tracking.
+- Read receipts.
+- Message template synchronization.
+- Connection health monitoring.
+- Token renewal and revocation handling where supported.
+
+Each customer must connect and authorize their own WhatsApp Business account and phone number.
+
+Our application will manage the integration securely on behalf of that customer.
+
+## MODULE 3: Contact Management
+
+Features:
+
+- Add contacts.
+- Edit contacts.
+- Delete contacts.
+- Import CSV.
+- Import Excel.
+- Export contacts.
+- Search contacts.
+- Filter contacts.
+- Contact groups.
+- Contact tags.
+- Custom fields.
+- Consent tracking.
+- Opt-out management.
+
+Contact data must remain inside the customer's database.
+
+## MODULE 4: WhatsApp Campaign Management
+
+Features:
+
+- Create campaigns.
+- Select contact groups.
+- Select approved templates.
+- Configure dynamic variables.
+- Preview messages.
+- Send test messages.
+- Schedule campaigns.
+- Pause campaigns.
+- Resume campaigns.
+- View campaign history.
+- Export campaign reports.
+
+Campaign workflow:
+
+1. Create campaign.
+2. Select target contacts.
+3. Select approved WhatsApp template.
+4. Map dynamic variables.
+5. Validate recipient eligibility and consent.
+6. Schedule campaign.
+7. Add jobs to Redis queue.
+8. Process jobs through BullMQ workers.
+9. Send messages through WhatsApp Cloud API.
+10. Receive delivery webhooks.
+11. Update campaign analytics.
+
+## MODULE 5: Live WhatsApp Inbox
+
+Features:
+
+- Unified customer inbox.
+- Incoming messages.
+- Outgoing messages.
+- Message history.
+- Image attachments.
+- Document attachments.
+- Conversation assignment.
+- Agent management.
+- Internal notes.
+- Conversation status.
+- Customer profile.
+- Search and filtering.
+- Real-time updates.
+
+## MODULE 6: Chatbot Builder
+
+Features:
+
+- Welcome messages.
+- Keyword-based triggers.
+- Automated replies.
+- Interactive buttons.
+- List messages.
+- Conditional responses.
+- FAQ automation.
+- Fallback messages.
+- Human handoff.
+- Business-specific chatbot rules.
+
+All chatbot execution must run through the NestJS backend.
+
+## MODULE 7: Custom Automation Engine
+
+All automation must be developed internally.
+
+Features:
+
+- Event-based triggers.
+- Scheduled jobs.
+- Conditional rules.
+- Automated follow-ups.
+- Lead notifications.
+- Appointment reminders.
+- Order notifications.
+- Retry handling.
+- Execution logs.
+- Job cancellation.
+- Rate limiting.
+
+All customer automation jobs must execute with the correct customer database and workspace context.
+
+## MODULE 8: AI Assistant
+
+Features:
+
+- AI-powered customer support.
+- FAQ responses.
+- Knowledge base.
+- Lead qualification.
+- Conversation summaries.
+- Suggested replies.
+- Multi-language support.
+- Human escalation.
+
+OpenAI API will power AI functionalities.
+
+AI usage must be tracked against the customer's plan limits where applicable.
+
+## MODULE 9: Analytics and Reporting
+
+Metrics:
+
+- Messages sent.
+- Messages delivered.
+- Messages read.
+- Messages failed.
+- Incoming messages.
+- Campaign performance.
+- Contact growth.
+- Chatbot performance.
+- Agent performance.
+- Automation execution status.
+
+Reports:
+
+- Daily.
+- Weekly.
+- Monthly.
+- Campaign-wise.
+
+Reports must use data from the correct customer's database only.
+
+## MODULE 10: Subscription and Billing
+
+Features:
+
+- Subscription plans.
+- Payment processing.
+- Payment history.
+- Invoice or receipt generation.
+- Usage tracking.
+- Subscription expiry.
+- Plan upgrades.
+- Plan downgrades.
+- Subscription renewal.
+- Cancellation.
+- Failed payment handling.
+- Grace-period management.
+
+Razorpay will process customer payments.
+
+Subscription enforcement must be implemented on the backend, not only in the frontend.
+
+---
+
+# 7. CENTRALIZED DEPLOYMENT ARCHITECTURE
+
+## 7.1 Common Application
+
+Maintain one central application and one source code repository.
+
+The repository contains:
+
+- Public website.
+- Customer dashboard.
+- NestJS backend.
+- Shared UI components.
+- Authentication modules.
+- Customer provisioning service.
+- Database connection manager.
+- Database schema and migrations.
+- WhatsApp integration.
+- Payment integration.
+- Automation services.
+- Background job workers.
+- Monitoring and logging configuration.
+
+## 7.2 Centralized Infrastructure
+
+Our company manages:
+
+- Frontend hosting.
+- Backend hosting.
+- PostgreSQL infrastructure.
+- Redis infrastructure.
+- File storage.
+- Email delivery.
+- Payment gateway integration.
+- WhatsApp integration services.
+- Monitoring.
+- Backups.
+- Deployment pipelines.
+
+Customers do not receive individual frontend or backend deployments.
+
+## 7.3 Customer Database Isolation
+
+Every customer receives a separate PostgreSQL database.
+
+Example:
+
+**Customer A**
+- Customer ID: CUST_A
+- Database: customer_a_db
+- Database credentials: Customer A-specific credentials
+- WhatsApp credentials: Customer A-specific credentials
+- Subscription: Customer A subscription
+
+**Customer B**
+- Customer ID: CUST_B
+- Database: customer_b_db
+- Database credentials: Customer B-specific credentials
+- WhatsApp credentials: Customer B-specific credentials
+- Subscription: Customer B subscription
+
+Both customers use the same application and backend code.
+
+## 7.4 Database Connection Management
+
+The backend must:
+
+1. Authenticate the user.
+2. Resolve the user's authorized workspace.
+3. Retrieve the database mapping from the protected control-plane registry.
+4. Obtain the corresponding database credentials from secure secret storage.
+5. Establish or reuse a safe database connection.
+6. Execute operations only against the authorized customer's database.
+7. Release or reuse connections safely.
+
+Never accept arbitrary database URLs from customer requests.
+
+Connection pooling and maximum connection limits must be designed for high customer counts.
+
+---
+
+# 8. CONTROL-PLANE AND CUSTOMER DATABASE ARCHITECTURE
+
+The platform must separate central business operations from customer application data.
+
+## 8.1 Central Control-Plane Database
+
+The company will maintain a protected central database containing only the information required to operate the SaaS platform.
+
+Suggested tables:
+
+| Table | Purpose |
+|---|---|
+| customers | Customer account identity |
+| workspaces | Workspace identifiers and status |
+| database_registry | Customer database mapping |
+| provisioning_jobs | Account and database provisioning status |
+| plans | Subscription plan definitions |
+| subscriptions | Subscription lifecycle |
+| payments | Payment records |
+| invoices | Invoice metadata |
+| usage_summaries | Customer plan usage summaries |
+| webhook_events | Payment and platform webhook idempotency |
+| platform_audit_logs | Internal operational audit events |
+
+The control-plane database must not become a shared store for customer contacts, message histories, campaign content, or other customer business data.
+
+Database credentials must be stored in an encrypted secrets manager or equivalent protected server-side system. They must not be stored as plaintext.
+
+## 8.2 Individual Customer Databases
+
+Each customer database will contain its own application records.
+
+Suggested tables:
+
+| Table | Purpose |
+|---|---|
+| users | Customer workspace users |
+| roles | User roles |
+| permissions | Role permissions |
+| user_roles | User-role relationships |
+| sessions | Authentication sessions |
+| business_profiles | Business information |
+| whatsapp_accounts | Connected WhatsApp accounts |
+| whatsapp_phone_numbers | Business phone numbers |
+| contacts | Customer contacts |
+| contact_tags | Contact labels |
+| contact_opt_ins | Consent records |
+| campaigns | Campaign details |
+| campaign_recipients | Campaign recipients |
+| message_templates | Approved templates |
+| conversations | Customer conversations |
+| messages | Message history |
+| agents | Support agents |
+| chatbot_flows | Chatbot configurations |
+| chatbot_rules | Chatbot conditions |
+| automation_rules | Automation configurations |
+| scheduled_jobs | Scheduled jobs |
+| automation_logs | Execution logs |
+| audit_logs | Workspace audit history |
+
+Each customer database must run its own schema migrations.
+
+---
+
+# 9. ENVIRONMENT CONFIGURATION AND SECRETS
+
+Unlike the earlier deployment model, customers will not receive individual `.env` files.
+
+Our company will maintain the environment configuration for the central application.
+
+Example central configuration:
+
+APP_NAME=Your Company
+APP_URL=https://app.yourcompany.com
+
+DATABASE_CONTROL_URL=postgresql://...
+DATABASE_PROVISIONING_URL=postgresql://...
+
+REDIS_URL=redis://...
+
+JWT_ACCESS_SECRET=...
+JWT_REFRESH_SECRET=...
+
+RAZORPAY_KEY_ID=...
+RAZORPAY_KEY_SECRET=...
+RAZORPAY_WEBHOOK_SECRET=...
+
+META_APP_ID=...
+META_APP_SECRET=...
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=...
+
+OPENAI_API_KEY=...
+
+EMAIL_PROVIDER_API_KEY=...
+
+SECRET_MANAGER_CONFIG=...
+
+All sensitive values must remain server-side.
+
+Customer-specific WhatsApp tokens and database credentials must be stored securely and retrieved only by authorized backend services.
+
+Never expose secrets through:
+
+- Frontend JavaScript.
+- Browser responses.
+- Public API responses.
+- Application logs.
+- Error messages.
+- Source code repositories.
+
+---
+
+# 10. DATABASE PROVISIONING SERVICE
+
+## 10.1 Provisioning Responsibilities
+
+The provisioning service must:
+
+- Generate a unique customer identifier.
+- Generate a unique workspace identifier.
+- Allocate a database name.
+- Create a separate PostgreSQL database.
+- Create restricted database credentials.
+- Apply schema migrations.
+- Initialize required default records.
+- Register the database mapping.
+- Create the initial owner account.
+- Activate the workspace.
+- Record provisioning results.
+
+## 10.2 Provisioning Reliability
+
+The provisioning system must support:
+
+- Idempotent operations.
+- Retry handling.
+- Provisioning timeouts.
+- Failed-job recovery.
+- Duplicate event prevention.
+- Database creation verification.
+- Migration verification.
+- Operational alerts.
+- Provisioning audit logs.
+
+If a customer pays successfully but database provisioning fails, the payment record must remain valid and the provisioning operation must be recoverable.
+
+## 10.3 Database Lifecycle
+
+When a subscription expires:
+
+- Apply the configured grace period.
+- Restrict access according to the subscription policy.
+- Preserve customer data according to the retention policy.
+- Notify the customer about renewal.
+- Restore normal access after successful renewal.
+
+When a customer permanently cancels:
+
+- Apply the documented cancellation policy.
+- Allow data export where applicable.
+- Retain or delete data according to the retention and legal policy.
+- Revoke database credentials when deletion is authorized.
+- Record the lifecycle action in audit logs.
+
+Never automatically delete customer databases immediately after subscription expiry.
+
+---
+
+# 11. REDIS AND BACKGROUND JOB ARCHITECTURE
+
+Redis + BullMQ will manage:
+
+- Campaign processing.
+- Message delivery.
+- Scheduled messages.
+- Automation execution.
+- Payment provisioning jobs.
+- Email notifications.
+- Retry operations.
+- Webhook processing.
+
+A shared Redis infrastructure may be used with strict customer-specific job namespaces and workspace context.
+
+Every background job must carry a trusted customer/workspace identifier.
+
+Workers must resolve the correct database and credentials from the protected registry.
+
+Jobs must never accept untrusted database connection details.
+
+Configure:
+
+- Retry policies.
+- Dead-letter handling.
+- Job deduplication.
+- Rate limiting.
+- Concurrency limits.
+- Queue monitoring.
+- Job execution logs.
+
+---
+
+# 12. API ARCHITECTURE
+
+## Public Website and Customer Registration
+
+GET /api/plans  
+POST /api/checkout  
+POST /api/payments/webhook  
+POST /api/auth/activate  
+POST /api/auth/login  
+POST /api/auth/refresh  
+POST /api/auth/logout  
+POST /api/auth/forgot-password  
+POST /api/auth/reset-password  
+POST /api/auth/verify-email  
+
+## Customer Workspace
+
+GET /api/workspace  
+GET /api/business/profile  
+PATCH /api/business/profile  
+
+## WhatsApp
+
+POST /api/whatsapp/connect  
+GET /api/whatsapp/accounts  
+POST /api/whatsapp/send-message  
+POST /api/whatsapp/webhook  
+
+## Contacts
+
+GET /api/contacts  
+POST /api/contacts  
+POST /api/contacts/import  
+PATCH /api/contacts/:id  
+DELETE /api/contacts/:id  
+
+## Campaigns
+
+GET /api/campaigns  
+POST /api/campaigns  
+POST /api/campaigns/:id/start  
+POST /api/campaigns/:id/pause  
+
+## Conversations
+
+GET /api/conversations  
+GET /api/conversations/:id/messages  
+POST /api/conversations/:id/messages  
+PATCH /api/conversations/:id/assign  
+
+## Chatbot
+
+GET /api/chatbot/flows  
+POST /api/chatbot/flows  
+PATCH /api/chatbot/flows/:id  
+
+## Automation
+
+GET /api/automation-rules  
+POST /api/automation-rules  
+GET /api/automation-rules/:id/logs  
+
+## Billing
+
+GET /api/billing/subscription  
+GET /api/billing/payments  
+GET /api/billing/invoices  
+POST /api/billing/checkout  
+POST /api/billing/cancel  
+
+All customer workspace APIs must authenticate and resolve the authorized workspace before accessing customer data.
+
+---
+
+# 13. SECURITY REQUIREMENTS
+
+- Secure authentication using NestJS JWT.
+- Argon2id password hashing.
+- Refresh-token rotation and revocation.
+- Protected environment variables.
+- Encrypted secret storage.
+- API input validation.
+- Payment webhook signature verification.
+- WhatsApp webhook verification.
+- Database access restrictions.
+- Customer database isolation.
+- Secure file uploads.
+- API rate limiting.
+- Role-based permissions.
+- Audit logs.
+- Database backups.
+- Recovery procedures.
+- Consent management.
+- Opt-out enforcement.
+- Protection against cross-workspace access.
+- Secure database provisioning.
+- Restricted database credentials.
+- Centralized security monitoring.
+
+A customer must never be able to access another customer's data by changing an ID, URL, request parameter, or API payload.
+
+---
+
+# 14. NON-FUNCTIONAL REQUIREMENTS
+
+| Requirement | Target |
+|---|---|
+| Dashboard loading | Under 3 seconds |
+| Standard API response | Under 500 ms target |
+| Availability | 99.9% target |
+| Background processing | Redis + BullMQ |
+| Webhook handling | Asynchronous |
+| Database isolation | Separate database per customer |
+| Database backups | Automated |
+| Provisioning | Automated and recoverable |
+| Monitoring | Centralized |
+| Authentication | Secure JWT sessions |
+| Scaling | Horizontal application scaling |
+
+Targets must be validated through production performance and security testing.
+
+---
+
+# 15. DEVELOPMENT ROADMAP
+
+## Phase 1: Foundation
+
+- Next.js public website.
+- Next.js customer dashboard.
+- NestJS backend.
+- PostgreSQL control-plane database.
+- Prisma configuration.
+- NestJS JWT authentication.
+- Common UI system.
+- Customer workspace structure.
+
+## Phase 2: Payment and Provisioning
+
+- Pricing plans.
+- Razorpay checkout.
+- Payment webhook verification.
+- Subscription management.
+- Customer account creation.
+- Database provisioning service.
+- Automatic Prisma migrations.
+- Workspace activation.
+- Welcome email.
+- Provisioning failure recovery.
+
+## Phase 3: Customer Isolation
+
+- Database registry.
+- Secure database connection manager.
+- Secret management.
+- Customer workspace authorization.
+- Database connection pooling.
+- Customer-specific migrations.
+- Isolation and security testing.
+
+## Phase 4: WhatsApp Integration
+
+- Meta Developer App setup.
+- WhatsApp Embedded Signup.
+- Customer WhatsApp authorization.
+- Webhooks.
+- Message sending.
+- Message receiving.
+- Delivery tracking.
+- Template synchronization.
+
+## Phase 5: Core Modules
+
+- Contact management.
+- Campaign management.
+- Template management.
+- Live Inbox.
+- Team management.
+- Analytics.
+
+## Phase 6: Automation and AI
+
+- Redis configuration.
+- BullMQ workers.
+- Scheduled messaging.
+- Follow-up automation.
+- Chatbot builder.
+- Retry handling.
+- OpenAI integration.
+- AI knowledge base.
+
+## Phase 7: Subscription Enforcement
+
+- Plan limits.
+- Usage tracking.
+- Subscription expiry.
+- Renewal handling.
+- Upgrade and downgrade.
+- Grace periods.
+- Cancellation.
+- Data export and retention.
+
+## Phase 8: Production Launch
+
+- Security testing.
+- Payment testing.
+- Provisioning testing.
+- Database isolation testing.
+- API testing.
+- Performance testing.
+- Backup and restore testing.
+- Deployment.
+- Monitoring.
+- Production readiness review.
+
+---
+
+# 16. ACCEPTANCE CRITERIA
+
+The product will be accepted when:
+
+1. Customers can visit the company landing page.
+2. Customers can view subscription plans.
+3. Customers can complete payment.
+4. Backend verifies payment before granting access.
+5. Customer accounts are created automatically.
+6. Each customer receives a separate PostgreSQL database.
+7. Each database receives the correct schema migrations.
+8. Customer credentials and sessions are securely managed.
+9. Customers receive their workspace access instructions.
+10. All customers use the same company branding and application UI.
+11. No source code is handed over to customers.
+12. No separate frontend or backend deployment is required per customer.
+13. Customers can connect their own WhatsApp Business accounts.
+14. WhatsApp credentials remain isolated and protected.
+15. Contacts and message histories remain isolated.
+16. Campaigns work correctly.
+17. Incoming and outgoing messages work correctly.
+18. Chatbot automation works correctly.
+19. Analytics display accurate customer-specific results.
+20. Subscription limits are enforced on the backend.
+21. Subscription expiry and renewal work correctly.
+22. Provisioning failures can be recovered safely.
+23. Backups and recovery procedures are tested.
+24. No n8n dependency exists.
+25. No customer-facing Super Admin Panel exists.
+
+---
+
+# 17. FINAL PRODUCT DEFINITION
+
+The final product is a centrally managed, subscription-based WhatsApp Automation SaaS platform.
+
+Our company owns and manages the source code, application, hosting infrastructure, backend, database infrastructure, security, maintenance, and software updates.
+
+Customers purchase access through our public website. After verified payment, the system automatically creates their account, provisions a separate PostgreSQL database, initializes their workspace, and delivers login instructions.
+
+Each customer uses the same application and company branding but has independently isolated business data, users, WhatsApp credentials, subscription, and workspace.
+
+**Final Architecture:**
+
+One Company → One Codebase → One Central Application → Automated Payment Verification → Automatic Customer Provisioning → Separate PostgreSQL Database Per Customer → Independent Whats
