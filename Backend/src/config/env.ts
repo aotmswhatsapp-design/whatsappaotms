@@ -9,11 +9,17 @@ export const envSchema = z.object({
     .enum(["development", "test", "production"])
     .default("development"),
   /**
-   * Deliberately not `PORT`: on Windows environment keys are case-insensitive,
-   * so a stray lowercase `port=5432` in .env would shadow it and the API would
-   * try to bind the database port.
+   * Deliberately not `PORT` on its own: on Windows environment keys are
+   * case-insensitive, so a stray lowercase `port=5432` in .env would shadow
+   * `PORT` and the API would try to bind the database port. APP_PORT therefore
+   * wins when it is set, and `PORT` is only the fallback.
    */
-  APP_PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
+  APP_PORT: z.coerce.number().int().min(1).max(65_535).optional(),
+  /**
+   * Injected by hosting platforms (Render sets this on every web service).
+   * Ignored whenever APP_PORT is present, so a local .env keeps control.
+   */
+  PORT: z.coerce.number().int().min(1).max(65_535).optional(),
   SUPABASE_URL: z.string().url(),
   SUPABASE_JWT_SECRET: z
     .string()
@@ -44,6 +50,18 @@ export function validateEnv(config: Record<string, unknown>): Env {
   }
 
   return parsed.data;
+}
+
+/**
+ * Explicit config wins over the platform's injected `PORT`, which in turn wins
+ * over the development default. Without the middle step a deploy binds 4000
+ * while the platform routes to `$PORT`, and every request 502s.
+ */
+export function resolvePort(
+  appPort: number | undefined,
+  platformPort: number | undefined,
+): number {
+  return appPort ?? platformPort ?? 4000;
 }
 
 export function parseOrigins(raw: string | undefined): string[] {
