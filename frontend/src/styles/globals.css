@@ -1,0 +1,149 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  --background: #ffffff;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f7fa;
+  --secondary-foreground: #111111;
+  --muted: #f5f7fa;
+  --muted-foreground: #6d7480;
+  --accent: #f3f5f8;
+  --accent-foreground: #111111;
+  --destructive: #dc2626;
+  --border: #e3e7ec;
+  --input: #e3e7ec;
+  --ring: #ea580c;
+
+  /* Brand accents: orange (primary accent), blue, yellow-green */
+  --brand: #ea580c;
+  --brand-soft: #ffedd5;
+  --blue: #2563eb;
+  --blue-soft: #dbeafe;
+  --lime: #65a30d;
+  --lime-soft: #ecfccb;
+}
+
+.dark {
+  --background: #0b0b0c;
+  --foreground: #f6f3ec;
+  --card: #141416;
+  --card-foreground: #f6f3ec;
+  --popover: #141416;
+  --popover-foreground: #f6f3ec;
+  --primary: #f6f3ec;
+  --primary-foreground: #111111;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #f6f3ec;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa;
+  --accent: #232327;
+  --accent-foreground: #f6f3ec;
+  --destructive: #ef4444;
+  --border: #2a2a2f;
+  --input: #2a2a2f;
+  --ring: #f97316;
+
+  --brand: #fb923c;
+  --brand-soft: #431407;
+  --blue: #60a5fa;
+  --blue-soft: #172554;
+  --lime: #a3e635;
+  --lime-soft: #1a2e05;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-blue: var(--blue);
+  --color-blue-soft: var(--blue-soft);
+  --color-lime: var(--lime);
+  --color-lime-soft: var(--lime-soft);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+}
+
+/**
+ * Film grain for the coloured sheets (hero, footer). A fractal-noise SVG tile
+ * costs nothing to download and keeps large flat fills from banding.
+ */
+@utility sheet-grain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+
+  ::selection {
+    background-color: var(--brand-soft);
+    color: var(--foreground);
+  }
+}

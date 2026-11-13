@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Company logo">
+  <rect width="32" height="32" rx="9" fill="#ea580c" />
+  <path
+    d="M9 11.5h14a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 23 21.5H14.8l-3.6 3.1a.9.9 0 0 1-1.5-.68V21.5H9A1.5 1.5 0 0 1 7.5 20v-7A1.5 1.5 0 0 1 9 11.5Z"
+    fill="#ffffff"
+  />
+  <circle cx="12.5" cy="16.2" r="1.35" fill="#ea580c" />
+  <circle cx="16.5" cy="16.2" r="1.35" fill="#ea580c" />
+  <circle cx="20.5" cy="16.2" r="1.35" fill="#65a30d" />
+</svg>
