@@ -3,42 +3,20 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Book, Menu, Sunset, Trees, Zap } from "lucide-react";
-import { motion } from "motion/react";
+import { usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Button } from "@/components/ui/button";
-import {
-  NavigationMenu,
-  NavigationMenuContent,
-  NavigationMenuItem,
-  NavigationMenuList,
-  NavigationMenuTrigger,
-} from "@/components/ui/navigation-menu";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { useOriginFill } from "@/components/ui/use-origin-fill";
+import { UserMenu } from "@/components/account/user-menu";
+import { CtaLink } from "@/components/marketing/cta-link";
 import { site } from "@/config/site";
 import type { SessionUser } from "@/lib/auth/types";
 import { cn } from "@/lib/utils";
-import { UserMenu } from "@/components/account/user-menu";
+
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 interface MenuItem {
   title: string;
   url: string;
-  description?: string;
-  icon?: React.ReactNode;
-  items?: MenuItem[];
 }
 
 interface NavbarProps {
@@ -46,56 +24,30 @@ interface NavbarProps {
     url: string;
     src: string;
     alt: string;
-    title: string;
+    title?: string;
   };
   menu?: MenuItem[];
-  mobileExtraLinks?: {
-    name: string;
-    url: string;
-  }[];
   auth?: {
-    login: {
-      text: string;
-      url: string;
-    };
-    signup: {
-      text: string;
-      url: string;
-    };
+    login: { text: string; url: string };
+    signup: { text: string; url: string };
   };
   /**
    * Signed-in user, resolved by the layout inside a Suspense boundary. `null`
-   * or omitted renders the Log in / Get started pair instead.
+   * or omitted renders the Log in / Start a plan pair instead.
    */
   user?: SessionUser | null;
 }
 
-/**
- * logo.png is a wide lockup (720x183) in navy, so on the orange sheet it sits
- * on a small white plate — the same treatment the login screen uses, and the
- * only way the mark keeps any contrast here.
- */
-const BrandLogo = ({ logo }: { logo: NonNullable<NavbarProps["logo"]> }) => (
-  <Link
-    href={logo.url}
-    className="group flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#a2681c]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf7ef]"
-  >
-    <Image
-      src={logo.src}
-      alt={logo.alt}
-      width={site.logo.width}
-      height={site.logo.height}
-      priority
-      className="h-9 w-auto transition-transform duration-200 group-hover:-translate-y-0.5 sm:h-10"
-    />
-    {logo.title ? (
-      <span className="text-lg font-semibold tracking-tight text-[#1e1811]">
-        {logo.title}
-      </span>
-    ) : null}
-  </Link>
-);
+const itemBase =
+  "title-4 rounded-lg px-3 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none";
 
+/**
+ * Full width navigation that sits flush against the top edge on a plain
+ * surface, separated from the page by a single hairline. The bar is the page
+ * grid, not a floating object, so it lines up with every section below it.
+ * Below the large breakpoint it collapses into a full height panel whose links
+ * arrive one after another.
+ */
 const Navbar = ({
   logo = {
     url: "/",
@@ -104,349 +56,264 @@ const Navbar = ({
     title: site.name,
   },
   menu = [
-    {
-      title: "Product",
-      url: "#",
-      items: [
-        {
-          title: "Campaigns",
-          description: "Approved templates to segmented contact lists",
-          icon: <Zap className="size-5 shrink-0 text-brand" />,
-          url: "/features",
-        },
-        {
-          title: "Shared inbox",
-          description: "One place for every customer conversation",
-          icon: <Book className="size-5 shrink-0 text-blue" />,
-          url: "/features",
-        },
-        {
-          title: "Chatbots",
-          description: "Answer routine questions around the clock",
-          icon: <Trees className="size-5 shrink-0 text-lime" />,
-          url: "/features",
-        },
-        {
-          title: "Analytics",
-          description: "Delivery, read rates, and campaign performance",
-          icon: <Sunset className="size-5 shrink-0 text-brand" />,
-          url: "/features",
-        },
-      ],
-    },
+    { title: "Features", url: site.links.features },
     { title: "How it works", url: "/how-it-works" },
-    { title: "Pricing", url: "/pricing" },
-    { title: "Contact", url: "/contact" },
-  ],
-  mobileExtraLinks = [
-    { name: "Features", url: "/features" },
-    { name: "FAQ", url: "/faq" },
-    { name: "Privacy", url: site.links.privacy },
-    { name: "Terms", url: site.links.terms },
+    { title: "Pricing", url: site.links.pricing },
+    { title: "FAQ", url: "/faq" },
   ],
   auth = {
     login: { text: "Log in", url: site.links.login },
-    signup: { text: "Get started", url: site.links.pricing },
+    signup: { text: "Start a plan", url: site.links.pricing },
   },
   user = null,
 }: NavbarProps) => {
-  const [isScrolled, setIsScrolled] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [scrolled, setScrolled] = React.useState(false);
+  const pathname = usePathname();
 
+  // Transparent over the top of the page, then a solid bar once the reader
+  // moves. The first read runs in a frame callback so the effect never sets
+  // state synchronously.
   React.useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10);
-    };
+    const sync = () => setScrolled(window.scrollY > 8);
+    const frame = requestAnimationFrame(sync);
+    window.addEventListener("scroll", sync, { passive: true });
 
-    handleScroll();
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", sync);
+    };
   }, []);
 
-  const authActions = user ? (
-    <UserMenu user={user} />
-  ) : (
-    <>
-      <Button
-        asChild
-        variant="ghost"
-        size="lg"
-        className="text-[#5c5143] hover:bg-[#1e1811]/[0.06] hover:text-[#1e1811]"
-      >
-        <Link href={auth.login.url}>{auth.login.text}</Link>
-      </Button>
-      <Button
-        asChild
-        size="lg"
-        className="bg-[#1e1811] text-[#fbf7ef] shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_10px_24px_-14px_rgb(30_24_17/0.6)] hover:-translate-y-0.5 hover:bg-[#ea580c] hover:text-white hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_10px_24px_-14px_rgb(234_88_12/0.65)]"
-      >
-        <Link href={auth.signup.url}>{auth.signup.text}</Link>
-      </Button>
-    </>
-  );
+  React.useEffect(() => {
+    if (!open) return;
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // No backdrop-filter on the wrapper: it would become the containing block
+  // for the fixed mobile panel below and trap it inside the bar.
   return (
-    <header
+    <div
       className={cn(
-        "sticky top-0 z-50 text-[#1e1811] transition-all duration-300",
-        isScrolled
-          ? "border-b border-[#e6d8c1]/80 bg-[#fbf7ef]/85 shadow-xs backdrop-blur-xl"
-          : "border-b border-transparent bg-transparent",
+        "sticky top-0 z-50 border-b transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        scrolled
+          ? "border-border bg-background"
+          : "border-transparent bg-transparent",
       )}
     >
-      <div className="mx-auto w-full max-w-7xl px-5 lg:px-8">
-        {/*
-          Three tracks keep the menu optically centred in the viewport: the
-          logo and the auth actions take equal 1fr rails, so the middle track
-          lands on the true centre instead of in the leftover space.
-        */}
-        <nav className="hidden h-18 items-center lg:grid lg:grid-cols-[1fr_auto_1fr]">
-          <div className="flex items-center">
-            <BrandLogo logo={logo} />
-          </div>
-          <div className="flex justify-center">
-            <NavigationMenu>
-              <NavigationMenuList>
-                {menu.map((item) => (
-                  <DesktopNavItem item={item} key={item.title} />
-                ))}
-              </NavigationMenuList>
-            </NavigationMenu>
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            {authActions}
-          </div>
+      <header className="mx-auto flex h-18 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        <Link
+          href={logo.url}
+          className="rounded-md focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          <Image
+            src={logo.src}
+            alt={logo.alt}
+            width={site.logo.width}
+            height={site.logo.height}
+            sizes="142px"
+            priority
+            className="h-9 w-auto"
+          />
+        </Link>
+
+        <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
+          {menu.map((item) => {
+            const current = pathname === item.url;
+            return (
+              <Link
+                key={item.url}
+                href={item.url}
+                aria-current={current ? "page" : undefined}
+                className={cn(
+                  itemBase,
+                  current
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
+              >
+                {item.title}
+              </Link>
+            );
+          })}
         </nav>
 
-        <div className="block lg:hidden">
-          <div className="flex h-18 items-center justify-between">
-            <BrandLogo logo={logo} />
-            <div className="flex items-center gap-2">
-              {user ? <UserMenu user={user} /> : null}
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Open menu"
-                    className="border-[#e2d3ba] bg-[#fffdf8]/80 text-[#1e1811] hover:bg-[#f5ead6]"
-                  >
-                    <Menu className="size-4" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent className="overflow-y-auto">
-                  <SheetHeader>
-                    <SheetTitle>
-                      <Image
-                        src={logo.src}
-                        alt={logo.alt}
-                        width={site.logo.width}
-                        height={site.logo.height}
-                        className="h-7 w-auto"
-                      />
-                    </SheetTitle>
-                  </SheetHeader>
-                  <div className="flex flex-col gap-6 px-4 pb-4">
-                    <Accordion
-                      type="single"
-                      collapsible
-                      className="flex w-full flex-col gap-4"
-                    >
-                      {menu.map((item) => renderMobileMenuItem(item))}
-                    </Accordion>
-                    <div className="border-t border-border pt-4">
-                      <div className="grid grid-cols-2 justify-start gap-1">
-                        {mobileExtraLinks.map((link) => (
-                          <Link
-                            key={link.name}
-                            href={link.url}
-                            className="inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent hover:text-accent-foreground"
-                          >
-                            {link.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                    {user ? null : (
-                      <div className="flex flex-col gap-3">
-                        <Button asChild variant="outline">
-                          <Link href={auth.login.url}>{auth.login.text}</Link>
-                        </Button>
-                        <Button asChild variant="brand">
-                          <Link href={auth.signup.url}>
-                            {auth.signup.text}
-                          </Link>
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </SheetContent>
-              </Sheet>
-            </div>
-          </div>
+        <div className="hidden items-center gap-2 lg:flex">
+          {user ? (
+            <UserMenu user={user} tone="plain" />
+          ) : (
+            <>
+              <Link
+                href={auth.login.url}
+                className={cn(
+                  itemBase,
+                  "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {auth.login.text}
+              </Link>
+              <CtaLink href={auth.signup.url} size="sm">
+                {auth.signup.text}
+              </CtaLink>
+            </>
+          )}
         </div>
-      </div>
-    </header>
+
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open menu"
+          aria-expanded={open}
+          className="-mr-2 inline-flex size-11 items-center justify-center rounded-lg text-foreground transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-secondary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none lg:hidden"
+        >
+          <ToggleGlyph open={false} />
+        </button>
+      </header>
+
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            key="mobile-panel"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.4, ease: EASE }}
+            className="fixed inset-0 z-50 flex flex-col bg-background lg:hidden"
+          >
+            <div className="flex h-18 items-center justify-between border-b border-border px-4 sm:px-6">
+              <Link
+                href={logo.url}
+                onClick={() => setOpen(false)}
+                className="rounded-md focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                <Image
+                  src={logo.src}
+                  alt={logo.alt}
+                  width={site.logo.width}
+                  height={site.logo.height}
+                  sizes="142px"
+                  loading="eager"
+                  className="h-9 w-auto"
+                />
+              </Link>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Close menu"
+                className="inline-flex size-11 items-center justify-center rounded-lg text-foreground transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-secondary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                <ToggleGlyph open />
+              </button>
+            </div>
+
+            <motion.nav
+              aria-label="Main"
+              initial="closed"
+              animate="open"
+              variants={{ closed: {}, open: {} }}
+              className="flex flex-col gap-2 px-4 pt-8 sm:px-6"
+            >
+              {menu.map((item, index) => (
+                <motion.div
+                  key={item.url}
+                  variants={{
+                    closed: { opacity: 0, y: 24 },
+                    open: {
+                      opacity: 1,
+                      y: 0,
+                      // 60ms per link keeps the whole sequence under 400ms.
+                      transition: { duration: 0.5, delay: index * 0.06, ease: EASE },
+                    },
+                  }}
+                >
+                  <Link
+                    href={item.url}
+                    onClick={() => setOpen(false)}
+                    aria-current={pathname === item.url ? "page" : undefined}
+                    className={cn(
+                      "heading-4 block rounded-lg px-2 py-3 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                      pathname === item.url
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {item.title}
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.nav>
+
+            <div className="mt-auto flex flex-col gap-2 px-4 pt-8 pb-8 sm:px-6">
+              {user ? (
+                <div className="flex items-center justify-between gap-4">
+                  <span className="body-5 text-muted-foreground">
+                    {user.name ?? user.email}
+                  </span>
+                  <UserMenu user={user} tone="plain" />
+                </div>
+              ) : (
+                <>
+                  <CtaLink
+                    href={auth.signup.url}
+                    className="w-full"
+                    size="sm"
+                  >
+                    {auth.signup.text}
+                  </CtaLink>
+                  <Link
+                    href={auth.login.url}
+                    className="button-sm rounded-lg px-3 py-2 text-center text-muted-foreground transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+                  >
+                    {auth.login.text}
+                  </Link>
+                </>
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
   );
 };
-
-const FILL_DURATION = 0.4;
-const FILL_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 /**
- * Warm gold/amber origin-fill circle that grows from the pointer on hover.
+ * Two lines that rotate into a cross. Only `transform` changes, so the swap
+ * runs on the base curve instead of snapping between two icons.
  */
-const OriginFillLayer = ({
-  active,
-  coverSize,
-  origin,
-}: {
-  active: boolean;
-  coverSize: number;
-  origin: { x: number; y: number };
-}) => (
-  <motion.span
-    animate={{ scale: active && coverSize > 0 ? 1 : 0 }}
-    aria-hidden="true"
-    className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,#f8dca8_0%,#e8b366_58%,#c98d34_100%)]"
-    initial={false}
-    style={{
-      height: coverSize,
-      left: origin.x,
-      top: origin.y,
-      width: coverSize,
-    }}
-    transition={{ duration: FILL_DURATION, ease: FILL_EASE }}
-  />
-);
-
-const desktopItemBase =
-  "relative isolate inline-flex h-9 items-center justify-center overflow-hidden rounded-lg px-3.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a2681c]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf7ef]";
-
-const desktopItemIdle =
-  "text-[#5c5143] hover:text-[#1e1811] focus:text-[#1e1811] data-[state=open]:text-[#1e1811]";
-const desktopItemFilled =
-  "text-[#1e1811] hover:text-[#1e1811] focus:text-[#1e1811] data-[state=open]:text-[#1e1811]";
-
-const DesktopNavItem = ({ item }: { item: MenuItem }) =>
-  item.items ? (
-    <DesktopNavTrigger item={item} />
-  ) : (
-    <DesktopNavLink item={item} />
-  );
-
-const DesktopNavLink = ({ item }: { item: MenuItem }) => {
-  const { active, coverSize, origin, setNode } = useOriginFill({ hover: true });
+function ToggleGlyph({ open }: { open: boolean }) {
+  const line =
+    "absolute left-0 h-0.5 w-5 rounded-full bg-current transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]";
 
   return (
-    <NavigationMenuItem>
-      <Link
+    <span aria-hidden="true" className="relative block h-4 w-5">
+      <span
         className={cn(
-          desktopItemBase,
-          active ? desktopItemFilled : desktopItemIdle,
+          line,
+          "top-0",
+          open ? "translate-y-2 rotate-45" : "translate-y-0 rotate-0",
         )}
-        href={item.url}
-        ref={setNode}
-      >
-        <OriginFillLayer
-          active={active}
-          coverSize={coverSize}
-          origin={origin}
-        />
-        <span className="relative z-10">{item.title}</span>
-      </Link>
-    </NavigationMenuItem>
-  );
-};
-
-const DesktopNavTrigger = ({ item }: { item: MenuItem }) => {
-  const { active, coverSize, origin, setNode } = useOriginFill({ hover: true });
-
-  return (
-    <NavigationMenuItem>
-      <NavigationMenuTrigger
+      />
+      <span
         className={cn(
-          desktopItemBase,
-          "hover:bg-transparent focus:bg-transparent data-[state=open]:bg-[#1e1811]/[0.06]",
-          active ? desktopItemFilled : desktopItemIdle,
+          line,
+          "bottom-0",
+          open ? "-translate-y-2 -rotate-45" : "translate-y-0 rotate-0",
         )}
-        ref={setNode}
-      >
-        <OriginFillLayer
-          active={active}
-          coverSize={coverSize}
-          origin={origin}
-        />
-        <span className="relative z-10">{item.title}</span>
-      </NavigationMenuTrigger>
-      <NavigationMenuContent>
-        <ul className="w-80 space-y-1 p-2">
-          {item.items?.map((subItem) => (
-            <li key={subItem.title}>
-              <Link
-                href={subItem.url}
-                className="flex select-none gap-3 rounded-lg p-3 leading-none text-foreground outline-none transition-all duration-200 hover:translate-x-0.5 hover:bg-accent"
-              >
-                {subItem.icon}
-                <div>
-                  <div className="text-sm font-semibold">{subItem.title}</div>
-                  {subItem.description ? (
-                    <p className="mt-1 text-sm leading-snug text-muted-foreground">
-                      {subItem.description}
-                    </p>
-                  ) : null}
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </NavigationMenuContent>
-    </NavigationMenuItem>
+      />
+    </span>
   );
-};
-
-const renderMobileMenuItem = (item: MenuItem) => {
-  if (item.items) {
-    return (
-      <AccordionItem
-        key={item.title}
-        value={item.title}
-        className="border-b-0"
-      >
-        <AccordionTrigger className="py-0 font-semibold hover:no-underline">
-          {item.title}
-        </AccordionTrigger>
-        <AccordionContent className="mt-2 pb-0">
-          {item.items.map((subItem) => (
-            <Link
-              key={subItem.title}
-              href={subItem.url}
-              className="flex select-none gap-3 rounded-md p-3 leading-none outline-none transition-all duration-200 hover:translate-x-0.5 hover:bg-accent"
-            >
-              {subItem.icon}
-              <div>
-                <div className="text-sm font-semibold">{subItem.title}</div>
-                {subItem.description ? (
-                  <p className="mt-1 text-sm leading-snug text-muted-foreground">
-                    {subItem.description}
-                  </p>
-                ) : null}
-              </div>
-            </Link>
-          ))}
-        </AccordionContent>
-      </AccordionItem>
-    );
-  }
-
-  return (
-    <Link
-      key={item.title}
-      href={item.url}
-      className="rounded-md py-1 font-semibold transition-colors duration-200 hover:text-brand"
-    >
-      {item.title}
-    </Link>
-  );
-};
+}
 
 export { Navbar };

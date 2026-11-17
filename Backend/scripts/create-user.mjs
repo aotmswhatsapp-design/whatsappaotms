@@ -41,7 +41,10 @@ function serviceRoleJwt(secret) {
 }
 
 async function createViaAdminApi(email, password, metadata) {
+  // The new sb_secret_… key replaces the legacy service_role JWT; both are
+  // accepted, and a minted JWT stays as the last resort.
   const serviceKey =
+    env.SUPABASE_SECRET_KEY ||
     env.SUPABASE_SERVICE_ROLE_KEY ||
     (env.SUPABASE_JWT_SECRET ? serviceRoleJwt(env.SUPABASE_JWT_SECRET) : null);
 

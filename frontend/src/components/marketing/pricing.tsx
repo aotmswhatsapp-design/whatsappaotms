@@ -1,15 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "motion/react";
-import NumberFlow from "@number-flow/react";
-import confetti from "canvas-confetti";
-import { Check, Star } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle } from "@phosphor-icons/react";
 
-import { buttonVariants } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { CtaLink } from "@/components/marketing/cta-link";
 import { cn } from "@/lib/utils";
 
 export interface PricingPlan {
@@ -31,175 +25,133 @@ interface PricingProps {
 }
 
 /**
- * Billing toggle. Monthly by default; annual is charged yearly at 20% off, so
- * `yearlyPrice` is the monthly-equivalent figure — not the annual total.
+ * `yearlyPrice` is the monthly equivalent when billed annually, not the annual
+ * total, so both figures render as `₹x / month`.
  */
-const CONFETTI_COLORS = ["#ea580c", "#2563eb", "#65a30d", "#111111"];
+const formatPrice = (value: string) => Number(value).toLocaleString("en-IN");
 
 export function Pricing({
   plans,
   title = "Simple, transparent pricing",
-  description = "Every plan includes a dedicated database, the shared inbox and WhatsApp Cloud API access.\nPrices are in INR and exclude 18% GST.",
+  description = "Every plan includes the shared inbox, campaigns, chatbot flows and analytics. Change plan whenever you need more room.",
 }: PricingProps) {
-  const [isMonthly, setIsMonthly] = React.useState(true);
-  const toggleRef = React.useRef<HTMLSpanElement>(null);
-
-  const handleToggle = (checked: boolean) => {
-    setIsMonthly(!checked);
-
-    const node = toggleRef.current;
-    if (!checked || !node) return;
-
-    const rect = node.getBoundingClientRect();
-    confetti({
-      particleCount: 50,
-      spread: 60,
-      origin: {
-        x: (rect.left + rect.width / 2) / window.innerWidth,
-        y: (rect.top + rect.height / 2) / window.innerHeight,
-      },
-      colors: CONFETTI_COLORS,
-      ticks: 200,
-      gravity: 1.2,
-      decay: 0.94,
-      startVelocity: 30,
-      shapes: ["circle"],
-    });
-  };
+  const [annual, setAnnual] = React.useState(false);
 
   return (
-    <section id="plans" className="mx-auto w-full max-w-7xl px-5 py-20 lg:px-8">
-      <div className="mx-auto max-w-2xl space-y-4 text-center">
-        <p className="text-xs font-semibold tracking-[0.14em] text-brand uppercase">
-          Pricing
-        </p>
-        <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-          {title}
-        </h2>
-        <p className="whitespace-pre-line text-lg leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
+    <section id="plans" className="scroll-mt-24 border-b border-border">
+      <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
+        <div className="mx-auto max-w-[680px] text-center">
+          <p className="caption-3 text-brand">Plans</p>
+          <h2 className="heading-2 mt-4">{title}</h2>
+          <p className="body-2 mt-6 text-muted-foreground">{description}</p>
+        </div>
 
-      <div className="mt-10 mb-12 flex items-center justify-center gap-3">
-        <Label
-          htmlFor="billing-cycle"
-          className={cn(
-            "text-sm transition-colors",
-            isMonthly ? "text-foreground" : "text-muted-foreground"
-          )}
-        >
-          Monthly
-        </Label>
-        <span ref={toggleRef}>
-          <Switch
-            id="billing-cycle"
-            checked={!isMonthly}
-            onCheckedChange={handleToggle}
-            aria-label="Bill annually instead of monthly"
-          />
-        </span>
-        <Label
-          htmlFor="billing-cycle"
-          className={cn(
-            "text-sm transition-colors",
-            isMonthly ? "text-muted-foreground" : "text-foreground"
-          )}
-        >
-          Annual <span className="font-semibold text-brand">(save 20%)</span>
-        </Label>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        {plans.map((plan, index) => (
-          <motion.div
-            key={plan.name}
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-60px" }}
-            transition={{
-              duration: 0.55,
-              delay: index * 0.1,
-              ease: [0.16, 1, 0.3, 1],
-            }}
-            className={cn(
-              "relative flex flex-col rounded-2xl border bg-background p-6 text-center",
-              plan.isPopular
-                ? "border-2 border-brand md:-mt-5 md:pb-8"
-                : "border-border"
-            )}
+        <div className="mt-8 flex justify-center">
+          <div
+            role="group"
+            aria-label="Billing cycle"
+            className="inline-flex rounded-full border border-border bg-secondary p-1"
           >
-            {plan.isPopular && (
-              <div className="absolute top-0 right-0 flex items-center gap-1 rounded-bl-xl rounded-tr-xl bg-brand px-2.5 py-1">
-                <Star className="size-3.5 fill-current text-white" />
-                <span className="text-xs font-semibold text-white">Popular</span>
-              </div>
-            )}
+            <button
+              type="button"
+              aria-pressed={!annual}
+              onClick={() => setAnnual(false)}
+              className={cn(
+                "button-sm rounded-full px-3 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none",
+                annual
+                  ? "text-muted-foreground hover:text-foreground"
+                  : "bg-background text-foreground shadow-sm",
+              )}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              aria-pressed={annual}
+              onClick={() => setAnnual(true)}
+              className={cn(
+                "button-sm rounded-full px-3 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none",
+                annual
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Annual
+              <span className="ml-1 text-blue">save 20%</span>
+            </button>
+          </div>
+        </div>
 
-            <div className="flex flex-1 flex-col">
-              <p className="text-sm font-semibold text-muted-foreground">
-                {plan.name}
+        <div className="mt-12 grid gap-4 lg:grid-cols-3">
+          {plans.map((plan) => (
+            <article
+              key={plan.name}
+              className={cn(
+                "flex flex-col rounded-2xl border bg-card p-6",
+                plan.isPopular ? "border-brand" : "border-border",
+              )}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="title-1">{plan.name}</h3>
+                {plan.isPopular ? (
+                  <span className="caption-3 rounded-full bg-brand-soft px-2 py-1 text-brand">
+                    Popular
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="body-5 mt-2 text-muted-foreground">
+                {plan.description}
               </p>
 
-              <div className="mt-6 flex items-center justify-center gap-x-1.5">
-                <span className="text-5xl font-bold tracking-tight text-foreground tabular-nums">
-                  <NumberFlow
-                    value={
-                      isMonthly ? Number(plan.price) : Number(plan.yearlyPrice)
-                    }
-                    locales="en-IN"
-                    format={{
-                      style: "currency",
-                      currency: "INR",
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 0,
-                    }}
-                    transformTiming={{ duration: 500, easing: "ease-out" }}
-                    willChange
-                  />
-                </span>
-                <span className="text-sm font-semibold leading-6 tracking-wide text-muted-foreground">
+              <p className="heading-3 mt-6 tabular-nums">
+                ₹{formatPrice(annual ? plan.yearlyPrice : plan.price)}
+                <span className="body-6 text-muted-foreground">
+                  {" "}
                   / {plan.period}
                 </span>
-              </div>
-
-              <p className="text-xs leading-5 text-muted-foreground">
-                {isMonthly ? "billed monthly" : "billed annually"}
+              </p>
+              <p className="caption-5 mt-1 text-muted-foreground">
+                {annual ? "billed annually" : "billed monthly"}
               </p>
 
-              <ul className="mt-6 flex flex-col gap-2.5">
+              <ul className="mt-6 flex flex-col gap-3">
                 {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2">
-                    <Check className="mt-0.5 size-4 shrink-0 text-brand" />
-                    <span className="text-left text-sm leading-relaxed">
-                      {feature}
-                    </span>
+                  <li key={feature} className="flex gap-2">
+                    <CheckCircle
+                      className="mt-0.5 size-4 shrink-0 text-brand"
+                      weight="fill"
+                      aria-hidden="true"
+                    />
+                    <span className="body-5">{feature}</span>
                   </li>
                 ))}
               </ul>
 
-              {/* `mt-auto` pins the divider, CTA and footnote to the bottom of
-                  every card so the buttons line up across a row. */}
-              <hr className="mt-auto mb-5 w-full border-border" />
+              {/* `mt-auto` keeps every button on the same line across the row
+                  even when the feature lists differ in length. */}
+              <div className="mt-auto pt-8">
+                <CtaLink
+                  href={plan.href}
+                  variant={plan.isPopular ? "brand" : "outline"}
+                  className="w-full"
+                >
+                  {plan.buttonText}
+                </CtaLink>
+              </div>
+            </article>
+          ))}
+        </div>
 
-              <Link
-                href={plan.href}
-                className={cn(
-                  buttonVariants({
-                    variant: plan.isPopular ? "brand" : "outline",
-                  }),
-                  "w-full"
-                )}
-              >
-                {plan.buttonText}
-              </Link>
-
-              <p className="mt-5 text-xs leading-5 text-muted-foreground">
-                {plan.description}
-              </p>
-            </div>
-          </motion.div>
-        ))}
+        <div className="mt-8">
+          <p className="caption-2 text-center text-muted-foreground">
+            Prices are in INR and exclude 18% GST. The one time setup fee is
+            billed once, with your first invoice.
+          </p>
+          <p className="caption-2 mt-2 text-center text-muted-foreground">
+            Billed monthly. No annual lock in unless you choose it.
+          </p>
+        </div>
       </div>
     </section>
   );

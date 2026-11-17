@@ -7,6 +7,7 @@ import {
 import { ConfigService } from "@nestjs/config";
 import {
   createRemoteJWKSet,
+  decodeProtectedHeader,
   jwtVerify,
   type JWTVerifyGetKey,
   type JWTPayload,
@@ -42,15 +43,17 @@ export class SupabaseTokenVerifier implements OnModuleInit {
   }
 
   onModuleInit(): void {
-    if (this.secret) {
-      this.logger.log("Access tokens verified with the legacy HS256 secret");
-      return;
-    }
-
+    // Built even when a legacy secret is configured: `verify` decides per
+    // token, and a project that has moved to signing keys still needs this.
     this.jwks = createRemoteJWKSet(
       new URL(`${this.issuer}/.well-known/jwks.json`),
     );
-    this.logger.log("Access tokens verified with the project JWKS");
+
+    this.logger.log(
+      this.secret
+        ? "Access tokens: project JWKS, with the legacy HS256 secret as a fallback"
+        : "Access tokens verified with the project JWKS",
+    );
   }
 
   async verify(token: string): Promise<AuthClaims> {
@@ -63,13 +66,21 @@ export class SupabaseTokenVerifier implements OnModuleInit {
 
     let payload: JWTPayload;
     try {
-      if (this.secret) {
+      // The algorithm the token declares decides the key source, so a leftover
+      // HS256 secret cannot lock out a project that has moved to ES256 signing
+      // keys — which is exactly what the Supabase migration produced.
+      const { alg } = decodeProtectedHeader(token);
+
+      if (alg === "HS256" && this.secret) {
         ({ payload } = await jwtVerify(token, this.secret, {
           ...options,
           algorithms: ["HS256"],
         }));
       } else if (this.jwks) {
-        ({ payload } = await jwtVerify(token, this.jwks, options));
+        ({ payload } = await jwtVerify(token, this.jwks, {
+          ...options,
+          algorithms: ["ES256", "RS256"],
+        }));
       } else {
         throw new Error("No key source configured");
       }

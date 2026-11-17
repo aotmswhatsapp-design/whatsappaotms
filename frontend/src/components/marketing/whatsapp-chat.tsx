@@ -1,12 +1,12 @@
 import {
-  CheckCheck,
-  ChevronLeft,
-  Mic,
+  CaretLeft,
+  Checks,
+  Microphone,
   Paperclip,
   Phone,
-  Smile,
-  Video,
-} from "lucide-react";
+  Smiley,
+  VideoCamera,
+} from "@phosphor-icons/react/dist/ssr";
 
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ function Stamp({ time, sent }: { time: string; sent?: boolean }) {
   return (
     <span className="mt-1 flex items-center justify-end gap-1 text-[9px] text-[#667781]">
       {time}
-      {sent ? <CheckCheck className="size-[11px] text-[#53bdeb]" /> : null}
+      {sent ? <Checks className="size-[11px] text-[#53bdeb]" weight="bold" /> : null}
     </span>
   );
 }
@@ -63,7 +63,7 @@ export function WhatsAppChat() {
         </div>
 
         <div className="flex items-center gap-2 px-2 pb-2.5">
-          <ChevronLeft className="size-4 shrink-0" strokeWidth={2.5} />
+          <CaretLeft className="size-4 shrink-0" weight="bold" />
           <div className="grid size-8 shrink-0 place-items-center rounded-full bg-white/25 text-[12px] font-semibold">
             P
           </div>
@@ -71,7 +71,7 @@ export function WhatsAppChat() {
             <p className="truncate text-[13px] font-semibold">Priya · Support</p>
             <p className="text-[10px] text-white/80">online</p>
           </div>
-          <Video className="size-4 shrink-0" />
+          <VideoCamera className="size-4 shrink-0" />
           <Phone className="size-[15px] shrink-0" />
         </div>
       </header>
@@ -131,11 +131,11 @@ export function WhatsAppChat() {
 
       <div className="shrink-0 bg-[#f0f2f5] px-2 pb-2.5 pt-1.5">
         <div className="flex items-center gap-1.5 rounded-full bg-white px-2.5 py-[7px]">
-          <Smile className="size-[15px] shrink-0 text-[#6b7c85]" />
+          <Smiley className="size-[15px] shrink-0 text-[#6b7c85]" />
           <span className="flex-1 text-[11px] text-[#8696a0]">Message</span>
           <Paperclip className="size-[15px] shrink-0 text-[#6b7c85]" />
           <span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-[#00a884]">
-            <Mic className="size-3 text-white" />
+            <Microphone className="size-3 text-white" />
           </span>
         </div>
       </div>

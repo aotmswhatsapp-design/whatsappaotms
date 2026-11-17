@@ -3,6 +3,15 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 
+const LINK_PROBLEM =
+  "That link has expired or has already been used. Request a fresh one and open it in this browser.";
+
+function sendToLogin(origin: string, message: string) {
+  const url = new URL("/login", origin);
+  url.searchParams.set("error", message);
+  return NextResponse.redirect(url);
+}
+
 /**
  * Single landing point for every Supabase redirect:
  *
@@ -15,6 +24,12 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
+
+  // Supabase reports a rejected link as a query pair rather than an exception,
+  // e.g. `?error=access_denied&error_code=otp_expired`.
+  if (searchParams.has("error") || searchParams.has("error_code")) {
+    return sendToLogin(origin, LINK_PROBLEM);
+  }
 
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
@@ -43,5 +58,5 @@ export async function GET(request: NextRequest) {
   }
 
   // Expired, already-used, or tampered link — the user needs a fresh one.
-  return NextResponse.redirect(new URL("/login", origin));
+  return sendToLogin(origin, LINK_PROBLEM);
 }

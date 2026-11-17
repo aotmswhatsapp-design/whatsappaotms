@@ -6,6 +6,18 @@ import { supabaseConfig } from "@/config/supabase";
 /** Routes that require a session. Everything else is public. */
 const PROTECTED_PREFIXES = ["/workspace"] as const;
 
+/**
+ * Routes that only make sense signed out. /reset-password is absent on purpose:
+ * it needs the temporary recovery session to write the new password.
+ */
+const SIGNED_OUT_ONLY = ["/login", "/signup", "/forgot-password"] as const;
+
+function matches(pathname: string, prefixes: readonly string[]) {
+  return prefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 function redirectWithCookies(
   request: NextRequest,
   response: NextResponse,
@@ -65,15 +77,12 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isProtected = PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
 
-  if (isProtected && !user) {
+  if (matches(pathname, PROTECTED_PREFIXES) && !user) {
     return redirectWithCookies(request, response, "/login", { next: pathname });
   }
 
-  if (pathname === "/login" && user) {
+  if (matches(pathname, SIGNED_OUT_ONLY) && user) {
     return redirectWithCookies(request, response, "/workspace");
   }
 

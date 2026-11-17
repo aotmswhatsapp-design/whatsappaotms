@@ -21,6 +21,11 @@ const brandName = site.name.trim();
  * and "Pricing · ".
  */
 export const metadata: Metadata = {
+  // Social images are relative paths, so they need a base to resolve against.
+  // Set NEXT_PUBLIC_SITE_URL in production; the fallback matches Next's own.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  ),
   title: brandName
     ? {
         default: `${brandName} — Managed WhatsApp automation`,

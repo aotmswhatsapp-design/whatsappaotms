@@ -102,6 +102,226 @@
 }
 
 /**
+ * Named text styles. Every size below is a Tailwind scale step, declared once
+ * here so sections never repeat a loose size and weight pair. The responsive
+ * steps also stay on the scale: the same style simply steps down on small
+ * screens instead of inventing a clamp.
+ */
+@layer components {
+  .heading-1 {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .heading-2 {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .heading-3 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .heading-4 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .heading-5 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .heading-6 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  @media (min-width: 40rem) {
+    .heading-1 {
+      font-size: 3rem;
+      line-height: 1;
+    }
+
+    .heading-2 {
+      font-size: 2.25rem;
+      line-height: 2.5rem;
+    }
+
+    .heading-3 {
+      font-size: 1.875rem;
+      line-height: 2.25rem;
+    }
+
+    .heading-4 {
+      font-size: 1.5rem;
+      line-height: 2rem;
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .heading-1 {
+      font-size: 3.75rem;
+      line-height: 1;
+    }
+
+    .heading-2 {
+      font-size: 3rem;
+      line-height: 1;
+    }
+
+    .heading-3 {
+      font-size: 2.25rem;
+      line-height: 2.5rem;
+    }
+
+    .heading-4 {
+      font-size: 1.875rem;
+      line-height: 2.25rem;
+    }
+  }
+
+  .title-1 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 500;
+  }
+
+  .title-2 {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+    font-weight: 500;
+  }
+
+  .title-3 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 500;
+  }
+
+  .title-4 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+
+  .title-5 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+  }
+
+  .body-1 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+    text-wrap: pretty;
+  }
+
+  .body-2 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 500;
+    text-wrap: pretty;
+  }
+
+  .body-3 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 400;
+    text-wrap: pretty;
+  }
+
+  .body-4 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    text-wrap: pretty;
+  }
+
+  .body-5 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    text-wrap: pretty;
+  }
+
+  .body-6 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+    text-wrap: pretty;
+  }
+
+  .button-lg {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+  }
+
+  .button-md {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+  }
+
+  .button-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+  }
+
+  .button-xsm {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+  }
+
+  .caption-1 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+
+  .caption-2 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+  }
+
+  .caption-3 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+  }
+
+  .caption-4 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+  }
+
+  .caption-5 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 400;
+  }
+}
+
+/**
  * Film grain for the coloured sheets (hero, footer). A fractal-noise SVG tile
  * costs nothing to download and keeps large flat fills from banding.
  */

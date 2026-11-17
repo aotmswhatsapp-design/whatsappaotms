@@ -1,107 +1,60 @@
-"use client";
+import { Reveal } from "@/components/marketing/reveal";
 
-import { motion } from "motion/react";
-import Link from "next/link";
-import {
-  ArrowRight,
-  CheckCheck,
-  CreditCard,
-  DatabaseZap,
-  Send,
-  ShieldCheck,
-} from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { site } from "@/config/site";
-
-const steps = [
+const STEPS = [
   {
-    icon: CreditCard,
-    title: "Pick a plan and pay",
-    body: "Razorpay checkout, GST invoice by email. No sales call, no card on file that you cannot cancel.",
-    meta: "Takes about a minute",
+    title: "Choose a plan",
+    detail:
+      "Pick Starter, Growth or Business. The first month and the one time setup fee are charged together.",
   },
   {
-    icon: DatabaseZap,
-    title: "We provision your workspace",
-    body: "A dedicated PostgreSQL database is created for you and wired up automatically — you never touch a connection string.",
-    meta: "Ready in about 60 seconds",
+    title: "We build the workspace",
+    detail:
+      "Verification, number onboarding, your first templates and your plan limits are set up by our team.",
   },
   {
-    icon: ShieldCheck,
-    title: "Connect WhatsApp officially",
-    body: "Meta's embedded signup links your WhatsApp Business account. Credentials are encrypted at rest and used only on your behalf.",
-    meta: "Official Cloud API",
-  },
-  {
-    icon: Send,
-    title: "Import contacts and launch",
-    body: "Upload a list, submit templates for approval, then send to segments and watch delivery and read rates land live.",
-    meta: "Campaigns, inbox, chatbots",
+    title: "Send your first campaign",
+    detail:
+      "Import contacts, pick an approved template and send. Your two onboarding calls cover the first campaign.",
   },
 ];
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="mx-auto w-full max-w-7xl px-5 py-20 lg:px-8">
-      <div className="max-w-2xl">
-        <p className="text-xs font-semibold tracking-[0.14em] text-brand uppercase">
-          How it works
-        </p>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-          From payment to your first campaign, in one sitting
-        </h2>
-        <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-          There is nothing to install and no infrastructure to run. You pay, we
-          build your workspace, and you start messaging.
-        </p>
-      </div>
+    <section
+      id="how-it-works"
+      className="scroll-mt-24 border-b border-border bg-secondary"
+    >
+      <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
+        <Reveal>
+          <p className="caption-3 text-brand">How it works</p>
+          <h2 className="heading-2 mt-4 max-w-[680px]">
+            From payment to first campaign, in three steps
+          </h2>
+        </Reveal>
 
-      <ol className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {steps.map((step, index) => {
-          const Icon = step.icon;
+        <ol className="mt-12 grid gap-8 md:grid-cols-3 md:gap-4">
+          {STEPS.map((step, index) => (
+            <li key={step.title} className="h-full">
+              <Reveal className="h-full" delay={index * 0.08}>
+                <div className="flex h-full flex-col">
+                  <span className="title-4 inline-flex size-8 items-center justify-center rounded-full bg-brand text-white">
+                    {index + 1}
+                  </span>
+                  <h3 className="heading-6 mt-4">{step.title}</h3>
+                  <p className="body-3 mt-2 text-muted-foreground">
+                    {step.detail}
+                  </p>
+                </div>
+              </Reveal>
+            </li>
+          ))}
+        </ol>
 
-          return (
-            <motion.li
-              key={step.title}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-80px" }}
-              transition={{ duration: 0.5, delay: index * 0.08, ease: [0.16, 1, 0.3, 1] }}
-              className="relative flex flex-col rounded-2xl border border-border bg-card p-6"
-            >
-              <div className="flex items-center justify-between">
-                <span className="inline-flex size-10 items-center justify-center rounded-xl bg-brand-soft text-brand">
-                  <Icon className="size-5" />
-                </span>
-                <span className="text-3xl font-semibold tracking-tight text-border tabular-nums">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-              </div>
-
-              <h3 className="mt-5 text-base font-semibold">{step.title}</h3>
-              <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">
-                {step.body}
-              </p>
-              <p className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-lime">
-                <CheckCheck className="size-3.5" />
-                {step.meta}
-              </p>
-            </motion.li>
-          );
-        })}
-      </ol>
-
-      <div className="mt-10 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <Button asChild variant="brand" size="lg">
-          <Link href="/#plans">
-            See the plans
-            <ArrowRight className="size-4" />
-          </Link>
-        </Button>
-        <Button asChild variant="ghost" size="lg">
-          <a href={`mailto:${site.email}`}>Ask a question first</a>
-        </Button>
+        <Reveal delay={0.16}>
+          <p className="body-4 mt-12 text-muted-foreground">
+            Live within 24 hours, measured from the payment clearing.
+          </p>
+        </Reveal>
       </div>
     </section>
   );

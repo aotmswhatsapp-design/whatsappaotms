@@ -31,7 +31,7 @@ export const setup = {
     {
       title: "Workspace and plan limits",
       detail:
-        "Dedicated database, team invites, chatbot flows and usage limits configured to your plan.",
+        "Team invites, chatbot flows and usage limits configured to your plan.",
     },
     {
       title: "Two live onboarding calls",

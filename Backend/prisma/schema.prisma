@@ -11,6 +11,10 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("SUPABASE_POSTGRES_URL")
+  // Runtime traffic goes through the transaction pooler (6543), which cannot
+  // carry the prepared statements a migration needs. Prisma migrates over this
+  // direct connection instead.
+  directUrl = env("DIRECT_URL")
 }
 
 enum GlobalRole {

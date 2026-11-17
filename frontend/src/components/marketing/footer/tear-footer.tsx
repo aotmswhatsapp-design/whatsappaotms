@@ -231,35 +231,6 @@ function Seal() {
   );
 }
 
-/** Wordmark monogram used when no logo is supplied: a K whose arm ends in a pushpin head. */
-function KMark() {
-  return (
-    <svg
-      viewBox="0 0 44 28"
-      className="tpf-mark"
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M5.5 4.5v19" />
-      <path d="M5.5 15.2 15.6 6.4" />
-      <path d="M10.4 11 17 23.5" />
-      <path d="M37.5 6.6c-1.2-1.4-3-2.1-5-2.1-3 0-5 1.6-5 3.9 0 5.2 10.4 3.5 10.4 9.1 0 2.6-2.3 4.5-5.4 4.5-2.3 0-4.4-.9-5.7-2.5" />
-      <circle
-        cx="17"
-        cy="5"
-        r="3"
-        fill="currentColor"
-        stroke="none"
-        className="tpf-mark-dot"
-      />
-    </svg>
-  );
-}
-
 /** Live local time with a blinking colon; empty until mounted so SSR never mismatches. */
 function Clock({ zone, label }: { zone: string; label: string }) {
   const [t, setT] = React.useState(["--", "--"]);
@@ -434,7 +405,6 @@ const CSS = `
 .tpf.is-hit .tpf-sheet-g{animation:tpf-hit .32s cubic-bezier(.3,.7,.4,1)}
 .tpf-sheet{fill:var(--tpf-sheet)}.tpf-paper{fill:var(--tpf-paper)}.tpf-rim{fill:var(--tpf-rim)}
 .tpf-ico{width:1.35em;height:1.35em;display:block;max-width:none;flex:none}
-.tpf-mark{width:3.6em;height:2.3em;display:block;max-width:none;overflow:visible}
 .tpf-seal{width:100%;height:100%;display:block;max-width:none}
 .tpf-z{position:absolute;z-index:2}
 .tpf-ink{color:var(--tpf-on-paper)}
@@ -449,11 +419,6 @@ const CSS = `
 .tpf-ib:active{transform:scale(.9)}
 .tpf-up .tpf-ico{transform:rotate(90deg)}
 .tpf-logo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center}
-.tpf-logo .tpf-mark path{stroke-dasharray:60;stroke-dashoffset:0;transition:stroke-dashoffset 1.3s var(--ease) .15s}
-.tpf:not(.s1) .tpf-logo .tpf-mark path{stroke-dashoffset:60}
-.tpf-mark-dot{transform-box:fill-box;transform-origin:50% 50%;transition:transform .6s cubic-bezier(.5,1.8,.4,1) .9s}
-.tpf:not(.s1) .tpf-mark-dot{transform:scale(0)}
-.tpf-logo:hover .tpf-mark-dot{animation:tpf-bob .7s var(--ease)}
 .tpf-mail{display:flex;align-items:center;gap:.6em;font-size:var(--fs);letter-spacing:.01em;padding:.35em .2em;transition:transform .35s var(--ease)}
 .tpf-mail:hover{transform:translateY(-2px)}
 .tpf-mail span{background:linear-gradient(currentColor,currentColor) 0 100%/0 1px no-repeat;transition:background-size .4s var(--ease)}
@@ -509,8 +474,7 @@ const CSS = `
 .tpf-pin[data-pin=lift] .tpf-shadow{transform:rotate(16deg) translateX(-26%) scale(1.25);opacity:.55}
 .tpf-pin[data-pin=stab] .tpf-body{animation:tpf-stab .42s cubic-bezier(.55,0,.8,.2) both}
 .tpf-brand{left:50%;top:67%;width:max-content;transform:translateX(-50%);display:grid;justify-items:stretch}
-.tpf-brand-top{display:flex;align-items:center;justify-content:space-between;gap:1em;padding:0 .2em 0 .5em}
-.tpf-eye{font-size:max(15px,2.6cqmin);letter-spacing:-.02em;background:linear-gradient(90deg,var(--tpf-on-paper),color-mix(in srgb,var(--tpf-on-paper) 35%,var(--tpf-paper)));-webkit-background-clip:text;background-clip:text;color:transparent}
+.tpf-brand-top{display:flex;align-items:center;justify-content:flex-end;gap:1em;padding:0 .2em 0 .5em}
 .tpf-bub{display:inline-flex;align-items:center;gap:.5em;height:1.7em;padding:0 .55em;border-radius:99px;background:color-mix(in srgb,var(--tpf-on-paper) 11%,var(--tpf-paper));font-size:max(11px,1.6cqmin);overflow:hidden;transition:padding .45s var(--ease)}
 .tpf-dots{display:flex;gap:.22em}
 .tpf-dots i{width:.38em;height:.38em;border-radius:50%;background:color-mix(in srgb,var(--tpf-on-paper) 45%,var(--tpf-paper));animation:tpf-dot 1.2s ease-in-out infinite}
@@ -1072,7 +1036,7 @@ export function TearFooter({
           label={name + ", home"}
           style={H(1)}
         >
-          {logo ?? <KMark />}
+          {logo}
         </A>
         <div className="tpf-h" style={{ ...H(2), position: "relative" }}>
           <button
@@ -1215,7 +1179,6 @@ export function TearFooter({
       {/* ---- printed on the paper ---- */}
       <div className="tpf-z tpf-brand tpf-ink">
         <div className="tpf-brand-top tpf-p" style={H(0)}>
-          <span className="tpf-eye">{name}</span>
           {chat && (
             <A href={chat.href ?? mailto} className="tpf-bub" label={chat.label}>
               <span className="tpf-dots" aria-hidden="true">

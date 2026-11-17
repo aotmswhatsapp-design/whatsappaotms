@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
@@ -17,8 +17,18 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module";
       expandVariables: true,
       validate: validateEnv,
     }),
-    // A blunt per-IP ceiling; the auth endpoints get a tighter one later.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // A blunt per-IP ceiling, tunable per deployment. Endpoints that can be
+    // used to harass a third party (auth mail) declare a tighter limit of their
+    // own with @Throttle.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: config.get<number>("THROTTLE_TTL_MS") ?? 60_000,
+          limit: config.get<number>("THROTTLE_LIMIT") ?? 120,
+        },
+      ],
+    }),
     PrismaModule,
     AuthModule,
     WhatsAppModule,

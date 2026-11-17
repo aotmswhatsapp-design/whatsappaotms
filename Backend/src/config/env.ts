@@ -21,6 +21,33 @@ export const envSchema = z.object({
    */
   PORT: z.coerce.number().int().min(1).max(65_535).optional(),
   SUPABASE_URL: z.string().url(),
+  /**
+   * Keys for the auth REST API. Both are optional so the API still boots for a
+   * caller that only needs token verification; the features that require them
+   * (confirm/resend) answer 503 instead of failing at startup.
+   *
+   * Supabase's new key format is `sb_publishable_…` / `sb_secret_…`; the
+   * legacy anon and service_role JWTs are accepted under either name.
+   */
+  SUPABASE_PUBLISHABLE_KEY: z
+    .string()
+    .min(20)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  SUPABASE_SECRET_KEY: z
+    .string()
+    .min(20)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  SUPABASE_SERVICE_ROLE_KEY: z
+    .string()
+    .min(20)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  /**
+   * Legacy symmetric signing only. Leave unset on a project that publishes a
+   * JWKS: an ES256 project plus an HS256 secret means nothing verifies.
+   */
   SUPABASE_JWT_SECRET: z
     .string()
     .min(32)
@@ -35,6 +62,9 @@ export const envSchema = z.object({
   /** Test seam: point this at a local Graph stub to prove the success path. */
   META_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
   CORS_ORIGINS: z.string().optional(),
+  /** Global per-IP ceiling: requests per window, and the window in ms. */
+  THROTTLE_TTL_MS: z.coerce.number().int().min(1_000).default(60_000),
+  THROTTLE_LIMIT: z.coerce.number().int().min(1).default(120),
 });
 
 export type Env = z.infer<typeof envSchema>;
