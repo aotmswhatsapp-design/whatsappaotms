@@ -30,41 +30,57 @@ const containerVariants: Variants = {
 };
 
 /**
- * Hero built as a single orange sheet, matching the footer: deepest behind the
- * copy so white text clears AA, brightest under the phone so the device reads
- * as the light source.
+ * Hero built on an elevated warm-ivory & gold/peach aurora surface so the
+ * AOTMS mark, dark ink headline, and WhatsApp device mockup all sit with high
+ * contrast and natural warmth.
  */
 export function Hero() {
   const router = useRouter();
 
   return (
     <MotionConfig reducedMotion="user">
-      <section className="relative isolate overflow-hidden text-white">
-        <div aria-hidden="true" className="absolute inset-0 -z-20 bg-[#b0420f]" />
+      <section className="relative isolate -mt-18 overflow-hidden pt-18 text-[#1e1811]">
+        {/* Warm cream-to-white base canvas */}
         <div
           aria-hidden="true"
-          className="absolute inset-0 -z-20 bg-[linear-gradient(180deg,#9c3a11_0%,#a83e10_45%,#bf490d_80%,#d0510c_100%)]"
+          className="absolute inset-0 -z-30 bg-[linear-gradient(180deg,#fbf7ef_0%,#fdf9f2_56%,#ffffff_100%)]"
         />
-        <div aria-hidden="true" className="sheet-grain -z-10" />
+
+        {/* Elevated multi-tone radial washes: warm gold, soft peach, AOTMS sky blue, and WhatsApp emerald */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(68%_56%_at_50%_0%,rgba(247,215,151,0.58)_0%,rgba(247,192,151,0.36)_46%,transparent_78%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(42%_42%_at_16%_24%,rgba(37,99,235,0.09)_0%,transparent_72%),radial-gradient(42%_42%_at_84%_28%,rgba(16,185,129,0.10)_0%,transparent_72%)]"
+        />
+        <div aria-hidden="true" className="sheet-grain -z-10 opacity-18" />
 
         <div className="mx-auto w-full max-w-7xl px-5 lg:px-8">
           <AnimatedGroup
             className="mx-auto max-w-6xl gap-6 pt-14 text-center sm:pt-20"
             variants={{ container: containerVariants, item: textVariants }}
           >
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/85 backdrop-blur-sm">
-              <span className="size-1.5 rounded-full bg-[#d9f99d]" aria-hidden="true" />
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#e6d8c1] bg-[#fffdf8]/85 px-3.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[#5c5143] shadow-[0_2px_10px_-3px_rgba(30,24,17,0.08)] backdrop-blur-md">
+              <span
+                className="size-1.5 rounded-full bg-[#10b981] shadow-[0_0_0_3px_rgba(16,185,129,0.18)]"
+                aria-hidden="true"
+              />
               Managed WhatsApp automation
             </span>
 
             {/* Sized to hold the whole headline on one line from tablet up: the
                 copy column is wide enough that the clamp never has to wrap. */}
-            <h1 className="text-[clamp(2rem,5.2vw,4.25rem)] font-semibold leading-[1.05] tracking-[-0.04em] text-balance">
+            <h1 className="text-[clamp(2rem,5.2vw,4.25rem)] font-semibold leading-[1.05] tracking-[-0.04em] text-balance text-[#1e1811]">
               Your WhatsApp channel,{" "}
-              <span className="text-[#d9f99d]">run properly</span>.
+              <span className="bg-linear-to-r from-[#ea580c] via-[#c78b34] to-[#059669] bg-clip-text text-transparent">
+                run properly
+              </span>
+              .
             </h1>
 
-            <p className="max-w-xl text-sm leading-relaxed text-white/90 sm:text-[15px]">
+            <p className="max-w-xl text-sm leading-relaxed text-[#5c5143] sm:text-[15.5px]">
               {site.description} One subscription, one workspace, and a database
               of your own from the moment your payment clears.
             </p>
@@ -79,13 +95,13 @@ export function Hero() {
               </OriginButton>
               <Link
                 href={site.links.login}
-                className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-white/50 px-8 text-[15px] font-medium tracking-[-0.02em] text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#9a3412] sm:w-auto"
+                className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-[#e2d3ba] bg-[#fffdf8]/80 px-8 text-[15px] font-medium tracking-[-0.02em] text-[#1e1811] shadow-xs backdrop-blur-sm transition-all duration-200 hover:border-[#c78b34]/60 hover:bg-[#f5ead6]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a2681c]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf7ef] sm:w-auto"
               >
                 Log in to your workspace
               </Link>
             </div>
 
-            <p className="text-[12px] text-white/75">
+            <p className="text-[12px] font-medium text-[#6e6152]">
               No card required · Live in 24 hours · Cancel anytime
             </p>
           </AnimatedGroup>
@@ -93,11 +109,11 @@ export function Hero() {
           {/* The device is taller than its box: the sheet crops it, and the mask
               dissolves the cut so it reads as sliding out of frame. */}
           <div className="relative mx-auto mt-12 w-[clamp(256px,66vw,384px)] sm:mt-14">
-            {/* Light source behind the device, anchored to it so the sheet never
-                bottoms out in a bright band wherever the copy happens to end. */}
+            {/* Warm gold & peach aura behind the device, anchored to it so the
+                titanium frame pops against the soft cream backdrop. */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute -inset-x-24 -top-12 bottom-24 -z-10 bg-[radial-gradient(50%_50%_at_50%_45%,rgba(255,214,170,0.22),transparent_78%)]"
+              className="pointer-events-none absolute -inset-x-28 -top-14 bottom-20 -z-10 bg-[radial-gradient(52%_52%_at_50%_45%,rgba(234,88,12,0.18)_0%,rgba(247,215,151,0.38)_48%,transparent_78%)]"
             />
             <motion.div
               initial={{ opacity: 0, y: 28 }}

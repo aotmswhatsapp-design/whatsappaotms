@@ -78,19 +78,18 @@ interface NavbarProps {
 const BrandLogo = ({ logo }: { logo: NonNullable<NavbarProps["logo"]> }) => (
   <Link
     href={logo.url}
-    className="group flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#a54013]"
+    className="group flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#a2681c]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf7ef]"
   >
-    <span className="rounded-md bg-white px-2 py-1 shadow-sm transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-md">
-      <Image    
-        src={logo.src}
-        alt={logo.alt}
-        width={site.logo.width}
-        height={site.logo.height}
-        className="h-10 w-auto"
-      />
-    </span>
+    <Image
+      src={logo.src}
+      alt={logo.alt}
+      width={site.logo.width}
+      height={site.logo.height}
+      priority
+      className="h-9 w-auto transition-transform duration-200 group-hover:-translate-y-0.5 sm:h-10"
+    />
     {logo.title ? (
-      <span className="text-lg font-semibold tracking-tight text-white">
+      <span className="text-lg font-semibold tracking-tight text-[#1e1811]">
         {logo.title}
       </span>
     ) : null}
@@ -151,32 +150,56 @@ const Navbar = ({
   },
   user = null,
 }: NavbarProps) => {
+  const [isScrolled, setIsScrolled] = React.useState(false);
+
+  React.useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const authActions = user ? (
     <UserMenu user={user} />
   ) : (
     <>
-      <Button asChild variant="inverse-ghost" size="lg">
+      <Button
+        asChild
+        variant="ghost"
+        size="lg"
+        className="text-[#5c5143] hover:bg-[#1e1811]/[0.06] hover:text-[#1e1811]"
+      >
         <Link href={auth.login.url}>{auth.login.text}</Link>
       </Button>
-      <Button asChild variant="light" size="lg">
+      <Button
+        asChild
+        size="lg"
+        className="bg-[#1e1811] text-[#fbf7ef] shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_10px_24px_-14px_rgb(30_24_17/0.6)] hover:-translate-y-0.5 hover:bg-[#ea580c] hover:text-white hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_10px_24px_-14px_rgb(234_88_12/0.65)]"
+      >
         <Link href={auth.signup.url}>{auth.signup.text}</Link>
       </Button>
     </>
   );
 
   return (
-    // The header sits directly on the hero: the hero's gradient opens at
-    // #9c3a11, but its grain overlay lifts the rendered top edge to about
-    // #a54013. Matching the rendered colour — and dropping the divider — is
-    // what makes the two read as one sheet.
-    <header className="sticky top-0 z-50 bg-[#a54013] text-white">
+    <header
+      className={cn(
+        "sticky top-0 z-50 text-[#1e1811] transition-all duration-300",
+        isScrolled
+          ? "border-b border-[#e6d8c1]/80 bg-[#fbf7ef]/85 shadow-xs backdrop-blur-xl"
+          : "border-b border-transparent bg-transparent",
+      )}
+    >
       <div className="mx-auto w-full max-w-7xl px-5 lg:px-8">
         {/*
           Three tracks keep the menu optically centred in the viewport: the
           logo and the auth actions take equal 1fr rails, so the middle track
           lands on the true centre instead of in the leftover space.
         */}
-        <nav className="hidden items-center py-3 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+        <nav className="hidden h-18 items-center lg:grid lg:grid-cols-[1fr_auto_1fr]">
           <div className="flex items-center">
             <BrandLogo logo={logo} />
           </div>
@@ -195,28 +218,31 @@ const Navbar = ({
         </nav>
 
         <div className="block lg:hidden">
-          <div className="flex items-center justify-between py-3">
+          <div className="flex h-18 items-center justify-between">
             <BrandLogo logo={logo} />
             <div className="flex items-center gap-2">
               {user ? <UserMenu user={user} /> : null}
               <Sheet>
                 <SheetTrigger asChild>
-                  <Button variant="inverse" size="icon" aria-label="Open menu">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Open menu"
+                    className="border-[#e2d3ba] bg-[#fffdf8]/80 text-[#1e1811] hover:bg-[#f5ead6]"
+                  >
                     <Menu className="size-4" />
                   </Button>
                 </SheetTrigger>
                 <SheetContent className="overflow-y-auto">
                   <SheetHeader>
                     <SheetTitle>
-                      <span className="rounded-md bg-white px-2 py-1">
-                        <Image
-                          src={logo.src}
-                          alt={logo.alt}
-                          width={site.logo.width}
-                          height={site.logo.height}
-                          className="h-6 w-auto"
-                        />
-                      </span>
+                      <Image
+                        src={logo.src}
+                        alt={logo.alt}
+                        width={site.logo.width}
+                        height={site.logo.height}
+                        className="h-7 w-auto"
+                      />
                     </SheetTitle>
                   </SheetHeader>
                   <div className="flex flex-col gap-6 px-4 pb-4">
@@ -267,9 +293,7 @@ const FILL_DURATION = 0.4;
 const FILL_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 /**
- * The hero's "Start with a plan" hover, reused on the sheet: a white circle
- * grows from wherever the pointer entered and fills the control, so the label
- * can flip to the sheet orange and stay legible on top of it.
+ * Warm gold/amber origin-fill circle that grows from the pointer on hover.
  */
 const OriginFillLayer = ({
   active,
@@ -283,7 +307,7 @@ const OriginFillLayer = ({
   <motion.span
     animate={{ scale: active && coverSize > 0 ? 1 : 0 }}
     aria-hidden="true"
-    className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-white"
+    className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,#f8dca8_0%,#e8b366_58%,#c98d34_100%)]"
     initial={false}
     style={{
       height: coverSize,
@@ -296,18 +320,19 @@ const OriginFillLayer = ({
 );
 
 const desktopItemBase =
-  "relative isolate inline-flex h-9 items-center justify-center overflow-hidden rounded-lg px-3.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#a54013]";
+  "relative isolate inline-flex h-9 items-center justify-center overflow-hidden rounded-lg px-3.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a2681c]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf7ef]";
 
-// `hover:`/`focus:`/`data-[state=open]:` are spelled out in both states because
-// the trigger's base style paints `bg-accent` and a dark foreground on those
-// states by default — and its variant rules outrank a plain `text-*` utility.
 const desktopItemIdle =
-  "text-white/85 hover:text-white focus:text-white data-[state=open]:text-white";
+  "text-[#5c5143] hover:text-[#1e1811] focus:text-[#1e1811] data-[state=open]:text-[#1e1811]";
 const desktopItemFilled =
-  "text-[#9c3a11] hover:text-[#9c3a11] focus:text-[#9c3a11] data-[state=open]:text-[#9c3a11]";
+  "text-[#1e1811] hover:text-[#1e1811] focus:text-[#1e1811] data-[state=open]:text-[#1e1811]";
 
 const DesktopNavItem = ({ item }: { item: MenuItem }) =>
-  item.items ? <DesktopNavTrigger item={item} /> : <DesktopNavLink item={item} />;
+  item.items ? (
+    <DesktopNavTrigger item={item} />
+  ) : (
+    <DesktopNavLink item={item} />
+  );
 
 const DesktopNavLink = ({ item }: { item: MenuItem }) => {
   const { active, coverSize, origin, setNode } = useOriginFill({ hover: true });
@@ -322,7 +347,11 @@ const DesktopNavLink = ({ item }: { item: MenuItem }) => {
         href={item.url}
         ref={setNode}
       >
-        <OriginFillLayer active={active} coverSize={coverSize} origin={origin} />
+        <OriginFillLayer
+          active={active}
+          coverSize={coverSize}
+          origin={origin}
+        />
         <span className="relative z-10">{item.title}</span>
       </Link>
     </NavigationMenuItem>
@@ -337,14 +366,16 @@ const DesktopNavTrigger = ({ item }: { item: MenuItem }) => {
       <NavigationMenuTrigger
         className={cn(
           desktopItemBase,
-          "hover:bg-transparent focus:bg-transparent data-[state=open]:bg-white/15",
+          "hover:bg-transparent focus:bg-transparent data-[state=open]:bg-[#1e1811]/[0.06]",
           active ? desktopItemFilled : desktopItemIdle,
         )}
         ref={setNode}
       >
-        {/* The label sits above the fill; the chevron the trigger appends
-            follows the fill because it paints later and inherits the colour. */}
-        <OriginFillLayer active={active} coverSize={coverSize} origin={origin} />
+        <OriginFillLayer
+          active={active}
+          coverSize={coverSize}
+          origin={origin}
+        />
         <span className="relative z-10">{item.title}</span>
       </NavigationMenuTrigger>
       <NavigationMenuContent>
