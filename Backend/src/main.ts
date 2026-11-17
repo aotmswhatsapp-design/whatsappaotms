@@ -8,7 +8,7 @@ import helmet from "helmet";
 
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
-import { parseOrigins } from "./config/env";
+import { parseOrigins, resolvePort } from "./config/env";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -51,10 +51,16 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableShutdownHooks();
 
-  const port = config.get<number>("APP_PORT") ?? 4000;
+  // A host that routes to `$PORT` (Render, Fly, Heroku) tells us the port to
+  // bind; a local .env keeps it on APP_PORT.
+  const port = resolvePort(
+    config.get<number>("APP_PORT"),
+    config.get<number>("PORT"),
+  );
+
   await app.listen(port, "0.0.0.0");
 
-  Logger.log(`API ready on http://localhost:${port}/api`, "Bootstrap");
+  Logger.log(`API ready on port ${port} (prefix /api)`, "Bootstrap");
 }
 
 void bootstrap();
