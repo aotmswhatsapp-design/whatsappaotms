@@ -50,13 +50,13 @@ export function CheckList({ checks }: { checks: CheckResult[] }) {
               className={cn("mt-0.5 size-4 shrink-0", state.iconClass)}
             />
             <div className="min-w-0">
-              <p className="text-[12px] font-semibold text-foreground">
+              <p className="text-[13.5px] font-semibold text-foreground">
                 {check.label}
-                <span className="ml-1.5 text-[10px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
+                <span className="ml-1.5 text-[11px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
                   {check.state}
                 </span>
               </p>
-              <p className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">
+              <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">
                 {check.detail}
               </p>
             </div>

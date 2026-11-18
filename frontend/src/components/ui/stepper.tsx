@@ -28,12 +28,12 @@ export function Stepper({
   className?: string;
 }) {
   return (
-    // On a phone the connectors are dropped and the labels keep their natural
-    // width; squeezing them beside the rails truncated every stage to three
-    // letters, which told the customer nothing.
+    // On a phone the rail stacks each stage over its label: squeezing circle and
+    // label into one line truncated every stage to three letters as soon as the
+    // type got readable. Connectors return above `sm`, where there is room.
     <ol
       className={cn(
-        "flex items-center justify-between gap-1.5 sm:justify-normal",
+        "flex items-start justify-between gap-1.5 sm:items-center sm:justify-normal",
         className,
       )}
     >
@@ -47,17 +47,17 @@ export function Stepper({
             <span
               aria-hidden="true"
               className={cn(
-                "grid size-7 shrink-0 place-items-center rounded-full border text-[11px] font-semibold transition-colors",
+                "grid size-8 shrink-0 place-items-center rounded-full border text-[12px] font-semibold transition-colors",
                 state === "active" && "border-brand bg-brand text-brand-foreground shadow-sm shadow-brand/30",
                 state === "done" && "border-lime/40 bg-lime-soft text-lime",
                 state === "upcoming" && "border-border bg-card text-muted-foreground",
               )}
             >
-              {state === "done" ? <Check className="size-3.5" /> : index + 1}
+              {state === "done" ? <Check className="size-4" /> : index + 1}
             </span>
             <span
               className={cn(
-                "truncate text-[11px] font-medium sm:text-xs",
+                "text-center text-xs leading-tight font-medium sm:truncate sm:text-left sm:text-[13px]",
                 state === "upcoming" ? "text-muted-foreground" : "text-foreground",
               )}
             >
@@ -66,15 +66,15 @@ export function Stepper({
           </>
         );
 
-        const shared = "flex min-w-0 items-center gap-2 rounded-md text-left outline-none";
+        const shared = "flex min-w-0 flex-col items-center gap-1 rounded-md text-left outline-none sm:flex-row sm:gap-2";
         const label = `Step ${index + 1} of ${steps.length}: ${step.label}`;
 
         return (
           <li
             key={step.id}
             className={cn(
-              "flex min-w-0 items-center gap-1.5",
-              index < steps.length - 1 && "sm:flex-1",
+              "flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:items-center sm:gap-1.5",
+              index === steps.length - 1 && "sm:flex-none",
             )}
           >
             {/* Without a handler a stage is a label, not a dead button. */}

@@ -49,11 +49,11 @@ export function CopyField({
 
   return (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-[12.5px] font-medium text-muted-foreground">{label}</p>
       <div className="mt-1 flex items-stretch gap-2">
         <code
           className={cn(
-            "min-w-0 flex-1 truncate rounded-lg border border-border bg-secondary px-3 py-2.5 font-mono text-[12.5px] text-foreground",
+            "min-w-0 flex-1 truncate rounded-lg border border-border bg-secondary px-3 py-2.5 font-mono text-[13.5px] text-foreground",
             !value && "text-muted-foreground italic",
           )}
         >
@@ -77,11 +77,11 @@ export function CopyField({
         </button>
       </div>
       {copied ? (
-        <p aria-live="polite" className="mt-1 text-[11px] text-lime">
+        <p aria-live="polite" className="mt-1 text-[12.5px] text-lime">
           Copied to the clipboard.
         </p>
       ) : hint ? (
-        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{hint}</p>
       ) : null}
     </div>
   );

@@ -62,21 +62,21 @@ export function ErrorPanel({
           <CircleX className="size-5 text-destructive" aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             Meta no longer accepts these credentials
           </h2>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[12.5px] text-muted-foreground">
             Last checked {when(account.lastCheckAt)}
           </p>
         </div>
       </div>
 
-      <p className="rounded-lg border border-destructive/30 bg-card px-3.5 py-3 text-[12px] leading-relaxed text-foreground">
+      <p className="rounded-lg border border-destructive/30 bg-card px-3.5 py-3 text-sm leading-relaxed text-foreground">
         {account.failureReason ??
           "The stored access token was refused. Nothing was deleted — update the credentials and the connection comes back."}
       </p>
 
-      <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+      <p className="text-[13.5px] leading-relaxed text-muted-foreground">
         This does not delete anything. If the token was revoked in Meta, generate
         a new system-user token and paste it below; if the number changed, use
         the new phone number ID too.

@@ -87,8 +87,8 @@ export function LivePanel({
           <CircleCheck className="size-5 text-lime" aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">WhatsApp is live</h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          <h2 className="text-base font-semibold text-foreground">WhatsApp is live</h2>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
             {embedded
               ? "Meta authorised this number and our app is subscribed to its events, so deliveries arrive without anything pasted into Meta."
               : "Meta accepted the credentials, verified the callback URL with our token, and is delivering events."}{" "}
@@ -97,11 +97,11 @@ export function LivePanel({
         </div>
       </div>
 
-      <dl className="space-y-2 text-xs">
+      <dl className="space-y-2.5 text-sm">
         {rows.map(([label, value]) => (
           <div
             key={label}
-            className="flex items-start justify-between gap-3 border-b border-border/70 pb-2 last:border-0 last:pb-0"
+            className="flex items-start justify-between gap-3 border-b border-border/70 pb-2.5 last:border-0 last:pb-0"
           >
             <dt className="shrink-0 text-muted-foreground">{label}</dt>
             <dd className="text-right font-medium break-all text-foreground">{value}</dd>
@@ -116,7 +116,7 @@ export function LivePanel({
       />
 
       {account.webhook.eventCount === 0 ? (
-        <p className="rounded-lg bg-secondary px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="rounded-lg bg-secondary px-3 py-2.5 text-[13px] leading-relaxed text-muted-foreground">
           No deliveries yet. The counter moves the first time a message reaches
           the number — send one from any phone to watch it happen.
         </p>
@@ -166,7 +166,7 @@ export function LivePanel({
       </div>
 
       {confirming ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
           {embedded
             ? "Disconnecting removes the stored token and stops counting events. The number stays on WhatsApp; to revoke access entirely, remove the app in Meta Business settings."
             : "Disconnecting deletes the token, the app secret and the webhook proof. Meta keeps posting to the URL until you remove it in the Webhooks panel of the app; those deliveries are ignored."}

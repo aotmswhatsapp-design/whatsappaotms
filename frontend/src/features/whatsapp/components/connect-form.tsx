@@ -201,16 +201,16 @@ export function ConnectForm({
     <form className="space-y-5" onSubmit={handleSubmit} noValidate>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
             <KeyRound className="size-4 text-brand" aria-hidden="true" />
             {existing ? "Replace the credentials" : "Connection details"}
           </h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
             Each value is checked against Meta before anything is stored. A
             rejected value never reaches the database.
           </p>
         </div>
-        <span className="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+        <span className="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-[12.5px] font-medium text-muted-foreground">
           {filled}/5 filled
         </span>
       </div>
@@ -222,14 +222,14 @@ export function ConnectForm({
           return (
             <div key={field.name}>
               <Label className="justify-between gap-3" htmlFor={`wa-${field.name}`}>
-                <span className="flex items-center gap-1.5">
-                  <span className="grid size-4 place-items-center rounded-full bg-secondary text-[9px] font-semibold text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <span className="grid size-5 place-items-center rounded-full bg-secondary text-[11.5px] font-semibold text-muted-foreground">
                     {index + 1}
                   </span>
                   {field.label}
                 </span>
                 {error ? (
-                  <span className="text-[11px] font-medium text-destructive">{error}</span>
+                  <span className="text-[12.5px] font-medium text-destructive">{error}</span>
                 ) : null}
               </Label>
               <input
@@ -238,8 +238,8 @@ export function ConnectForm({
                 autoCapitalize="off"
                 autoComplete="off"
                 className={cn(
-                  "mt-1.5 h-10 w-full rounded-lg border bg-background px-3 font-mono text-[13px] text-foreground shadow-xs outline-none transition-shadow",
-                  "placeholder:font-sans placeholder:text-[12px] placeholder:text-muted-foreground/70",
+                  "mt-1.5 h-11 w-full rounded-lg border bg-background px-3 font-mono text-sm text-foreground shadow-xs outline-none transition-shadow",
+                  "placeholder:font-sans placeholder:text-[13px] placeholder:text-muted-foreground/70",
                   "focus-visible:ring-[3px]",
                   error
                     ? "border-destructive/60 focus-visible:border-destructive focus-visible:ring-destructive/20"
@@ -254,7 +254,7 @@ export function ConnectForm({
                 value={values[field.name]}
               />
               <p
-                className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground"
+                className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground"
                 id={`wa-${field.name}-hint`}
               >
                 {field.hint}

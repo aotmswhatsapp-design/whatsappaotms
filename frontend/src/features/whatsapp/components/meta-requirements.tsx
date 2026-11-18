@@ -34,7 +34,7 @@ const ITEMS: { value: string; title: string; body: ReactNode }[] = [
             "whatsapp_business_messaging",
           ].map((permission) => (
             <li key={permission}>
-              <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px]">
+              <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[12px]">
                 {permission}
               </code>
             </li>
@@ -42,9 +42,9 @@ const ITEMS: { value: string; title: string; body: ReactNode }[] = [
         </ul>
         <p className="mt-2">
           Optional, and only if the product needs them:{" "}
-          <code className="font-mono text-[11px]">business_management</code>,{" "}
-          <code className="font-mono text-[11px]">email</code>, and{" "}
-          <code className="font-mono text-[11px]">whatsapp_business_manage_events</code>{" "}
+          <code className="font-mono text-[12px]">business_management</code>,{" "}
+          <code className="font-mono text-[12px]">email</code>, and{" "}
+          <code className="font-mono text-[12px]">whatsapp_business_manage_events</code>{" "}
           (marketing messages only). Unneeded permissions can fail App Review.
         </p>
       </>
@@ -91,7 +91,7 @@ const ITEMS: { value: string; title: string; body: ReactNode }[] = [
           token, then Verify and save.
         </li>
         <li>
-          Subscribe to the <code className="font-mono text-[11px]">messages</code>{" "}
+          Subscribe to the <code className="font-mono text-[12px]">messages</code>{" "}
           field; that is the event this workspace counts.
         </li>
         <li>
@@ -117,11 +117,11 @@ const ITEMS: { value: string; title: string; body: ReactNode }[] = [
 export function MetaRequirements() {
   return (
     <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
-      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
         <BookOpen className="size-4 text-muted-foreground" aria-hidden="true" />
         What Meta requires
       </h2>
-      <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+      <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
         Only the account owner can do these in Meta&apos;s own dashboard. None of
         them happen here, and none of them are needed before you connect.
       </p>
@@ -129,10 +129,10 @@ export function MetaRequirements() {
       <Accordion className="mt-1" collapsible type="single">
         {ITEMS.map((item) => (
           <AccordionItem key={item.value} value={item.value}>
-            <AccordionTrigger className="py-3 text-[12.5px]">
+            <AccordionTrigger className="py-3 text-[14px]">
               {item.title}
             </AccordionTrigger>
-            <AccordionContent className="pb-3 text-[11.5px] leading-relaxed text-muted-foreground">
+            <AccordionContent className="pb-3 text-[13.5px] leading-relaxed text-muted-foreground">
               {item.body}
             </AccordionContent>
           </AccordionItem>

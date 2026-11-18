@@ -81,11 +81,11 @@ export function WebhookPanel({
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
           <PlugZap className="size-4 text-brand" aria-hidden="true" />
           Point Meta at this API
         </h2>
-        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+        <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
           {account.displayPhoneNumber ?? account.phoneNumberId} is accepted.
           Meta will not send a single event until these two values are saved in
           the Webhooks panel of that app.
@@ -100,7 +100,7 @@ export function WebhookPanel({
         />
 
         {url ? null : (
-          <p className="rounded-lg bg-warning-soft px-3 py-2 text-[11.5px] leading-relaxed text-warning">
+          <p className="rounded-lg bg-warning-soft px-3 py-2.5 text-[13px] leading-relaxed text-warning">
             This API has no public webhook URL configured, so Meta has nowhere to
             call. Set <code className="font-mono">WHATSAPP_WEBHOOK_PUBLIC_URL</code>{" "}
             on the API to <code className="font-mono">https://&lt;api-host&gt;/api/v1/whatsapp/webhook</code>{" "}
@@ -117,11 +117,11 @@ export function WebhookPanel({
 
       <ol className="space-y-3 rounded-lg bg-secondary px-4 py-3.5">
         {STEPS.map((step, index) => (
-          <li key={step} className="flex gap-2.5">
-            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-card text-[9px] font-semibold text-muted-foreground">
+          <li key={step} className="flex gap-3">
+            <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-card text-[11px] font-semibold text-muted-foreground">
               {index + 1}
             </span>
-            <span className="text-[11.5px] leading-relaxed text-muted-foreground">
+            <span className="text-[13.5px] leading-relaxed text-muted-foreground">
               {step}
             </span>
           </li>
@@ -169,7 +169,7 @@ export function WebhookPanel({
       </div>
 
       {confirming ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
           Rotating means the token already pasted into Meta stops matching, and
           this connection goes back to waiting until you paste the new one there.
         </p>

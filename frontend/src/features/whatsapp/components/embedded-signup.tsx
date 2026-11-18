@@ -5,6 +5,7 @@ import { CircleAlert, LoaderCircle, ShieldCheck, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 
 import {
   ApiError,
@@ -25,7 +26,8 @@ export function EmbeddedSignup({
   config,
   onConnected,
 }: {
-  config: SignupConfig;
+  /** Null while the API has not answered; the card still renders. */
+  config: SignupConfig | null;
   onConnected: (account: WhatsAppAccount) => void;
 }) {
   const toast = useToast();
@@ -33,7 +35,18 @@ export function EmbeddedSignup({
   const [busy, setBusy] = React.useState<"dialog" | "saving" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  /**
+   * One-click needs the platform app's id and configuration id. Without them
+   * the button stays on screen but greyed, with the reason underneath — a path
+   * that silently disappears leaves the customer hunting for a button that
+   * was never going to be there.
+   */
+  const configured = Boolean(config?.enabled && config.appId && config.configId);
+
   React.useEffect(() => {
+    // No point fetching Meta's script for a dialog that cannot open.
+    if (!configured) return;
+
     let active = true;
 
     preloadSignupSdk().then(
@@ -50,11 +63,17 @@ export function EmbeddedSignup({
     return () => {
       active = false;
     };
-  }, []);
+  }, [configured]);
 
-  const appId = config.appId;
-  const configId = config.configId;
-  const canStart = Boolean(appId && configId) && sdk === "ready" && busy === null;
+  const appId = config?.appId ?? null;
+  const configId = config?.configId ?? null;
+  const canStart = configured && sdk === "ready" && busy === null;
+
+  const notice = configured
+    ? null
+    : config === null
+      ? "Could not check whether one-click setup is available on this server. The credentials path below always works."
+      : "One-click setup is not switched on for this deployment yet: the API needs the platform's Meta app — META_APP_ID, META_APP_SECRET and META_ES_CONFIG_ID. Until then, connect with your own app's credentials below.";
 
   async function start() {
     if (!appId || !configId) return;
@@ -65,7 +84,7 @@ export function EmbeddedSignup({
     const result = await runEmbeddedSignup({
       appId,
       configId,
-      version: config.graphVersion,
+      version: config?.graphVersion ?? "v21.0",
     });
 
     if (!result.ok) {
@@ -109,14 +128,16 @@ export function EmbeddedSignup({
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-foreground">
+            <h2 className="text-base font-semibold text-foreground">
               Connect in one step
             </h2>
-            <span className="rounded-full bg-lime-soft px-2 py-0.5 text-[10px] font-semibold tracking-wide text-lime uppercase">
-              Recommended
-            </span>
+            {configured ? (
+              <span className="rounded-full bg-lime-soft px-2.5 py-1 text-[11.5px] font-semibold tracking-wide text-lime uppercase">
+                Recommended
+              </span>
+            ) : null}
           </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
             Sign in to Facebook and pick your WhatsApp Business account and
             number. Meta verifies them and sends the result straight here — no
             tokens, ids or callbacks to copy.
@@ -133,9 +154,9 @@ export function EmbeddedSignup({
           <li key={line} className="flex gap-2">
             <ShieldCheck
               aria-hidden="true"
-              className="mt-0.5 size-3.5 shrink-0 text-lime"
+              className="mt-1 size-4 shrink-0 text-lime"
             />
-            <span className="text-[11.5px] leading-relaxed text-muted-foreground">
+            <span className="text-[13.5px] leading-relaxed text-muted-foreground">
               {line}
             </span>
           </li>
@@ -144,7 +165,12 @@ export function EmbeddedSignup({
 
       <div className="border-t border-border pt-4">
         <Button
-          className="w-full sm:w-auto"
+          className={cn(
+            "w-full sm:w-auto",
+            // A greyed-out label that is too faint reads as "the button is gone",
+            // which is exactly the confusion the visible button exists to fix.
+            !configured && "disabled:opacity-100 disabled:bg-secondary disabled:text-foreground/60",
+          )}
           disabled={!canStart}
           onClick={() => void start()}
           size="lg"
@@ -161,7 +187,7 @@ export function EmbeddedSignup({
               <LoaderCircle className="animate-spin" aria-hidden="true" />
               Finishing…
             </>
-          ) : sdk === "loading" ? (
+          ) : configured && sdk === "loading" ? (
             <>
               <LoaderCircle className="animate-spin" aria-hidden="true" />
               Preparing…
@@ -174,10 +200,16 @@ export function EmbeddedSignup({
           )}
         </Button>
 
-        <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
-          A Meta window opens over this page. If nothing appears, allow pop-ups
-          for this site.
-        </p>
+        {configured ? (
+          <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
+            A Meta window opens over this page. If nothing appears, allow
+            pop-ups for this site.
+          </p>
+        ) : (
+          <p className="mt-2.5 rounded-lg bg-warning-soft px-3 py-2.5 text-[13px] leading-relaxed text-warning">
+            {notice}
+          </p>
+        )}
       </div>
 
       {error ? (
@@ -189,7 +221,7 @@ export function EmbeddedSignup({
             aria-hidden="true"
             className="mt-0.5 size-4 shrink-0 text-destructive"
           />
-          <p className="text-[11.5px] leading-relaxed text-foreground">{error}</p>
+          <p className="text-[13px] leading-relaxed text-foreground">{error}</p>
         </div>
       ) : null}
     </div>
