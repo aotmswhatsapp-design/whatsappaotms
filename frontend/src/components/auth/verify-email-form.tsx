@@ -185,11 +185,16 @@ export function VerifyEmailForm({ initialEmail = "" }: { initialEmail?: string }
 
         <FormMessages error={error} notice={notice} />
 
-        <button className={SUBMIT} disabled={busy} type="submit">
+        <button
+          aria-busy={pending === "verify" || undefined}
+          className={SUBMIT}
+          disabled={busy}
+          type="submit"
+        >
           {pending === "verify" ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : null}
-          Confirm email
+          {pending === "verify" ? "Confirming…" : "Confirm email"}
           {busy ? null : (
             <ArrowRight
               aria-hidden="true"

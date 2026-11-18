@@ -96,7 +96,12 @@ export function ForgotPasswordForm() {
 
         <FormMessages error={error} notice={notice} />
 
-        <button className={SUBMIT} disabled={pending} type="submit">
+        <button
+          aria-busy={pending || undefined}
+          className={SUBMIT}
+          disabled={pending}
+          type="submit"
+        >
           {pending ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : (
@@ -105,7 +110,7 @@ export function ForgotPasswordForm() {
               className="size-4 transition-transform group-hover:translate-x-1"
             />
           )}
-          {pending ? "Sending" : "Send reset link"}
+          {pending ? "Sending…" : "Send reset link"}
         </button>
       </form>
 

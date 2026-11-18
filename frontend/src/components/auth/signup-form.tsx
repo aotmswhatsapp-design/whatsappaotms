@@ -220,11 +220,16 @@ export function SignupForm() {
 
         <FormMessages error={error} notice={null} />
 
-        <button className={SUBMIT} disabled={busy} type="submit">
+        <button
+          aria-busy={pending === "create" || undefined}
+          className={SUBMIT}
+          disabled={busy}
+          type="submit"
+        >
           {pending === "create" ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : null}
-          Create account
+          {pending === "create" ? "Creating account…" : "Create account"}
           {busy ? null : (
             <ArrowRight
               aria-hidden="true"

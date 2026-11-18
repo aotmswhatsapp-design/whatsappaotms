@@ -203,6 +203,55 @@
   --lime-soft: #d9ede3;
 }
 
+/**
+ * The auth sheet. Sign-in is a document, not a second landing page, so it sits
+ * on white paper rather than on the burnt field: the card is a white sheet held
+ * by a hairline and a soft shadow, and the logo's own orange is the only warm
+ * thing on the screen.
+ *
+ * `--input` is deliberately much darker than `--border`. A card hairline is
+ * decorative, but a field's outline is the only thing that says "this is a
+ * control" once its fill is near-white, so it clears 3:1 on its own (3.1:1)
+ * while the hairline stays at ~1.2:1.
+ *
+ * This block supplies roles only; the components inside keep their classes.
+ */
+[data-theme="sheet"] {
+  color-scheme: light;
+
+  --background: #ffffff;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --secondary: #f6f4f1;
+  --muted: #f6f4f1;
+  --accent: #efece7;
+  --border: #e6e3dd;
+  --input: #9a9187;
+
+  --foreground: var(--soft-black);
+  --card-foreground: var(--soft-black);
+  --popover-foreground: var(--soft-black);
+  --secondary-foreground: var(--soft-black);
+  --accent-foreground: var(--soft-black);
+  /* 7.2:1 on white and 6.5:1 on the field fill: softer than the app's near
+     black, because on paper the muted tier can finally be a lighter tone. */
+  --muted-foreground: #5c5750;
+
+  --primary: var(--soft-black);
+  --primary-foreground: #ffffff;
+  --brand: var(--soft-black);
+  --brand-foreground: #ffffff; /* 19:1 inside a soft-black fill */
+  --brand-soft: #f8ece7; /* burnt orange at 6% over white */
+  --ring: var(--soft-black);
+
+  --destructive: #a11f05;
+
+  --blue: #1d4ed8;
+  --blue-soft: #d6e0f7;
+  --lime: #3f6212;
+  --lime-soft: #e2ecc8;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -550,6 +599,23 @@
      app colour, and an overscroll bounce shows it at the edge of the window. */
   body:has([data-theme="deep"]) {
     background-color: var(--field);
+  }
+
+  /* Same reason on the auth screens. */
+  body:has([data-theme="sheet"]) {
+    background-color: #ffffff;
+  }
+
+  /**
+   * Tailwind's preflight zeroes the cursor on buttons and summary, which is
+   * correct for a native control but wrong for anything that answers a click.
+   * One rule here beats `cursor-pointer` repeated on every component, and it
+   * reaches the hand-written buttons in the auth forms too.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
   }
 
   ::selection {

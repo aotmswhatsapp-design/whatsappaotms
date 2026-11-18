@@ -38,11 +38,11 @@ export function Pricing({
   const [annual, setAnnual] = React.useState(false);
 
   return (
-    /* The second paper band, contiguous with the product one so the light run
-       reads as a single stretch of the page. */
+    /* Back on the deep field. The product band above stays paper, so the page
+       alternates instead of running two light sections together, and the plans
+       are raised teal cards with the accent on the popular one. */
     <section
       id="plans"
-      data-theme="paper"
       className="scroll-mt-24 border-b border-border bg-background text-foreground"
     >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">

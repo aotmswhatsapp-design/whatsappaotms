@@ -51,10 +51,13 @@ export function TaglineReveal() {
   }, [reduceMotion]);
 
   return (
-    <section className="border-b border-border bg-secondary">
+    <section
+      className="border-b border-border bg-background text-foreground"
+      data-theme="paper"
+    >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
-        {/* The band lifts one step off the field instead of inverting, so its
-            ink stays the paper tone and the rule is a quiet tint of it. */}
+        {/* A paper band: teal ink on pearl, and the rule is a quiet tint of that
+            ink rather than a colour of its own. */}
         <div className="border-l-2 border-foreground/25 pl-6 lg:pl-12">
           <p className="caption-3 text-muted-foreground">Why we built this</p>
           <h2

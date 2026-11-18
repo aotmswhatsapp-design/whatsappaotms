@@ -160,8 +160,15 @@ void main() {
   // the bank has a body without ever out-shining the headline it sits behind.
   vec3 shadow = vec3(0.024, 0.078, 0.133);
   vec3 high = vec3(0.867, 0.847, 0.804);
+  vec3 color = mix(shadow, high, lit);
 
-  gl_FragColor = vec4(mix(shadow, high, lit), alpha);
+  // Premultiplied, because that is the context three hands the browser. With
+  // a straight colour, a thin cloud carried almost no alpha but its full
+  // brightness, and the compositor added the whole of it to the page: the hero
+  // washed out to near-white whenever the bank thinned. Multiplying here keeps
+  // the contribution proportional to the opacity, so an empty pixel is
+  // genuinely empty.
+  gl_FragColor = vec4(color * alpha, alpha);
 }
 `;
 

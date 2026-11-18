@@ -14,7 +14,8 @@ export function SetupCost() {
   return (
     <section
       id="setup"
-      className="scroll-mt-24 border-b border-border bg-secondary"
+      data-theme="paper"
+      className="scroll-mt-24 border-b border-border bg-background text-foreground"
     >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
         <Reveal>

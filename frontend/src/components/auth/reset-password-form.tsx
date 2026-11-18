@@ -137,11 +137,16 @@ export function ResetPasswordForm() {
 
         <FormMessages error={error} notice={null} />
 
-        <button className={SUBMIT} disabled={pending} type="submit">
+        <button
+          aria-busy={pending || undefined}
+          className={SUBMIT}
+          disabled={pending}
+          type="submit"
+        >
           {pending ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : null}
-          Save password
+          {pending ? "Saving…" : "Save password"}
           {pending ? null : (
             <ArrowRight
               aria-hidden="true"

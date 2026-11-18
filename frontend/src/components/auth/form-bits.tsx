@@ -12,24 +12,27 @@ import { cn } from "@/lib/utils";
  */
 
 export const INPUT = [
-  "h-11 w-full rounded-lg border border-border bg-card pl-10 pr-3",
+  // `bg-secondary` rather than `bg-card`: on the white sheet the card is white
+  // too, so a card-coloured field would be defined by its border alone.
+  "h-11 w-full rounded-lg border border-input bg-secondary pl-10 pr-3",
   "text-[15px] text-foreground outline-none transition-all duration-200",
-  "placeholder:text-muted-foreground/60 hover:border-muted-foreground/40",
+  "placeholder:text-muted-foreground/60 hover:border-brand/40",
   "focus:border-brand focus:ring-[3px] focus:ring-brand/15",
   "disabled:cursor-not-allowed disabled:bg-secondary/60 disabled:text-muted-foreground",
-  // Chrome paints autofilled inputs pale blue, which fights the ivory card.
-  "[&:-webkit-autofill]:[box-shadow:0_0_0_1000px_#e6d5bd_inset]",
+  // Chrome paints autofilled inputs pale blue, which fights the sheet. The fill
+  // tracks the token, so it stays correct in every scope.
+  "[&:-webkit-autofill]:[box-shadow:0_0_0_1000px_var(--secondary)_inset]",
   "[&:-webkit-autofill]:[-webkit-text-fill-color:#101010]",
 ].join(" ");
 
 export const CARD =
-  "w-full rounded-2xl border border-border bg-card p-7 shadow-[0_1px_2px_rgba(60,20,5,0.16),0_24px_48px_-28px_rgba(60,20,5,0.45)] sm:p-8";
+  "w-full rounded-2xl border border-border bg-card p-7 shadow-[0_1px_2px_rgba(16,16,16,0.04),0_24px_48px_-30px_rgba(16,16,16,0.22)] sm:p-8";
 
 export const SUBMIT =
-  "group flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-brand-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 focus-visible:ring-[3px] focus-visible:ring-brand/40 focus-visible:outline-none active:translate-y-0 active:shadow-none disabled:pointer-events-none disabled:opacity-70";
+  "group flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-brand-foreground shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 focus-visible:ring-[3px] focus-visible:ring-brand/40 focus-visible:outline-none active:translate-y-0 active:shadow-none disabled:cursor-progress disabled:opacity-70";
 
 export const GHOST_BUTTON =
-  "flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-muted-foreground/40 hover:bg-secondary/60 hover:shadow-sm focus-visible:ring-[3px] focus-visible:ring-brand/25 focus-visible:outline-none active:translate-y-0 disabled:pointer-events-none disabled:opacity-70";
+  "flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-muted-foreground/40 hover:bg-secondary/60 hover:shadow-sm focus-visible:ring-[3px] focus-visible:ring-brand/25 focus-visible:outline-none active:translate-y-0 disabled:cursor-progress disabled:opacity-70";
 
 /**
  * Supabase returns machine-facing copy. These are the ones a real customer can

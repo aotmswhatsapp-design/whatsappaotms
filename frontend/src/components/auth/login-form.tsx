@@ -192,6 +192,8 @@ export function LoginForm({
 
   const showCodeStep = mode === "email-code" && codeSent;
   const busy = pending !== null;
+  const submitting =
+    pending === "password" || pending === "code" || pending === "verify";
 
   const submitLabel =
     mode === "password"
@@ -199,6 +201,15 @@ export function LoginForm({
       : showCodeStep
         ? "Verify code"
         : "Email me a code";
+
+  // The busy label names the operation rather than restating the button, so a
+  // slow round trip reads as work in progress instead of a dead control.
+  const submitBusyLabel =
+    mode === "password"
+      ? "Signing in…"
+      : showCodeStep
+        ? "Verifying…"
+        : "Sending code…";
 
   return (
     <div className={CARD}>
@@ -329,13 +340,16 @@ export function LoginForm({
 
         <FormMessages error={error} notice={notice} />
 
-        <button className={SUBMIT} disabled={busy} type="submit">
-          {pending === "password" ||
-          pending === "code" ||
-          pending === "verify" ? (
+        <button
+          aria-busy={submitting || undefined}
+          className={SUBMIT}
+          disabled={busy}
+          type="submit"
+        >
+          {submitting ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : null}
-          {submitLabel}
+          {submitting ? submitBusyLabel : submitLabel}
           {busy ? null : (
             <ArrowRight
               aria-hidden="true"
@@ -353,6 +367,7 @@ export function LoginForm({
         </div>
 
         <button
+          aria-busy={pending === "google" || undefined}
           className={GHOST_BUTTON}
           disabled={busy}
           onClick={continueWithGoogle}
