@@ -9,10 +9,11 @@ import { useOriginFill } from "./use-origin-fill";
 
 /**
  * Scoped token island: the button carries its own palette so it renders
- * identically wherever it is dropped. Brand tokens point at the site orange.
+ * identically wherever it is dropped. Brand tokens point at soft black, the
+ * accent role on the burnt field.
  */
 const componentThemeClassName =
-  "[--ic-background:#ffffff] [--ic-foreground:#111111] [--ic-primary:#111111] [--ic-secondary:#646b75] [--ic-surface-border:#e9edf2] [--ic-border:#e3e7ec] [--ic-card:#ffffff] [--ic-card-foreground:#111111] [--ic-muted:#f5f7fa] [--ic-muted-foreground:#6d7480] [--ic-accent:#f3f5f8] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] [--ic-accent-foreground:#111111] [--ic-input:#e3e7ec] [--ic-ring:rgba(17,17,17,0.16)] [--ic-destructive:#dc2626] [--ic-paper:#fcfcfd] [--ic-popover-foreground:#111111] [--ic-brand:#ea580c] [--ic-brand-soft:#ffedd5] [--ic-shadow-soft:0_18px_38px_-24px_rgba(15,23,42,0.35)] [--ic-chart-1:oklch(0.52_0.19_254)] [--ic-chart-2:oklch(0.74_0.11_232)] [--ic-chart-3:oklch(0.42_0.16_262)] [--ic-chart-4:oklch(0.84_0.07_228)] [--ic-chart-5:oklch(0.62_0.14_240)] [--color-background:var(--ic-background)] [--color-foreground:var(--ic-foreground)] [--color-primary:var(--ic-primary)] [--color-secondary:var(--ic-secondary)] [--color-border:var(--ic-border)] [--color-card:var(--ic-card)] [--color-card-foreground:var(--ic-card-foreground)] [--color-muted:var(--ic-muted)] [--color-muted-foreground:var(--ic-muted-foreground)] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] [--color-input:var(--ic-input)] [--color-ring:var(--ic-ring)] [--color-destructive:var(--ic-destructive)] [--color-paper:var(--ic-paper)] [--color-popover-foreground:var(--ic-popover-foreground)] [--color-brand:var(--ic-brand)] [--color-brand-soft:var(--ic-brand-soft)] [--color-chart-1:var(--ic-chart-1)] [--color-chart-2:var(--ic-chart-2)] [--color-chart-3:var(--ic-chart-3)] [--color-chart-4:var(--ic-chart-4)] [--color-chart-5:var(--ic-chart-5)] dark:[--ic-background:#111111] dark:[--ic-foreground:#f6f3ec] dark:[--ic-primary:#f6f3ec] dark:[--ic-secondary:#cbc6bb] dark:[--ic-surface-border:#2a2a25] dark:[--ic-border:#2b2a25] dark:[--ic-card:#111111] dark:[--ic-card-foreground:#f6f3ec] dark:[--ic-muted:#171716] dark:[--ic-muted-foreground:#9a958a] dark:[--ic-accent:#1a1a18] dark:[--ic-accent-foreground:#f6f3ec] dark:[--ic-input:#2b2a25] dark:[--ic-ring:rgba(246,243,236,0.18)] dark:[--ic-destructive:#f87171] dark:[--ic-paper:#171716] dark:[--ic-popover-foreground:#f6f3ec] dark:[--ic-brand:#fb923c] dark:[--ic-brand-soft:#431407] dark:[--ic-shadow-soft:0_20px_44px_-28px_rgba(0,0,0,0.6)] dark:[--ic-chart-1:oklch(0.68_0.17_250)] dark:[--ic-chart-2:oklch(0.82_0.09_225)] dark:[--ic-chart-3:oklch(0.58_0.15_260)] dark:[--ic-chart-4:oklch(0.75_0.12_235)] dark:[--ic-chart-5:oklch(0.88_0.06_220)]";
+  "[--ic-background:#d5360c] [--ic-foreground:#101010] [--ic-primary:#101010] [--ic-secondary:#d5c5ae] [--ic-surface-border:#b89f80] [--ic-border:#b89f80] [--ic-card:#e6d5bd] [--ic-card-foreground:#101010] [--ic-muted:#d5c5ae] [--ic-muted-foreground:#282018] [--ic-accent:#c4b59f] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] [--ic-accent-foreground:#101010] [--ic-input:#b89f80] [--ic-ring:rgba(16,16,16,0.38)] [--ic-destructive:#a11f05] [--ic-paper:#e6d5bd] [--ic-popover-foreground:#101010] [--ic-brand:#101010] [--ic-brand-soft:#e4c2a8] [--ic-shadow-soft:0_20px_44px_-28px_rgba(60,20,5,0.35)] [--ic-chart-1:#d5360c] [--ic-chart-2:#1d4ed8] [--ic-chart-3:#101010] [--ic-chart-4:#3f6212] [--ic-chart-5:#615a51] [--color-background:var(--ic-background)] [--color-foreground:var(--ic-foreground)] [--color-primary:var(--ic-primary)] [--color-secondary:var(--ic-secondary)] [--color-border:var(--ic-border)] [--color-card:var(--ic-card)] [--color-card-foreground:var(--ic-card-foreground)] [--color-muted:var(--ic-muted)] [--color-muted-foreground:var(--ic-muted-foreground)] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] [--color-input:var(--ic-input)] [--color-ring:var(--ic-ring)] [--color-destructive:var(--ic-destructive)] [--color-paper:var(--ic-paper)] [--color-popover-foreground:var(--ic-popover-foreground)] [--color-brand:var(--ic-brand)] [--color-brand-soft:var(--ic-brand-soft)] [--color-chart-1:var(--ic-chart-1)] [--color-chart-2:var(--ic-chart-2)] [--color-chart-3:var(--ic-chart-3)] [--color-chart-4:var(--ic-chart-4)] [--color-chart-5:var(--ic-chart-5)]";
 
 const FILL_DURATION = 0.5;
 const FILL_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -138,12 +139,11 @@ const OriginButton = React.forwardRef<HTMLButtonElement, OriginButtonProps>(
         className={cn(
           componentThemeClassName,
           "relative inline-flex h-12 cursor-pointer touch-manipulation select-none items-center justify-center overflow-hidden rounded-xl px-8 text-[15px] font-medium tracking-[-0.02em]",
-          "border border-[#1e1811] bg-[#1e1811] text-[#fbf7ef] shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_12px_28px_-12px_rgb(30_24_17/0.55)]",
-          "dark:bg-muted dark:text-foreground",
+          "border border-border bg-card text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.55),0_12px_28px_-12px_rgba(60,20,5,0.35)]",
           "transition-[color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           "disabled:pointer-events-none disabled:opacity-50",
-          showFill && "text-[#1e1811] dark:text-neutral-950",
+          showFill && "text-brand-foreground",
           className
         )}
         data-pressed={isPressed ? "true" : "false"}
@@ -231,7 +231,7 @@ const OriginButton = React.forwardRef<HTMLButtonElement, OriginButtonProps>(
         <motion.span
           animate={{ scale: showFill && coverSize > 0 ? 1 : 0 }}
           aria-hidden
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,#f8dca8_0%,#e8b366_58%,#c98d34_100%)]"
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,#2e2e2c_0%,#1d1d1b_58%,#101010_100%)]"
           initial={false}
           style={{
             height: coverSize,

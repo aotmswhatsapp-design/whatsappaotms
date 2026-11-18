@@ -13,11 +13,16 @@ const BASE =
 const SIZES = { md: "button-md", sm: "button-sm" } as const;
 
 const VARIANTS = {
-  brand: "bg-brand text-white hover:bg-brand/90 focus-visible:ring-brand",
+  /** The accent fill. Lime on the dark field, teal on a paper band: the role
+      is supplied by whichever scope the button sits in. */
+  brand:
+    "bg-brand text-brand-foreground hover:bg-brand/90 focus-visible:ring-brand",
   outline:
     "border border-border bg-background text-foreground hover:border-brand/40 hover:text-brand focus-visible:ring-brand",
+  /** For the accent closing slab, where an accent fill would vanish into its
+      own background: the action has to be the field colour instead. */
   inverse:
-    "bg-white text-foreground hover:bg-white/90 focus-visible:ring-white",
+    "bg-background text-foreground hover:bg-background/90 focus-visible:ring-background",
 } as const;
 
 export function CtaLink({

@@ -106,7 +106,7 @@ export function ConnectionWidget() {
 
       <Link
         href="/workspace/whatsapp"
-        className="mt-auto inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand px-3 text-xs font-semibold text-white transition-colors hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        className="mt-auto inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand px-3 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
       >
         <PlugZap className="size-3.5" aria-hidden="true" />
         Start the connection

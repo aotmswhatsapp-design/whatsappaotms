@@ -9,6 +9,10 @@ import { clients, pendingClientSlots } from "@/config/clients";
  * The strip sits below the fold, so every logo is lazy: the browser only
  * fetches a file as the row comes into view, and the static import gives Next a
  * blur placeholder to hold the tile's shape in the meantime.
+ *
+ * Customer marks are authored for a light background, so each tile is a paper
+ * chip: the row carries the light scope rather than trusting the files to be
+ * legible on black.
  */
 export function LogoStrip() {
   return (
@@ -18,7 +22,10 @@ export function LogoStrip() {
           Teams that run their WhatsApp channel with us
         </p>
 
-        <ul className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <ul
+          data-theme="paper"
+          className="mt-8 grid grid-cols-2 gap-4 text-foreground sm:grid-cols-3 lg:grid-cols-6"
+        >
           {clients.map((client) => (
             <li
               key={client.name}
@@ -38,7 +45,7 @@ export function LogoStrip() {
           {Array.from({ length: pendingClientSlots }, (_, slot) => (
             <li
               key={`pending-${slot}`}
-              className="flex h-16 items-center justify-center rounded-xl border border-dashed border-border"
+              className="flex h-16 items-center justify-center rounded-xl border border-dashed border-border bg-card"
             >
               <span className="caption-4 text-muted-foreground">
                 {"{{customer_logo}}"}

@@ -40,7 +40,7 @@ export function SetupCost() {
                     aria-hidden="true"
                   />
                 </span>
-                <span className="caption-3 rounded-full bg-brand px-2 py-1 text-white">
+                <span className="caption-3 rounded-full bg-brand px-2 py-1 text-brand-foreground">
                   One time
                 </span>
               </div>

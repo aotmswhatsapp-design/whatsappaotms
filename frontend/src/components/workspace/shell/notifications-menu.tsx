@@ -27,7 +27,7 @@ export function NotificationsMenu() {
           className="relative inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-accent data-[state=open]:text-foreground"
         >
           <Bell className="size-5" aria-hidden="true" />
-          <span className="absolute top-1 right-1 grid size-4 place-items-center rounded-full bg-brand text-[10px] leading-none font-semibold text-white">
+          <span className="absolute top-1 right-1 grid size-4 place-items-center rounded-full bg-brand text-[10px] leading-none font-semibold text-brand-foreground">
             {pending}
           </span>
         </button>

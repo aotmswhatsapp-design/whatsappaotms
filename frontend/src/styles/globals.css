@@ -1,65 +1,206 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
+/**
+ * Brand palette. Three colours; every surface, ink and tint below is one of
+ * them, a mix of two, or an ink that has to stay legible on top of them.
+ *
+ *   Burnt Orange  #D5360C   60%   the field
+ *   Warm Ivory    #E6D5BD   30%   the paper reading text sits on
+ *   Soft Black    #101010   10%   ink, and the one accent
+ *
+ * The app ships one theme, so its palette lives in `:root` alone. There is no
+ * `.dark` override: nothing ever applied that class, and a second block would
+ * be a duplicate that silently drifts. The landing page is the exception and
+ * layers its own palette in the scoped blocks further down.
+ *
+ * Contrast is the constraint that shapes the mapping: on burnt orange the best
+ * any ink can reach is 3.95:1 (soft black), and ivory only 3.35:1. Nothing hits
+ * 4.5:1 on this field, so every surface that carries a paragraph is ivory,
+ * where soft black reads 13.2:1. Orange is the field and the display backdrop
+ * (large headings clear AA at 3.35:1), never a reading surface.
+ */
 :root {
   --radius: 0.75rem;
 
-  --background: #ffffff;
-  --foreground: #111111;
-  --card: #ffffff;
-  --card-foreground: #111111;
-  --popover: #ffffff;
-  --popover-foreground: #111111;
-  --primary: #111111;
-  --primary-foreground: #ffffff;
-  --secondary: #f5f7fa;
-  --secondary-foreground: #111111;
-  --muted: #f5f7fa;
-  --muted-foreground: #6d7480;
-  --accent: #f3f5f8;
-  --accent-foreground: #111111;
-  --destructive: #dc2626;
-  --border: #e3e7ec;
-  --input: #e3e7ec;
-  --ring: #ea580c;
+  --burnt: #d5360c;
+  --ivory: #e6d5bd;
+  --soft-black: #101010;
 
-  /* Brand accents: orange (primary accent), blue, yellow-green */
-  --brand: #ea580c;
-  --brand-soft: #ffedd5;
-  --blue: #2563eb;
-  --blue-soft: #dbeafe;
-  --lime: #65a30d;
-  --lime-soft: #ecfccb;
+  /* The landing page's field. It is declared at the root as well as in the
+     scope below because `<body>` sits outside the landing subtree and the
+     canvas rule in `@layer base` has to reach the same value from there. */
+  --field: #0b3048;
+
+  /* 60% — the field everything sits on. */
+  --background: var(--burnt);
+  /* 30% — paper: every card, band and sheet that holds reading text. */
+  --card: var(--ivory);
+  --popover: var(--ivory);
+  --secondary: #d5c5ae; /* ivory, one step down in ink: chips and inset panels */
+  --muted: #d5c5ae;
+  --accent: #c4b59f;
+  --border: #b89f80; /* a warm rule that reads at ~1.9:1 on paper and on orange */
+  --input: #b89f80;
+
+  /* Ink. Soft black is the only tone legible on both the field and the paper,
+     so it carries body copy and every label. */
+  --foreground: var(--soft-black);
+  --card-foreground: var(--soft-black);
+  --popover-foreground: var(--soft-black);
+  --secondary-foreground: var(--soft-black);
+  --accent-foreground: var(--soft-black);
+  /* On burnt orange no lighter tone reads at all, so "muted" has to be a
+     darker warm grey instead of a paler one: 3.33:1 on the field, 11.2:1 on
+     paper. Hierarchy gives way to legibility. */
+  --muted-foreground: #282018;
+
+  /* 10% — the accent. Orange is already the field, so the accent role belongs
+     to soft black: solid pills with ivory labels (13.2:1). */
+  --primary: var(--soft-black);
+  --primary-foreground: var(--ivory);
+  --brand: var(--soft-black);
+  --brand-foreground: var(--ivory);
+  --brand-soft: #e4c2a8; /* burnt orange at 12% over ivory */
+  --ring: var(--soft-black);
+
+  --destructive: #a11f05;
+
+  /* Status hues are semantic, not decorative, so they keep their identity and
+     only get deepened for a light field. */
+  --blue: #1d4ed8;
+  --blue-soft: #d6e0f7;
+  --lime: #3f6212;
+  --lime-soft: #e2ecc8;
 }
 
-.dark {
-  --background: #0b0b0c;
-  --foreground: #f6f3ec;
-  --card: #141416;
-  --card-foreground: #f6f3ec;
-  --popover: #141416;
-  --popover-foreground: #f6f3ec;
-  --primary: #f6f3ec;
-  --primary-foreground: #111111;
-  --secondary: #1c1c1f;
-  --secondary-foreground: #f6f3ec;
-  --muted: #1c1c1f;
-  --muted-foreground: #a1a1aa;
-  --accent: #232327;
-  --accent-foreground: #f6f3ec;
-  --destructive: #ef4444;
-  --border: #2a2a2f;
-  --input: #2a2a2f;
-  --ring: #f97316;
+/**
+ * Landing-page palette. `(marketing)/layout.tsx` sets `data-theme="deep"` on
+ * its shell, so the block below cascades over the whole landing page and stops
+ * at the route boundary: the workspace and auth screens keep the values above
+ * untouched. Every colour utility compiles to `var(--background)` and friends
+ * (not to a `:root`-resolved copy), so redefining the roles on a wrapper
+ * repaints that subtree and nothing else.
+ *
+ *   Deep Midnight Teal  #0B3048   60%   the field
+ *   Soft Pearl          #F2F0E9   30%   the paper
+ *   Neon Lime           #B9F12F   10%   the accent
+ *
+ * The scopes are named by role rather than by hue, because this palette has
+ * already changed more than once. A third change should be values in these
+ * blocks and nothing else.
+ *
+ * Contrast: pearl on teal is 12.0:1 and lime on teal 10.25:1, so the dark side
+ * clears AA for body copy unaided. The constraint is the pearl bands, where
+ * lime reads 1.17:1 and cannot be ink or a border: inside `data-theme="paper"`
+ * the accent role flips to teal, and the light sections carry no lime at all.
+ * The accent lives only on the field.
+ */
+[data-theme="deep"] {
+  color-scheme: dark;
 
-  --brand: #fb923c;
-  --brand-soft: #431407;
-  --blue: #60a5fa;
-  --blue-soft: #172554;
-  --lime: #a3e635;
-  --lime-soft: #1a2e05;
+  --pearl: #f2f0e9;
+  --neon: #b9f12f;
+
+  /* 60% — the field. The ramp holds hue 204 and moves lightness only, so a
+     raised surface still reads as teal instead of as a grey patch on it. */
+  --background: var(--field);
+  /* Three steps above the field, in the order the eye expects them: a band
+     lifts off the field, a card lifts again inside that band, and a hover
+     lifts once more. */
+  --secondary: #17394f;
+  --muted: #17394f;
+  --card: #20445b;
+  --popover: #20445b;
+  --accent: #334e60;
+  /* A seam rather than a line of ink: ~1.6:1 against the field. */
+  --border: #2c5875;
+  /* Lighter than the seam, because a field this luminous swallows a control's
+     outline. Focus is carried by the ring below, not by this colour. */
+  --input: #3a6a8a;
+
+  /* Ink. Pearl carries body copy at 12.0:1. */
+  --foreground: var(--pearl);
+  --card-foreground: var(--pearl);
+  --popover-foreground: var(--pearl);
+  --secondary-foreground: var(--pearl);
+  --accent-foreground: var(--pearl);
+  /* A teal-grey rather than a neutral grey: neutral reads as dirty on this
+     field. 6.2:1 on the field, 5.5:1 on a band, 4.7:1 on a card. */
+  --muted-foreground: #9db1bd;
+
+  /* 10% — the accent. Lime clears 10.25:1 here, so one stop carries ink, fill
+     and focus ring; it needs no lighter variant for small marks. */
+  --primary: var(--neon);
+  --primary-foreground: var(--field);
+  --brand: var(--neon);
+  --brand-foreground: var(--field); /* 10.25:1 inside a lime fill */
+  --brand-soft: #234b45; /* lime at 14% over the field: a lit teal plate */
+  --ring: var(--neon);
+
+  --destructive: #ff8a73; /* 6.0:1 on the field */
+
+  /* Status hues only, and deliberately cool and desaturated so that none of
+     them can be mistaken for the accent. Nothing on the landing page consumes
+     them today; they exist so a future data surface has an honest palette. */
+  --blue: #7fb6d6;
+  --blue-soft: #0e3348;
+  --lime: #8fd9b0;
+  --lime-soft: #0e3a33;
+}
+
+/* On this field a selection has to be the accent itself; the inherited
+   `--brand-soft` tint would barely separate from the page. */
+[data-theme="deep"] ::selection {
+  background-color: var(--brand);
+  color: var(--brand-foreground);
+}
+
+/**
+ * A paper band. Product and pricing are the two full-bleed light sections that
+ * turn the 60/30/10 rhythm, so the teal stretch between them reads as a
+ * deliberate beat instead of an unbroken wall.
+ *
+ * Lime is 1.17:1 on pearl, so the accent cannot appear here at all: the role
+ * belongs to the teal that already carries the ink. These bands are
+ * accent-free by construction rather than by discipline.
+ *
+ * This block supplies roles only; the components inside keep their classes.
+ */
+[data-theme="paper"] {
+  color-scheme: light;
+
+  --background: #f2f0e9;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --secondary: #e8e4da;
+  --muted: #e8e4da;
+  --accent: #ded9cc;
+  --border: #d8d2c4;
+  --input: #d8d2c4;
+
+  --foreground: #0b3048; /* 12.0:1 on pearl, 13.7:1 on a white card */
+  --card-foreground: #0b3048;
+  --popover-foreground: #0b3048;
+  --secondary-foreground: #0b3048;
+  --accent-foreground: #0b3048;
+  --muted-foreground: #5a6a72; /* 4.9:1 on pearl, 5.6:1 on a white card */
+
+  /* Lime is 1.17:1 on pearl, so the accent role belongs to teal on a light
+     band: teal pills with pearl labels, teal marks, teal focus rings. */
+  --primary: #0b3048;
+  --primary-foreground: #f2f0e9;
+  --brand: #0b3048;
+  --brand-foreground: #f2f0e9;
+  --brand-soft: #dce7ea; /* a pale teal plate carrying teal type */
+  --ring: #0b3048;
+
+  --destructive: #a3230f;
+
+  --blue: #1d4ed8;
+  --blue-soft: #dae3f5;
+  --lime: #1f6b4f;
+  --lime-soft: #d9ede3;
 }
 
 @theme inline {
@@ -82,7 +223,12 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  --color-burnt: var(--burnt);
+  --color-ivory: var(--ivory);
+  --color-soft-black: var(--soft-black);
+
   --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
   --color-brand-soft: var(--brand-soft);
   --color-blue: var(--blue);
   --color-blue-soft: var(--blue-soft);
@@ -335,6 +481,43 @@
   pointer-events: none;
 }
 
+/**
+ * The hero's signal motes. Three dots that drift and dim instead of blinking: a
+ * blink reads as an alert, and these are not alerting anyone. They are the only
+ * accent in the hero above the button, which is why they are dots and not
+ * shapes.
+ */
+@keyframes mote-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.4;
+  }
+
+  50% {
+    transform: translate3d(5px, -9px, 0);
+    opacity: 0.78;
+  }
+}
+
+@layer components {
+  .hero-mote {
+    position: absolute;
+    border-radius: 9999px;
+    background-color: var(--brand);
+    box-shadow: 0 0 14px 3px color-mix(in oklab, var(--brand) 40%, transparent);
+    animation: mote-drift 48s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-mote {
+      animation: none;
+      opacity: 0.55;
+    }
+  }
+}
+
 @keyframes accordion-down {
   from {
     height: 0;
@@ -360,6 +543,13 @@
 
   body {
     @apply bg-background font-sans text-foreground antialiased;
+  }
+
+  /* The palette is painted on `<body>`, but the landing page carries a field of
+     its own inside a descendant: without this the canvas behind it stays the
+     app colour, and an overscroll bounce shows it at the edge of the window. */
+  body:has([data-theme="deep"]) {
+    background-color: var(--field);
   }
 
   ::selection {

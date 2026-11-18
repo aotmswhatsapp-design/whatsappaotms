@@ -38,7 +38,13 @@ export function Pricing({
   const [annual, setAnnual] = React.useState(false);
 
   return (
-    <section id="plans" className="scroll-mt-24 border-b border-border">
+    /* The second paper band, contiguous with the product one so the light run
+       reads as a single stretch of the page. */
+    <section
+      id="plans"
+      data-theme="paper"
+      className="scroll-mt-24 border-b border-border bg-background text-foreground"
+    >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
         <div className="mx-auto max-w-[680px] text-center">
           <p className="caption-3 text-brand">Plans</p>
@@ -60,7 +66,7 @@ export function Pricing({
                 "button-sm rounded-full px-3 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none",
                 annual
                   ? "text-muted-foreground hover:text-foreground"
-                  : "bg-background text-foreground shadow-sm",
+                  : "bg-foreground text-background shadow-sm",
               )}
             >
               Monthly
@@ -72,12 +78,12 @@ export function Pricing({
               className={cn(
                 "button-sm rounded-full px-3 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none",
                 annual
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-foreground text-background shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
               Annual
-              <span className="ml-1 text-blue">save 20%</span>
+              <span className="ml-1 text-brand">save 20%</span>
             </button>
           </div>
         </div>

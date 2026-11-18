@@ -48,7 +48,9 @@ export function Benefits() {
         <div className="mt-12 grid gap-4 md:grid-cols-2">
           {BENEFITS.map((benefit, index) => (
             <Reveal key={benefit.title} className="h-full" delay={index * 0.05}>
-              <div className="flex h-full flex-col rounded-2xl border border-border p-6">
+              {/* On a black field a tile has to be a raised tone, not a
+                  shadowed one. */}
+              <div className="flex h-full flex-col rounded-2xl border border-border bg-card p-6">
                 <span className="inline-flex size-10 items-center justify-center rounded-full bg-brand-soft text-brand">
                   <benefit.icon
                     className="size-5"

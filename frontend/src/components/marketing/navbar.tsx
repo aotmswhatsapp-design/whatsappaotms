@@ -114,9 +114,11 @@ const Navbar = ({
       )}
     >
       <header className="mx-auto flex h-18 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        {/* The asset carries its own orange lettering, which fights the teal
+            field, so the mark keeps a paper plate under it. */}
         <Link
           href={logo.url}
-          className="rounded-md focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="rounded-md bg-foreground px-2 py-1.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           <Image
             src={logo.src}
@@ -152,7 +154,7 @@ const Navbar = ({
 
         <div className="hidden items-center gap-2 lg:flex">
           {user ? (
-            <UserMenu user={user} tone="plain" />
+            <UserMenu user={user} popoverTheme="deep" tone="plain" />
           ) : (
             <>
               <Link
@@ -196,7 +198,7 @@ const Navbar = ({
               <Link
                 href={logo.url}
                 onClick={() => setOpen(false)}
-                className="rounded-md focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="rounded-md bg-foreground px-2 py-1.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <Image
                   src={logo.src}
@@ -261,7 +263,7 @@ const Navbar = ({
                   <span className="body-5 text-muted-foreground">
                     {user.name ?? user.email}
                   </span>
-                  <UserMenu user={user} tone="plain" />
+                  <UserMenu user={user} popoverTheme="deep" tone="plain" />
                 </div>
               ) : (
                 <>

@@ -51,15 +51,15 @@ export function TaglineReveal() {
   }, [reduceMotion]);
 
   return (
-    <section className="border-b border-border bg-foreground">
+    <section className="border-b border-border bg-secondary">
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
-        {/* The blue rule is the only colour on an otherwise black band: it
-            marks the sentence as the page's stance, not a feature. */}
-        <div className="border-l-2 border-blue pl-6 lg:pl-12">
-          <p className="caption-3 text-[#93c5fd]">Why we built this</p>
+        {/* The band lifts one step off the field instead of inverting, so its
+            ink stays the paper tone and the rule is a quiet tint of it. */}
+        <div className="border-l-2 border-foreground/25 pl-6 lg:pl-12">
+          <p className="caption-3 text-muted-foreground">Why we built this</p>
           <h2
             ref={headingRef}
-            className="heading-2 mt-4 max-w-[680px] text-white"
+            className="heading-2 mt-4 max-w-[680px] text-foreground"
           >
             {WORDS.map((word, index) => (
               <span

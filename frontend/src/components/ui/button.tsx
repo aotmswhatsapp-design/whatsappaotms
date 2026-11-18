@@ -12,20 +12,21 @@ const buttonVariants = cva(
         default:
           "bg-primary text-primary-foreground shadow-xs hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md",
         brand:
-          "bg-brand text-white shadow-xs hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25",
+          "bg-brand text-brand-foreground shadow-xs hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25",
         /**
-         * White pill for the orange sheets (navbar, hero). The orange label is
-         * the hero's own top colour, so it matches the sheet behind it.
+         * Inverted pill: soft black plate, ivory label. The highest-contrast
+         * action available on the burnt field.
          */
         light:
-          "bg-white text-[#9c3a11] shadow-xs hover:-translate-y-0.5 hover:bg-[#ffedd5] hover:shadow-lg hover:shadow-black/20",
-        /** Outline control that stays legible on a coloured sheet. */
+          "bg-foreground text-card shadow-xs hover:-translate-y-0.5 hover:bg-foreground/90 hover:shadow-lg hover:shadow-black/20",
+        /** Outline control that stays legible on the burnt field. */
         inverse:
-          "border border-white/30 text-white hover:-translate-y-0.5 hover:border-white/60 hover:bg-white/10",
-        /** Borderless control for a coloured sheet. */
-        "inverse-ghost": "text-white/85 hover:bg-white/10 hover:text-white",
+          "border border-foreground/30 text-foreground hover:-translate-y-0.5 hover:border-foreground/60 hover:bg-foreground/10",
+        /** Borderless control for the burnt field. */
+        "inverse-ghost":
+          "text-foreground/85 hover:bg-foreground/10 hover:text-foreground",
         destructive:
-          "bg-destructive text-white shadow-xs hover:-translate-y-0.5 hover:bg-destructive/90 hover:shadow-md focus-visible:ring-destructive/20",
+          "bg-destructive text-card shadow-xs hover:-translate-y-0.5 hover:bg-destructive/90 hover:shadow-md focus-visible:ring-destructive/20",
         outline:
           "border border-border bg-background shadow-xs hover:-translate-y-0.5 hover:border-brand/40 hover:bg-accent hover:text-accent-foreground hover:shadow-sm",
         secondary:

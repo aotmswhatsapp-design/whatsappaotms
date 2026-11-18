@@ -37,10 +37,10 @@ const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 const FONT_MONO = "var(--font-geist-mono)";
 
 export const CHART_COLORS = {
-  brand: "var(--brand)",
+  /* The series draw on ivory paper, so they use the field colour itself. */
+  brand: "var(--burnt)",
   blue: "var(--blue)",
   lime: "var(--lime)",
-  amber: "#f59e0b",
 } as const;
 
 const MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -806,11 +806,12 @@ export function CategoryCard({
           const showName = h >= 46 && w >= 74;
           const showValue = h >= 34 && w >= 52;
           if (!showValue) fontSize = 0;
+          // Series fills are deep tones on ivory paper, so labels are ivory.
           const ink =
             group?.ink === "light"
-              ? "text-white"
+              ? "text-card"
               : group?.ink === "dark"
-                ? "text-neutral-950"
+                ? "text-soft-black"
                 : "text-foreground";
           return (
             <div

@@ -203,7 +203,7 @@ export function VerifyEmailForm({ initialEmail = "" }: { initialEmail?: string }
         <p className="text-xs text-muted-foreground">
           Nothing arrived? Check the spam folder, then{" "}
           <button
-            className="font-semibold text-brand underline-offset-4 transition-colors hover:text-[#9c3a11] hover:underline disabled:pointer-events-none disabled:text-muted-foreground disabled:no-underline"
+            className="font-semibold text-brand underline-offset-4 transition-colors hover:text-brand/80 hover:underline disabled:pointer-events-none disabled:text-muted-foreground disabled:no-underline"
             disabled={busy || cooldown > 0}
             onClick={resend}
             type="button"
@@ -214,14 +214,14 @@ export function VerifyEmailForm({ initialEmail = "" }: { initialEmail?: string }
         </p>
         <p className="text-xs text-muted-foreground">
           <Link
-            className="font-semibold text-brand underline-offset-4 transition-colors hover:text-[#9c3a11] hover:underline"
+            className="font-semibold text-brand underline-offset-4 transition-colors hover:text-brand/80 hover:underline"
             href="/signup"
           >
             Use a different email
           </Link>
           <span className="mx-2 text-border">|</span>
           <Link
-            className="font-semibold text-brand underline-offset-4 transition-colors hover:text-[#9c3a11] hover:underline"
+            className="font-semibold text-brand underline-offset-4 transition-colors hover:text-brand/80 hover:underline"
             href="/login"
           >
             Back to sign in

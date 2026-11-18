@@ -30,15 +30,19 @@ function initialsOf(user: SessionUser): string {
  * Avatar and account menu. Shared by the marketing navbar and the workspace
  * top bar so a signed-in user is identified identically everywhere.
  *
- * `tone` switches the ring/initials treatment for the orange sheet versus the
- * white chrome.
+ * `tone` switches the ring/initials treatment for the workspace bar versus the
+ * plain marketing navbar. `popoverTheme` names the palette for the menu itself:
+ * it renders in a portal on `<body>`, so it sits outside whatever `data-theme`
+ * scope the trigger inherited and cannot pick the surface up on its own.
  */
 export function UserMenu({
   user,
   tone = "sheet",
+  popoverTheme,
 }: {
   user: SessionUser;
   tone?: "sheet" | "plain";
+  popoverTheme?: "deep" | "paper";
 }) {
   const label = user.name ?? user.email;
 
@@ -50,7 +54,7 @@ export function UserMenu({
           aria-label={`Account menu for ${label}`}
           className={
             tone === "sheet"
-              ? "group inline-flex size-9 shrink-0 items-center justify-center rounded-full ring-2 ring-white/40 outline-none transition-all duration-200 hover:-translate-y-0.5 hover:ring-white/80 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#a54013] data-[state=open]:ring-white"
+              ? "group inline-flex size-9 shrink-0 items-center justify-center rounded-full ring-2 ring-card/40 outline-none transition-all duration-200 hover:-translate-y-0.5 hover:ring-card/80 focus-visible:ring-2 focus-visible:ring-card focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=open]:ring-card"
               : "group inline-flex size-9 shrink-0 items-center justify-center rounded-full ring-2 ring-border outline-none transition-all duration-200 hover:-translate-y-0.5 hover:ring-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[state=open]:ring-brand/50"
           }
         >
@@ -64,18 +68,18 @@ export function UserMenu({
               className="size-9 rounded-full object-cover"
             />
           ) : tone === "sheet" ? (
-            <span className="grid size-9 place-items-center rounded-full bg-white text-sm font-semibold text-[#9c3a11]">
+            <span className="grid size-9 place-items-center rounded-full bg-foreground text-sm font-semibold text-card">
               {initialsOf(user)}
             </span>
           ) : (
-            <span className="grid size-9 place-items-center rounded-full bg-brand text-sm font-semibold text-white">
+            <span className="grid size-9 place-items-center rounded-full bg-brand text-sm font-semibold text-brand-foreground">
               {initialsOf(user)}
             </span>
           )}
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent>
+      <DropdownMenuContent data-theme={popoverTheme}>
         <DropdownMenuLabel className="py-2">
           <span className="block truncate text-sm font-semibold text-foreground">
             {user.name ?? "Signed in"}

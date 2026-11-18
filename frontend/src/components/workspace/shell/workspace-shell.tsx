@@ -34,7 +34,7 @@ export function WorkspaceShell({
   const [navOpen, setNavOpen] = useState(false);
 
   return (
-    <div className="min-h-dvh bg-secondary/60 lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+    <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
       <aside className="hidden border-r border-border bg-background lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
         <SidebarBrand />
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -67,7 +67,7 @@ export function WorkspaceShell({
   );
 }
 
-/** logo.png is a wide navy lockup, so it sits on a white plate with a hairline. */
+/** logo.png is a wide navy lockup, so it sits on a fog plate with a hairline. */
 function SidebarBrand() {
   return (
     <div className="flex h-16 shrink-0 items-center border-b border-border px-3.5">
@@ -76,7 +76,7 @@ function SidebarBrand() {
         aria-label={site.name ? `${site.name} — back to website` : "Back to website"}
         className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <span className="inline-flex rounded-md bg-white px-1.5 py-1 ring-1 ring-border">
+        <span className="inline-flex rounded-md bg-foreground px-1.5 py-1 ring-1 ring-border">
           <Image
             src={site.logo.src}
             alt={site.logo.alt}

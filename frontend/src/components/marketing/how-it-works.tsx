@@ -37,7 +37,7 @@ export function HowItWorks() {
             <li key={step.title} className="h-full">
               <Reveal className="h-full" delay={index * 0.08}>
                 <div className="flex h-full flex-col">
-                  <span className="title-4 inline-flex size-8 items-center justify-center rounded-full bg-brand text-white">
+                  <span className="title-4 inline-flex size-8 items-center justify-center rounded-full bg-brand text-brand-foreground">
                     {index + 1}
                   </span>
                   <h3 className="heading-6 mt-4">{step.title}</h3>

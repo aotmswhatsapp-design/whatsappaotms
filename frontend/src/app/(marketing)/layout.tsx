@@ -10,11 +10,19 @@ export default function MarketingLayout({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
+    /* The landing page carries its own palette. `data-theme` redefines the role
+       tokens for this subtree only, so the workspace and auth screens keep the
+       app theme in `:root`. `text-foreground` has to be declared here as well
+       as on `<body>`: colour is inherited as a computed value, so a heading with
+       no colour class would otherwise keep the body's ink on the field. */
+    <div
+      data-theme="deep"
+      className="flex min-h-dvh flex-col bg-background text-foreground"
+    >
       {/* Keyboard users land here first; it is off screen until focused. */}
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground"
       >
         Skip to content
       </a>

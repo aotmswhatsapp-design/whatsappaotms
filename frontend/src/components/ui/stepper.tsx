@@ -40,7 +40,7 @@ export function Stepper({
               aria-hidden="true"
               className={cn(
                 "grid size-7 shrink-0 place-items-center rounded-full border text-[11px] font-semibold transition-colors",
-                state === "active" && "border-brand bg-brand text-white shadow-sm shadow-brand/30",
+                state === "active" && "border-brand bg-brand text-brand-foreground shadow-sm shadow-brand/30",
                 state === "done" && "border-lime/40 bg-lime-soft text-lime",
                 state === "upcoming" && "border-border bg-card text-muted-foreground",
               )}
