@@ -5,26 +5,25 @@
  * Brand palette. Three colours; every surface, ink and tint below is one of
  * them, a mix of two, or an ink that has to stay legible on top of them.
  *
- *   Burnt Orange  #D5360C   60%   the field
- *   Warm Ivory    #E6D5BD   30%   the paper reading text sits on
- *   Soft Black    #101010   10%   ink, and the one accent
+ *   Soft Pearl          #F7F5F0   60%   the sheet the app sits on
+ *   White               #FFFFFF   30%   the cards text sits on
+ *   Deep Midnight Teal  #0B3048   10%   ink, and the one accent
  *
- * The app ships one theme, so its palette lives in `:root` alone. There is no
- * `.dark` override: nothing ever applied that class, and a second block would
- * be a duplicate that silently drifts. The landing page is the exception and
- * layers its own palette in the scoped blocks further down.
+ * The app ships one palette, so it lives in `:root` alone. There is no `.dark`
+ * override: nothing ever applied that class, and a second block would be a
+ * duplicate that silently drifts. The marketing and auth routes are the
+ * exception and layer their own palettes in the scoped blocks further down.
  *
- * Contrast is the constraint that shapes the mapping: on burnt orange the best
- * any ink can reach is 3.95:1 (soft black), and ivory only 3.35:1. Nothing hits
- * 4.5:1 on this field, so every surface that carries a paragraph is ivory,
- * where soft black reads 13.2:1. Orange is the field and the display backdrop
- * (large headings clear AA at 3.35:1), never a reading surface.
+ * Contrast is what shapes the mapping: teal on the sheet is 12.6:1 and on a
+ * card 13.7:1, so a single ink carries headings and body copy alike, and a
+ * teal fill takes pearl labels at the same 12.6:1. The muted grey clears 5.7:1
+ * on the sheet, so hierarchy finally comes from a lighter tone rather than
+ * from the only one that happened to be legible. Lime cannot be a surface on
+ * paper, so it appears only as a deep olive mark at 6.5:1.
  */
 :root {
   --radius: 0.75rem;
 
-  --burnt: #d5360c;
-  --ivory: #e6d5bd;
   --soft-black: #101010;
 
   /* The landing page's field. It is declared at the root as well as in the
@@ -32,46 +31,47 @@
      canvas rule in `@layer base` has to reach the same value from there. */
   --field: #0b3048;
 
-  /* 60% — the field everything sits on. */
-  --background: var(--burnt);
-  /* 30% — paper: every card, band and sheet that holds reading text. */
-  --card: var(--ivory);
-  --popover: var(--ivory);
-  --secondary: #d5c5ae; /* ivory, one step down in ink: chips and inset panels */
-  --muted: #d5c5ae;
-  --accent: #c4b59f;
-  --border: #b89f80; /* a warm rule that reads at ~1.9:1 on paper and on orange */
-  --input: #b89f80;
+  /* 60% — the sheet everything sits on. A touch of warmth keeps the white
+     cards from floating on obvious grey without casting a colour over them. */
+  --background: #f7f5f0;
+  /* 30% — the card: every panel, table and popover that holds reading text. */
+  --card: #ffffff;
+  --popover: #ffffff;
+  --secondary: #efece4; /* a step down: chips, inset panels, the search pill */
+  --muted: #efece4;
+  --accent: #e8e4da; /* the hover affordance on a light sheet */
+  --border: #e2ded4; /* 1.23:1 — a hairline, structure rather than decoration */
+  --input: #8d8579; /* 3.34:1 — a control outline has to clear 3:1 on its own */
 
-  /* Ink. Soft black is the only tone legible on both the field and the paper,
-     so it carries body copy and every label. */
-  --foreground: var(--soft-black);
-  --card-foreground: var(--soft-black);
-  --popover-foreground: var(--soft-black);
-  --secondary-foreground: var(--soft-black);
-  --accent-foreground: var(--soft-black);
-  /* On burnt orange no lighter tone reads at all, so "muted" has to be a
-     darker warm grey instead of a paler one: 3.33:1 on the field, 11.2:1 on
-     paper. Hierarchy gives way to legibility. */
-  --muted-foreground: #282018;
+  /* Ink. One deep teal carries headings and body copy: 12.6:1 on the sheet and
+     13.7:1 on card. */
+  --foreground: #0b3048;
+  --card-foreground: #0b3048;
+  --popover-foreground: #0b3048;
+  --secondary-foreground: #0b3048;
+  --accent-foreground: #0b3048;
+  /* The muted tier can finally be lighter than the ink, because on paper the
+     question is hierarchy rather than whether any tone is legible at all:
+     5.7:1 on the sheet, 6.2:1 on card. */
+  --muted-foreground: #55636c;
 
-  /* 10% — the accent. Orange is already the field, so the accent role belongs
-     to soft black: solid pills with ivory labels (13.2:1). */
-  --primary: var(--soft-black);
-  --primary-foreground: var(--ivory);
-  --brand: var(--soft-black);
-  --brand-foreground: var(--ivory);
-  --brand-soft: #e4c2a8; /* burnt orange at 12% over ivory */
-  --ring: var(--soft-black);
+  /* 10% — the accent. Teal plates carrying pearl labels (12.6:1), the same
+     action colour the landing page closes on. */
+  --primary: #0b3048;
+  --primary-foreground: #f7f5f0;
+  --brand: #0b3048;
+  --brand-foreground: #f7f5f0;
+  --brand-soft: #dfe9ec; /* a pale teal plate; teal type on it reads 11.1:1 */
+  --ring: #0b3048;
 
   --destructive: #a11f05;
 
   /* Status hues are semantic, not decorative, so they keep their identity and
      only get deepened for a light field. */
   --blue: #1d4ed8;
-  --blue-soft: #d6e0f7;
+  --blue-soft: #dce5f7;
   --lime: #3f6212;
-  --lime-soft: #e2ecc8;
+  --lime-soft: #e4f0c6;
 }
 
 /**
@@ -204,10 +204,10 @@
 }
 
 /**
- * The auth sheet. Sign-in is a document, not a second landing page, so it sits
- * on white paper rather than on the burnt field: the card is a white sheet held
- * by a hairline and a soft shadow, and the logo's own orange is the only warm
- * thing on the screen.
+ * The auth sheet. Sign-in is a document, not a second entry point, so it sits
+ * on plain white rather than on the app's warm pearl: the card is a white sheet
+ * held by a hairline and a soft shadow, and the logo's own orange is the only
+ * warm thing on the screen.
  *
  * `--input` is deliberately much darker than `--border`. A card hairline is
  * decorative, but a field's outline is the only thing that says "this is a
@@ -272,8 +272,6 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --color-burnt: var(--burnt);
-  --color-ivory: var(--ivory);
   --color-soft-black: var(--soft-black);
 
   --color-brand: var(--brand);

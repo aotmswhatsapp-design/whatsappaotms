@@ -68,8 +68,8 @@ export const previewFlow = {
 export const previewCategories = {
   title: "Templates by category",
   groups: [
-    // Deep fills on ivory paper, so every series carries ivory labels.
-    { id: "marketing", name: "Marketing", color: "var(--burnt)", ink: "light" as const },
+    // Deep fills on white cards, so every series carries white labels.
+    { id: "marketing", name: "Marketing", color: "var(--brand)", ink: "light" as const },
     { id: "utility", name: "Utility", color: "var(--blue)", ink: "light" as const },
     { id: "auth", name: "Authentication", color: "var(--lime)", ink: "light" as const },
     { id: "support", name: "Support", color: "var(--muted-foreground)", ink: "light" as const },

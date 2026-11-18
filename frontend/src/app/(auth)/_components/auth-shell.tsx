@@ -11,9 +11,10 @@ import { site } from "@/config/site";
  * marketing navbar is dropped deliberately — sign-in should read as a document,
  * not a second landing page.
  *
- * `data-theme="sheet"` is what makes the screen white: the auth routes
- * otherwise inherit the app palette, whose field is burnt orange. Every surface
- * inside — card, border, field fill, muted ink — follows from that block.
+ * `data-theme="sheet"` is what makes the screen pure white: the app palette
+ * is a warm pearl sheet, and a sign-in page reads better as plain paper. Every
+ * surface inside — card, border, field fill, muted ink — follows from that
+ * block.
  */
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
@@ -38,8 +39,8 @@ export function AuthShell({ children }: { children: ReactNode }) {
 
       <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-8">
         {/* No plate behind the mark any more: the ivory one existed because the
-            wordmark's orange vanished on the burnt field, and on white it would
-            only be a rectangle around a white box. */}
+            wordmark's orange vanished on the old burnt field, and on white it
+            would only be a rectangle around a white box. */}
         <Image
           alt={site.logo.alt}
           className="h-8 w-auto"

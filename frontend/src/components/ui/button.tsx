@@ -10,19 +10,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-xs hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md",
+          "bg-primary text-primary-foreground shadow-xs hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none",
         brand:
-          "bg-brand text-brand-foreground shadow-xs hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25",
+          "bg-brand text-brand-foreground shadow-xs hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none",
         /**
-         * Inverted pill: soft black plate, ivory label. The highest-contrast
-         * action available on the burnt field.
+         * Inverted pill: teal plate, white label. The highest-contrast action
+         * available on the app's light sheet.
          */
         light:
           "bg-foreground text-card shadow-xs hover:-translate-y-0.5 hover:bg-foreground/90 hover:shadow-lg hover:shadow-black/20",
-        /** Outline control that stays legible on the burnt field. */
+        /** Outline control that stays legible on the sheet. */
         inverse:
           "border border-foreground/30 text-foreground hover:-translate-y-0.5 hover:border-foreground/60 hover:bg-foreground/10",
-        /** Borderless control for the burnt field. */
+        /** Borderless control for the sheet. */
         "inverse-ghost":
           "text-foreground/85 hover:bg-foreground/10 hover:text-foreground",
         destructive:

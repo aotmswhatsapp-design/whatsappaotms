@@ -67,7 +67,9 @@ export function WorkspaceShell({
   );
 }
 
-/** logo.png is a wide navy lockup, so it sits on a fog plate with a hairline. */
+/** logo.png is a wide navy lockup, so it sits on a white plate with a hairline.
+    The plate cannot be the ink colour any more: the app sheet is light, and the
+    navy wordmark on teal would read at about 1.3:1. */
 function SidebarBrand() {
   return (
     <div className="flex h-16 shrink-0 items-center border-b border-border px-3.5">
@@ -76,7 +78,7 @@ function SidebarBrand() {
         aria-label={site.name ? `${site.name} — back to website` : "Back to website"}
         className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <span className="inline-flex rounded-md bg-foreground px-1.5 py-1 ring-1 ring-border">
+        <span className="inline-flex rounded-md bg-card px-1.5 py-1 ring-1 ring-border">
           <Image
             src={site.logo.src}
             alt={site.logo.alt}
