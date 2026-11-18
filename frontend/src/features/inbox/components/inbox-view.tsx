@@ -31,6 +31,11 @@ import { MessageThread } from "./message-thread";
 const THREAD_POLL_MS = 3_000;
 const SEARCH_DEBOUNCE_MS = 300;
 
+/** Bounds for the queue pane. Narrower clips the preview; wider starves the thread. */
+const LIST_DEFAULT = 336;
+const LIST_MIN = 272;
+const LIST_MAX = 520;
+
 /**
  * The inbox's client boundary: it owns the queue, the open thread and the
  * polling, and each panel stays presentational.
@@ -52,6 +57,11 @@ export function InboxView() {
   const [listLoading, setListLoading] = React.useState(true);
   const [threadLoading, setThreadLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // The queue's width belongs to the divider, so it lives in state rather than
+  // CSS: dragging has to survive re-renders without snapping back.
+  const [listWidth, setListWidth] = React.useState(LIST_DEFAULT);
+  const drag = React.useRef<{ x: number; width: number } | null>(null);
 
   // The polling and action callbacks need the current filters without being
   // re-created every time a select changes.
@@ -241,6 +251,37 @@ export function InboxView() {
     void refreshSummary();
   }
 
+  function startResize(event: React.PointerEvent<HTMLDivElement>): void {
+    drag.current = { x: event.clientX, width: listWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveResize(event: React.PointerEvent<HTMLDivElement>): void {
+    const origin = drag.current;
+
+    if (!origin) return;
+
+    setListWidth(clampWidth(origin.width + event.clientX - origin.x));
+  }
+
+  function stopResize(event: React.PointerEvent<HTMLDivElement>): void {
+    if (!drag.current) return;
+
+    drag.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  /** The divider is focusable, so it must answer the keyboard too. */
+  function nudge(event: React.KeyboardEvent<HTMLDivElement>): void {
+    const step =
+      event.key === "ArrowLeft" ? -16 : event.key === "ArrowRight" ? 16 : 0;
+
+    if (step === 0) return;
+
+    event.preventDefault();
+    setListWidth((width) => clampWidth(width + step));
+  }
+
   if (!booted) {
     return (
       <div className="grid h-64 place-items-center">
@@ -275,7 +316,7 @@ export function InboxView() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
         <span className="inline-flex items-center gap-2">
           <StatusDot
@@ -303,15 +344,17 @@ export function InboxView() {
 
       <div
         className={cn(
-          "grid overflow-hidden rounded-xl border border-border bg-card",
-          "h-[calc(100dvh-17rem)] min-h-[26rem] lg:h-[calc(100dvh-14rem)]",
-          "lg:grid-cols-[21rem_minmax(0,1fr)]",
+          // The panel owns everything the shell leaves below the heading: the
+          // sidebar and top bar stay put and only the two panes scroll.
+          "flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card",
         )}
+        style={{ "--inbox-list": `${listWidth}px` } as React.CSSProperties}
       >
         <div
           className={cn(
-            "min-h-0 border-b border-border lg:border-r lg:border-b-0",
-            selectedId ? "hidden lg:block" : "block",
+            "min-h-0 flex-col border-border",
+            "w-full lg:w-[var(--inbox-list)] lg:flex-none lg:border-r",
+            selectedId ? "hidden lg:flex" : "flex",
           )}
         >
           <ConversationList
@@ -328,8 +371,29 @@ export function InboxView() {
         </div>
 
         <div
+          role="separator"
+          aria-label="Resize the conversation list"
+          aria-orientation="vertical"
+          aria-valuemax={LIST_MAX}
+          aria-valuemin={LIST_MIN}
+          aria-valuenow={listWidth}
+          tabIndex={0}
+          className="group hidden w-1.5 shrink-0 cursor-col-resize touch-none items-center justify-center outline-none transition-colors focus-visible:bg-brand/10 lg:flex"
+          onKeyDown={nudge}
+          onPointerCancel={stopResize}
+          onPointerDown={startResize}
+          onPointerMove={moveResize}
+          onPointerUp={stopResize}
+        >
+          <span
+            aria-hidden="true"
+            className="h-10 w-px rounded-full bg-border transition-colors group-hover:bg-brand/50 group-focus-visible:bg-brand/60"
+          />
+        </div>
+
+        <div
           className={cn(
-            "min-h-0",
+            "min-h-0 flex-1",
             selectedId ? "block" : "hidden lg:block",
           )}
         >
@@ -373,4 +437,8 @@ function readError(error: unknown): string {
   return error instanceof ApiError
     ? error.message
     : "The inbox could not be read. Try again.";
+}
+
+function clampWidth(width: number): number {
+  return Math.min(LIST_MAX, Math.max(LIST_MIN, width));
 }

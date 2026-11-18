@@ -1,8 +1,21 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Paperclip, SendHorizontal, StickyNote } from "lucide-react";
+import {
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Paperclip,
+  SendHorizontal,
+  StickyNote,
+} from "lucide-react";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 import {
@@ -17,6 +30,12 @@ import {
 
 /** Mirrors the API's cap, so an oversized file fails before it is uploaded. */
 const MAX_BYTES = 25 * 1024 * 1024;
+
+/** The two shapes the attach menu offers. Anything else is still accepted by
+ * WhatsApp, but a picker that cannot describe a file is worse than two honest
+ * ones. */
+const PHOTOS = "image/*,video/*";
+const DOCUMENTS = ".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,application/pdf";
 
 type Mode = "reply" | "note";
 
@@ -113,11 +132,24 @@ export function Composer({
     area.current?.focus();
   }
 
+  /**
+   * One hidden input serves both menu items; the accept list is set per pick so
+   * the OS dialog only shows what the chosen item promises.
+   */
+  function pick(accept: string): void {
+    const input = picker.current;
+
+    if (!input) return;
+
+    input.accept = accept;
+    input.click();
+  }
+
   const rows = Math.min(6, Math.max(1, text.split("\n").length));
 
   return (
     <div className="border-t border-border p-3">
-      <div className="mb-2 flex items-center gap-1 rounded-lg bg-secondary p-1">
+      <div className="mb-2 flex items-center gap-1">
         <ModeButton
           active={mode === "reply"}
           disabled={locked}
@@ -142,25 +174,38 @@ export function Composer({
 
       <div
         className={cn(
-          "flex items-end gap-2 rounded-xl border bg-card px-3 py-2",
+          "flex items-end gap-1 rounded-xl border bg-card p-1.5",
           mode === "note" ? "border-warning/40" : "border-border",
           active ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10" : "opacity-70",
         )}
       >
         {mode === "reply" ? (
           <>
-            <button
-              type="button"
-              aria-label="Attach a file"
-              className="mb-1 grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
-              disabled={locked || sending}
-              onClick={() => picker.current?.click()}
-            >
-              <Paperclip aria-hidden="true" className="size-4" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Attach a file"
+                  className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  disabled={locked || sending}
+                >
+                  <Paperclip aria-hidden="true" className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                <DropdownMenuItem onSelect={() => pick(PHOTOS)}>
+                  <ImageIcon aria-hidden="true" />
+                  Photo or video
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => pick(DOCUMENTS)}>
+                  <FileText aria-hidden="true" />
+                  Document
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <input
               ref={picker}
-              accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
               className="hidden"
               type="file"
               onChange={(event) => {
@@ -172,7 +217,7 @@ export function Composer({
         ) : (
           <StickyNote
             aria-hidden="true"
-            className="mb-2 size-4 shrink-0 text-warning"
+            className="mb-2.5 ml-1.5 size-4 shrink-0 text-warning"
           />
         )}
 
@@ -203,7 +248,7 @@ export function Composer({
           type="button"
           aria-label={mode === "note" ? "Save note" : "Send reply"}
           className={cn(
-            "mb-1 grid size-9 shrink-0 place-items-center rounded-lg text-brand-foreground transition-colors",
+            "grid size-9 shrink-0 place-items-center rounded-lg text-brand-foreground transition-colors",
             mode === "note" ? "bg-warning" : "bg-brand",
             "hover:opacity-90 disabled:opacity-40",
           )}
@@ -249,10 +294,10 @@ function ModeButton({
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition-colors",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition-colors",
         active
-          ? "bg-card text-foreground shadow-xs"
-          : "text-muted-foreground hover:text-foreground",
+          ? "bg-secondary text-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
         "disabled:cursor-not-allowed disabled:opacity-40",
       )}
       disabled={disabled}

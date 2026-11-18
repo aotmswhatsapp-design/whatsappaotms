@@ -166,94 +166,96 @@ export function MessageThread({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5 sm:px-4">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4">
         <button
           type="button"
           aria-label="Back to conversations"
-          className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
           onClick={onBack}
         >
           <ArrowLeft aria-hidden="true" className="size-4" />
         </button>
 
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand ring-1 ring-brand/10">
           {initials(conversation.contact.name, conversation.contact.waId)}
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">
+          <p className="truncate text-sm leading-tight font-semibold text-foreground">
             {conversation.contact.name ?? displayPhone(conversation.contact.waId)}
           </p>
-          <p className="truncate text-[11px] text-muted-foreground">
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
             {displayPhone(conversation.contact.phone ?? conversation.contact.waId)}
           </p>
         </div>
 
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-            conversation.windowOpen
-              ? "bg-lime-soft text-lime"
-              : "bg-secondary text-muted-foreground",
-          )}
-          title={
-            conversation.windowOpen
-              ? "You can reply until the 24-hour window closes."
-              : "WhatsApp only allows a reply after the customer writes again."
-          }
-        >
-          <Clock aria-hidden="true" className="size-3" />
-          {conversation.windowOpen ? (left ?? "Open") : "Window closed"}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            className={cn(
+              "hidden items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium sm:inline-flex",
+              conversation.windowOpen
+                ? "bg-lime-soft text-lime"
+                : "bg-secondary text-muted-foreground",
+            )}
+            title={
+              conversation.windowOpen
+                ? "You can reply until the 24-hour window closes."
+                : "WhatsApp only allows a reply after the customer writes again."
+            }
+          >
+            <Clock aria-hidden="true" className="size-3" />
+            {conversation.windowOpen ? (left ?? "Open") : "Window closed"}
+          </span>
 
-        <select
-          aria-label="Conversation status"
-          className="h-8 rounded-md border border-border bg-card px-2 text-[12px] font-medium text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
-          value={conversation.status}
-          onChange={(event) =>
-            void patch({ status: event.target.value as ConversationStatus })
-          }
-        >
-          <option value="OPEN">Open</option>
-          <option value="PENDING">Pending</option>
-          <option value="CLOSED">Closed</option>
-        </select>
+          <select
+            aria-label="Conversation status"
+            className="h-8 rounded-lg border border-transparent bg-secondary/70 px-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            value={conversation.status}
+            onChange={(event) =>
+              void patch({ status: event.target.value as ConversationStatus })
+            }
+          >
+            <option value="OPEN">Open</option>
+            <option value="PENDING">Pending</option>
+            <option value="CLOSED">Closed</option>
+          </select>
 
-        <select
-          aria-label="Assigned agent"
-          className="h-8 max-w-36 rounded-md border border-border bg-card px-2 text-[12px] font-medium text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
-          value={conversation.assignedTo?.id ?? ""}
-          onChange={(event) =>
-            void patch({ assignedToUserId: event.target.value || null })
-          }
-        >
-          <option value="">Unassigned</option>
-          {agents.map((agent) => (
-            <option key={agent.userId} value={agent.userId}>
-              {agent.name ?? agent.email}
-            </option>
-          ))}
-          {conversation.assignedTo &&
-          !agents.some((agent) => agent.userId === conversation.assignedTo?.id) ? (
-            <option value={conversation.assignedTo.id}>
-              {conversation.assignedTo.name ?? conversation.assignedTo.email}
-            </option>
-          ) : null}
-        </select>
+          <select
+            aria-label="Assigned agent"
+            className="h-8 max-w-36 rounded-lg border border-transparent bg-secondary/70 px-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            value={conversation.assignedTo?.id ?? ""}
+            onChange={(event) =>
+              void patch({ assignedToUserId: event.target.value || null })
+            }
+          >
+            <option value="">Unassigned</option>
+            {agents.map((agent) => (
+              <option key={agent.userId} value={agent.userId}>
+                {agent.name ?? agent.email}
+              </option>
+            ))}
+            {conversation.assignedTo &&
+            !agents.some((agent) => agent.userId === conversation.assignedTo?.id) ? (
+              <option value={conversation.assignedTo.id}>
+                {conversation.assignedTo.name ?? conversation.assignedTo.email}
+              </option>
+            ) : null}
+          </select>
 
-        <button
-          type="button"
-          aria-label="Delete conversation"
-          className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-          disabled={deleting}
-          onClick={() => void remove()}
-        >
-          {deleting ? (
-            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-          ) : (
-            <Trash2 aria-hidden="true" className="size-4" />
-          )}
-        </button>
+          <button
+            type="button"
+            aria-label="Delete conversation"
+            className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+            disabled={deleting}
+            onClick={() => void remove()}
+          >
+            {deleting ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            ) : (
+              <Trash2 aria-hidden="true" className="size-4" />
+            )}
+          </button>
+        </div>
       </header>
 
       <div
