@@ -74,9 +74,15 @@ export async function request<T>(path: string, init: RequestInit): Promise<T> {
   try {
     response = await fetch(url, { ...init, headers, cache: "no-store" });
   } catch {
+    // A failed fetch cannot tell a dead host from a rejected preflight: the
+    // browser reports both as one opaque network error. Name the caller's
+    // origin so the next reader checks CORS_ORIGINS instead of restarting a
+    // backend that is already healthy.
+    const origin =
+      typeof window === "undefined" ? "this origin" : window.location.origin;
     throw new ApiError(
       0,
-      `Could not reach the API at ${BASE_URL}. Is the backend running?`,
+      `Could not reach the API at ${BASE_URL} from ${origin}. Either the backend is down or ${origin} is missing from its CORS_ORIGINS.`,
     );
   }
 
