@@ -14,6 +14,16 @@ import { plans } from "@/config/plans";
 import { site } from "@/config/site";
 
 /**
+ * The three islands below are `next/dynamic` client chunks, so their factories
+ * only exist once the browser asks for them. Cache Components' instant-navigation
+ * validation re-renders this route in a separate prefetch environment, where that
+ * lookup fails with "module factory is not available" and the whole route is
+ * reported as unvalidatable. Opting the page out keeps the code split; the route
+ * is still fully prerendered.
+ */
+export const instant = false;
+
+/**
  * Lazy islands. The three interactive sections sit below the fold, so their
  * JavaScript is split out of the first load and fetched when the reader scrolls
  * near them. They still render on the server, so the markup is in the HTML and
