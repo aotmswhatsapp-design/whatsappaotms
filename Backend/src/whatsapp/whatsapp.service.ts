@@ -156,7 +156,7 @@ const LABELS: Record<CheckKey, string> = {
   phoneNumberId: "Phone number ID",
   appSecret: "App secret",
   graphVersion: "Graph version",
-  businessAccountId: "Business account ID",
+  businessAccountId: "Whatsapp Account ID",
   verifyToken: "Verify token",
 };
 

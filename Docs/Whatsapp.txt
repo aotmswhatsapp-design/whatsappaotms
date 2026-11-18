@@ -391,7 +391,7 @@ Features:
 - WhatsApp Business Embedded Signup.
 - Business account connection.
 - Phone number registration.
-- WhatsApp Business Account ID management.
+- WhatsApp Account ID management.
 - Phone Number ID management.
 - Secure access-token management.
 - Webhook configuration.

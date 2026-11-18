@@ -44,7 +44,7 @@ const SOURCES = [
   "WhatsApp Manager → Phone numbers → copy the numeric ID under the display number.",
   "App settings → Basic → App secret → Show. It signs every webhook delivery.",
   "Copy the version from the top of Meta's WhatsApp Cloud API docs, e.g. v21.0.",
-  "Business settings → Accounts → WhatsApp accounts → copy the WhatsApp Business Account ID.",
+  "Business settings → Accounts → WhatsApp accounts → copy the WhatsApp Account ID.",
 ];
 
 /** How long the waiting step watches for Meta before it gives up and explains. */

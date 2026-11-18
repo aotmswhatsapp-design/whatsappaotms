@@ -48,6 +48,6 @@ export class ConnectWhatsAppDto {
   /** WhatsApp Business Account (WABA) id, not the Business Manager id. */
   @Transform(trimmed)
   @IsString()
-  @Matches(/^\d{5,25}$/, { message: "Business account ID is numeric, e.g. 1022..." })
+  @Matches(/^\d{5,25}$/, { message: "Whatsapp Account ID is numeric, e.g. 1022..." })
   businessAccountId!: string;
 }

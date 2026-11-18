@@ -55,9 +55,9 @@ const FIELDS: {
   },
   {
     name: "businessAccountId",
-    label: "Business account ID",
+    label: "WhatsApp Account ID",
     placeholder: "102290129340398",
-    hint: "WhatsApp Business Account (WABA) ID — Business settings → Accounts → WhatsApp accounts.",
+    hint: "WhatsApp Account (WABA) ID — Business settings → Accounts → WhatsApp accounts.",
     inputMode: "numeric",
   },
 ];

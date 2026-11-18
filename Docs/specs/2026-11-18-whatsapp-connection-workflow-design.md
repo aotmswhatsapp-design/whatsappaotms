@@ -48,7 +48,7 @@ Added, all nullable or defaulted so existing rows survive:
 Guarded, `v1/whatsapp`:
 
 - `POST /connect` — five fields: access token, phone number ID, app secret,
-  Graph version, business account ID. Generates the verify token. Persists only
+  Graph version, Whatsapp account ID. Generates the verify token. Persists only
   when every Graph check passes.
 - `GET /connection` — public account, `stage`, callback URL, full verify token,
   webhook block (`verifiedAt`, `lastEventAt`, `eventCount`), `failureReason`.

@@ -22,10 +22,10 @@ export class EmbeddedSignupDto {
   @MaxLength(2048, { message: "The signup code is too long to be a Meta code." })
   code!: string;
 
-  /** WhatsApp Business Account id chosen inside the dialog. */
+  /** WhatsApp Account id chosen inside the dialog. */
   @Transform(trimmed)
   @IsString()
-  @Matches(/^\d{5,25}$/, { message: "Business account ID is numeric, e.g. 1022..." })
+  @Matches(/^\d{5,25}$/, { message: "WhatsApp Account ID is numeric, e.g. 1022..." })
   wabaId!: string;
 
   /** The number's id, not the number itself. */
