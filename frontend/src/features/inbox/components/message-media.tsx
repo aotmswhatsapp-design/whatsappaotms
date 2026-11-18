@@ -41,7 +41,7 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
 
   if (!available) {
     return (
-      <p className="text-[13px] text-muted-foreground">
+      <p className="text-[14px] text-muted-foreground">
         {message.media?.name ?? "This attachment"} is no longer available from
         WhatsApp.
       </p>
@@ -49,13 +49,13 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
   }
 
   if (failure) {
-    return <p className="text-[13px] text-destructive">{failure}</p>;
+    return <p className="text-[14px] text-destructive">{failure}</p>;
   }
 
   if (!link) {
     return (
-      <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-        <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+      <p className="flex items-center gap-2 text-[14px] text-muted-foreground">
+        <Loader2 aria-hidden="true" className="size-4 animate-spin" />
         Loading file…
       </p>
     );
@@ -68,7 +68,7 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
         <img
           src={link.url}
           alt={link.name ?? "Image attachment"}
-          className="max-h-72 w-auto max-w-full rounded-lg"
+          className="max-h-80 w-auto max-w-full rounded-lg"
           loading="lazy"
         />
       </a>
@@ -85,7 +85,7 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
         controls
         preload="none"
         src={link.url}
-        className="max-h-72 w-full max-w-xs rounded-lg"
+        className="max-h-80 w-full max-w-xs rounded-lg"
       />
     );
   }
@@ -95,14 +95,14 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
       href={link.url}
       target="_blank"
       rel="noreferrer"
-      className="flex max-w-xs items-center gap-2.5 rounded-lg border border-border/70 bg-card px-3 py-2 text-foreground transition-colors hover:bg-accent"
+      className="flex max-w-xs items-center gap-3 rounded-lg border border-border/70 bg-card px-3.5 py-2.5 text-foreground transition-colors hover:bg-accent"
     >
-      <FileText aria-hidden="true" className="size-4 shrink-0" />
+      <FileText aria-hidden="true" className="size-[18px] shrink-0" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium">
+        <span className="block truncate text-[14px] font-medium">
           {link.name ?? message.media?.name ?? "Document"}
         </span>
-        <span className="block text-[11px] text-muted-foreground">
+        <span className="block text-[12px] text-muted-foreground">
           {formatBytes(message.media?.size ?? null) || "Download"}
         </span>
       </span>

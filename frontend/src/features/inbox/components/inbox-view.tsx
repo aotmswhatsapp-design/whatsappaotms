@@ -32,9 +32,9 @@ const THREAD_POLL_MS = 3_000;
 const SEARCH_DEBOUNCE_MS = 300;
 
 /** Bounds for the queue pane. Narrower clips the preview; wider starves the thread. */
-const LIST_DEFAULT = 336;
-const LIST_MIN = 272;
-const LIST_MAX = 520;
+const LIST_DEFAULT = 352;
+const LIST_MIN = 288;
+const LIST_MAX = 552;
 
 /**
  * The inbox's client boundary: it owns the queue, the open thread and the
@@ -317,7 +317,7 @@ export function InboxView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
         <span className="inline-flex items-center gap-2">
           <StatusDot
             label={summary.channel.live ? "Receiving" : "Waiting for Meta"}
@@ -337,7 +337,7 @@ export function InboxView() {
       </div>
 
       {error ? (
-        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-[14px] text-destructive">
           {error}
         </p>
       ) : null}
@@ -378,7 +378,7 @@ export function InboxView() {
           aria-valuemin={LIST_MIN}
           aria-valuenow={listWidth}
           tabIndex={0}
-          className="group hidden w-1.5 shrink-0 cursor-col-resize touch-none items-center justify-center outline-none transition-colors focus-visible:bg-brand/10 lg:flex"
+          className="group hidden w-2 shrink-0 cursor-col-resize touch-none items-center justify-center outline-none transition-colors focus-visible:bg-brand/10 lg:flex"
           onKeyDown={nudge}
           onPointerCancel={stopResize}
           onPointerDown={startResize}
@@ -387,7 +387,7 @@ export function InboxView() {
         >
           <span
             aria-hidden="true"
-            className="h-10 w-px rounded-full bg-border transition-colors group-hover:bg-brand/50 group-focus-visible:bg-brand/60"
+            className="h-12 w-px rounded-full bg-border transition-colors group-hover:bg-brand/50 group-focus-visible:bg-brand/60"
           />
         </div>
 

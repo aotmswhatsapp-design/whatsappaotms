@@ -166,25 +166,25 @@ export function MessageThread({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4">
+      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 sm:gap-3 sm:px-5">
         <button
           type="button"
           aria-label="Back to conversations"
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+          className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
           onClick={onBack}
         >
           <ArrowLeft aria-hidden="true" className="size-4" />
         </button>
 
-        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand ring-1 ring-brand/10">
+        <span className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand ring-1 ring-brand/10">
           {initials(conversation.contact.name, conversation.contact.waId)}
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm leading-tight font-semibold text-foreground">
+          <p className="truncate text-[15px] leading-tight font-semibold text-foreground">
             {conversation.contact.name ?? displayPhone(conversation.contact.waId)}
           </p>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+          <p className="mt-0.5 truncate text-[12.5px] text-muted-foreground">
             {displayPhone(conversation.contact.phone ?? conversation.contact.waId)}
           </p>
         </div>
@@ -192,7 +192,7 @@ export function MessageThread({
         <div className="flex shrink-0 items-center gap-1.5">
           <span
             className={cn(
-              "hidden items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium sm:inline-flex",
+              "hidden items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium sm:inline-flex",
               conversation.windowOpen
                 ? "bg-lime-soft text-lime"
                 : "bg-secondary text-muted-foreground",
@@ -203,13 +203,13 @@ export function MessageThread({
                 : "WhatsApp only allows a reply after the customer writes again."
             }
           >
-            <Clock aria-hidden="true" className="size-3" />
+            <Clock aria-hidden="true" className="size-3.5" />
             {conversation.windowOpen ? (left ?? "Open") : "Window closed"}
           </span>
 
           <select
             aria-label="Conversation status"
-            className="h-8 rounded-lg border border-transparent bg-secondary/70 px-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="h-9 rounded-lg border border-transparent bg-secondary/70 px-2.5 text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
             value={conversation.status}
             onChange={(event) =>
               void patch({ status: event.target.value as ConversationStatus })
@@ -222,7 +222,7 @@ export function MessageThread({
 
           <select
             aria-label="Assigned agent"
-            className="h-8 max-w-36 rounded-lg border border-transparent bg-secondary/70 px-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="h-9 max-w-40 rounded-lg border border-transparent bg-secondary/70 px-2.5 text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-secondary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
             value={conversation.assignedTo?.id ?? ""}
             onChange={(event) =>
               void patch({ assignedToUserId: event.target.value || null })
@@ -245,7 +245,7 @@ export function MessageThread({
           <button
             type="button"
             aria-label="Delete conversation"
-            className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+            className="grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
             disabled={deleting}
             onClick={() => void remove()}
           >
@@ -260,10 +260,10 @@ export function MessageThread({
 
       <div
         ref={scroller}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-background px-3 py-4 sm:px-4"
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-4 py-5 sm:px-6"
       >
         {entries.length === 0 ? (
-          <p className="py-10 text-center text-[13px] text-muted-foreground">
+          <p className="py-10 text-center text-[14px] text-muted-foreground">
             Nothing in this thread yet.
           </p>
         ) : null}
@@ -275,7 +275,7 @@ export function MessageThread({
           return (
             <React.Fragment key={`${entry.kind}-${entry.kind === "message" ? entry.message.id : entry.note.id}`}>
               {newDay ? (
-                <p className="py-2 text-center text-[11px] font-medium text-muted-foreground">
+                <p className="py-2.5 text-center text-[12px] font-medium text-muted-foreground">
                   {dayLabel(entry.at)}
                 </p>
               ) : null}
@@ -302,7 +302,7 @@ function Bubble({ message }: { message: InboxMessage }) {
     <div className={cn("flex", outbound ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-xs sm:max-w-[75%]",
+          "max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] shadow-xs sm:max-w-[75%]",
           outbound
             ? "rounded-br-md bg-brand text-brand-foreground"
             : "rounded-bl-md border border-border bg-card text-foreground",
@@ -323,7 +323,7 @@ function Bubble({ message }: { message: InboxMessage }) {
         {message.errorReason ? (
           <p
             className={cn(
-              "mt-1 text-[12px]",
+              "mt-1.5 text-[12.5px]",
               outbound ? "text-brand-foreground/90" : "text-destructive",
             )}
           >
@@ -333,7 +333,7 @@ function Bubble({ message }: { message: InboxMessage }) {
 
         <div
           className={cn(
-            "mt-1 flex items-center justify-end gap-1 text-[10px]",
+            "mt-1.5 flex items-center justify-end gap-1 text-[11px]",
             outbound ? "text-brand-foreground/70" : "text-muted-foreground",
           )}
         >
@@ -347,15 +347,15 @@ function Bubble({ message }: { message: InboxMessage }) {
 
 function Tick({ status }: { status: InboxMessage["status"] }) {
   if (status === "FAILED") {
-    return <CircleAlert aria-label="Not delivered" className="size-3" />;
+    return <CircleAlert aria-label="Not delivered" className="size-3.5" />;
   }
 
   if (status === "QUEUED") {
-    return <Clock aria-label="Sending" className="size-3" />;
+    return <Clock aria-label="Sending" className="size-3.5" />;
   }
 
   if (status === "SENT") {
-    return <Check aria-label="Sent" className="size-3" />;
+    return <Check aria-label="Sent" className="size-3.5" />;
   }
 
   const read = status === "READ";
@@ -363,7 +363,7 @@ function Tick({ status }: { status: InboxMessage["status"] }) {
   return (
     <CheckCheck
       aria-label={read ? "Read" : "Delivered"}
-      className={cn("size-3", read && "text-blue-soft")}
+      className={cn("size-3.5", read && "text-blue-soft")}
     />
   );
 }
@@ -371,18 +371,18 @@ function Tick({ status }: { status: InboxMessage["status"] }) {
 function NoteCard({ note }: { note: InboxNote }) {
   return (
     <div className="flex justify-center">
-      <div className="max-w-[85%] rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 sm:max-w-[75%]">
-        <p className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-warning uppercase">
-          <StickyNote aria-hidden="true" className="size-3" />
+      <div className="max-w-[85%] rounded-xl border border-warning/30 bg-warning-soft px-4 py-2.5 sm:max-w-[75%]">
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-warning uppercase">
+          <StickyNote aria-hidden="true" className="size-3.5" />
           Internal note
           <span className="font-medium tracking-normal normal-case">
             · {note.author.name ?? "A teammate"}
           </span>
         </p>
-        <p className="mt-1 text-[13px] break-words whitespace-pre-wrap text-foreground">
+        <p className="mt-1.5 text-[14px] break-words whitespace-pre-wrap text-foreground">
           {note.body}
         </p>
-        <p className="mt-1 text-right text-[10px] text-warning/80">
+        <p className="mt-1 text-right text-[11px] text-warning/80">
           {clockTime(note.createdAt)}
         </p>
       </div>

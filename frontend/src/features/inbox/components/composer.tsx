@@ -148,33 +148,33 @@ export function Composer({
   const rows = Math.min(6, Math.max(1, text.split("\n").length));
 
   return (
-    <div className="border-t border-border p-3">
+    <div className="border-t border-border p-4">
       <div className="mb-2 flex items-center gap-1">
         <ModeButton
           active={mode === "reply"}
           disabled={locked}
           onClick={() => switchMode("reply")}
-          icon={<SendHorizontal aria-hidden="true" className="size-3.5" />}
+          icon={<SendHorizontal aria-hidden="true" className="size-4" />}
           label="Reply"
           title={locked ? "The customer has not written for 24 hours." : undefined}
         />
         <ModeButton
           active={mode === "note"}
           onClick={() => switchMode("note")}
-          icon={<StickyNote aria-hidden="true" className="size-3.5" />}
+          icon={<StickyNote aria-hidden="true" className="size-4" />}
           label="Internal note"
         />
       </div>
 
       {error ? (
-        <p className="mb-2 rounded-md bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+        <p className="mb-2 rounded-md bg-destructive/10 px-3 py-2 text-[14px] text-destructive">
           {error}
         </p>
       ) : null}
 
       <div
         className={cn(
-          "flex items-end gap-1 rounded-xl border bg-card p-1.5",
+          "flex items-end gap-1.5 rounded-xl border bg-card p-2",
           mode === "note" ? "border-warning/40" : "border-border",
           active ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10" : "opacity-70",
         )}
@@ -186,10 +186,10 @@ export function Composer({
                 <button
                   type="button"
                   aria-label="Attach a file"
-                  className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
                   disabled={locked || sending}
                 >
-                  <Paperclip aria-hidden="true" className="size-4" />
+                  <Paperclip aria-hidden="true" className="size-[18px]" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-52">
@@ -217,14 +217,14 @@ export function Composer({
         ) : (
           <StickyNote
             aria-hidden="true"
-            className="mb-2.5 ml-1.5 size-4 shrink-0 text-warning"
+            className="mb-3 ml-2 size-[18px] shrink-0 text-warning"
           />
         )}
 
         <textarea
           ref={area}
           aria-label={mode === "note" ? "Internal note" : "Reply"}
-          className="max-h-40 min-h-9 flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
+          className="max-h-40 min-h-10 flex-1 resize-none bg-transparent py-2 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
           disabled={!active || sending}
           placeholder={
             mode === "note"
@@ -248,7 +248,7 @@ export function Composer({
           type="button"
           aria-label={mode === "note" ? "Save note" : "Send reply"}
           className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-lg text-brand-foreground transition-colors",
+            "grid size-10 shrink-0 place-items-center rounded-lg text-brand-foreground transition-colors",
             mode === "note" ? "bg-warning" : "bg-brand",
             "hover:opacity-90 disabled:opacity-40",
           )}
@@ -256,14 +256,14 @@ export function Composer({
           onClick={() => void submit()}
         >
           {sending ? (
-            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            <Loader2 aria-hidden="true" className="size-[18px] animate-spin" />
           ) : (
-            <SendHorizontal aria-hidden="true" className="size-4" />
+            <SendHorizontal aria-hidden="true" className="size-[18px]" />
           )}
         </button>
       </div>
 
-      <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">
+      <p className="mt-2 px-1 text-[12px] text-muted-foreground">
         {locked && mode === "reply"
           ? "Replies reopen when the customer writes again."
           : mode === "note"
@@ -294,7 +294,7 @@ function ModeButton({
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition-colors",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors",
         active
           ? "bg-secondary text-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-foreground",
