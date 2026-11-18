@@ -215,13 +215,16 @@ export function WhatsAppConnection() {
     notifyWhatsAppStatus();
   }
 
+  // `current` is the stage in progress. A live connection has no stage in
+  // progress, so it reports one past the end: the rail then renders all four
+  // ticks and a fully lime connector instead of parking "Live" as active.
   const current =
     view === "details"
       ? 0
       : view === "waiting"
         ? 2
         : stage === "live"
-          ? 3
+          ? STEPS.length
           : stage === "webhook"
             ? 1
             : 0;

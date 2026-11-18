@@ -1,12 +1,10 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { PlugZap } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { DashboardBoard } from "@/components/workspace/dashboard/dashboard-board";
 import { PageHeader } from "@/components/workspace/page-header";
+import { ConnectCta } from "@/features/whatsapp/components/connect-cta";
 import { getSessionUser } from "@/lib/auth/session";
 
 export const metadata: Metadata = { title: "Overview" };
@@ -29,14 +27,7 @@ async function Overview() {
         eyebrow="Operations"
         title={`Welcome, ${firstName}`}
         description={`You are signed in as ${user.email}. This dashboard tracks the WhatsApp channel — delivery, conversations, templates and opt-outs in one place.`}
-        actions={
-          <Button asChild variant="brand">
-            <Link href="/workspace/whatsapp">
-              <PlugZap />
-              Connect WhatsApp
-            </Link>
-          </Button>
-        }
+        actions={<ConnectCta />}
       />
 
       <DashboardBoard />
