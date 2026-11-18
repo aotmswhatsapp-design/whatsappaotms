@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, LoaderCircle, RotateCcw } from "lucide-react";
+import { ArrowLeft, KeyRound, LoaderCircle, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -17,12 +17,15 @@ export function WaitingPanel({
   checking,
   onCheck,
   onBack,
+  onEditDetails,
 }: {
   callbackUrl: string | null;
   expired: boolean;
   checking: boolean;
   onCheck: () => void;
   onBack: () => void;
+  /** Returns to the credential form — the fix for a wrong number or token. */
+  onEditDetails: () => void;
 }) {
   return (
     <div className="space-y-5">
@@ -51,8 +54,9 @@ export function WaitingPanel({
 
       {expired ? (
         <p className="rounded-lg bg-warning-soft px-3 py-2.5 text-[13px] leading-relaxed text-warning">
-          Nothing has arrived after two minutes. The wait has stopped; check the
-          three usual causes below, then try again.
+          Nothing has arrived after two minutes. The wait has stopped. If a value
+          was typed wrong, go back to the details, correct it and verify again;
+          otherwise check the three usual causes below.
         </p>
       ) : (
         <p aria-live="polite" className="text-[12.5px] text-muted-foreground">
@@ -92,9 +96,13 @@ export function WaitingPanel({
           )}
           Check again
         </Button>
+        <Button className="w-full sm:w-auto" onClick={onEditDetails} size="lg" variant="outline">
+          <KeyRound aria-hidden="true" />
+          Back to the details
+        </Button>
         <Button className="w-full sm:w-auto" onClick={onBack} size="lg" variant="ghost">
           <ArrowLeft aria-hidden="true" />
-          Back to the values
+          Back to the webhook step
         </Button>
       </div>
     </div>

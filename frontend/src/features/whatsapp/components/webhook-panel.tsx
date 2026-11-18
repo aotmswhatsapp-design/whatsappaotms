@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, LoaderCircle, PlugZap, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, LoaderCircle, PlugZap, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -30,11 +30,14 @@ export function WebhookPanel({
   callbackUrl,
   onRotated,
   onContinue,
+  onEditDetails,
 }: {
   account: WhatsAppAccount;
   callbackUrl: string | null;
   onRotated: () => void;
   onContinue: () => void;
+  /** Returns to the credential form, so a wrong value never traps the flow. */
+  onEditDetails: () => void;
 }) {
   const toast = useToast();
   const [confirming, setConfirming] = React.useState(false);
@@ -166,6 +169,16 @@ export function WebhookPanel({
             Rotate the token
           </Button>
         )}
+
+        <Button
+          className="w-full sm:w-auto"
+          onClick={onEditDetails}
+          size="lg"
+          variant="ghost"
+        >
+          <ArrowLeft aria-hidden="true" />
+          Back to the details
+        </Button>
       </div>
 
       {confirming ? (

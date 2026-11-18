@@ -326,6 +326,7 @@ export function WhatsAppConnection() {
             expired={expired}
             onBack={() => setView("auto")}
             onCheck={checkForHandshake}
+            onEditDetails={() => setView("details")}
           />
         </section>
       ) : stage === "live" && account && !showingForm ? (
@@ -346,6 +347,7 @@ export function WhatsAppConnection() {
               setExpired(false);
               setView("waiting");
             }}
+            onEditDetails={() => setView("details")}
             onRotated={() => void load()}
           />
         </section>
