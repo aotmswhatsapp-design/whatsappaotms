@@ -29,6 +29,8 @@ export interface WhatsAppAccount {
   qualityRating: string | null;
   businessName: string | null;
   status: string;
+  /** `MANUAL` rows were typed in; `EMBEDDED_SIGNUP` rows came from Meta's dialog. */
+  source: "MANUAL" | "EMBEDDED_SIGNUP";
   lastVerifiedAt: string | null;
   lastCheckAt: string | null;
   failureReason: string | null;
@@ -100,4 +102,40 @@ export function checkConnection(): Promise<{
   reason: string | null;
 }> {
   return request("/v1/whatsapp/check", { method: "POST" });
+}
+
+/**
+ * Whether this server can run Meta's one-click dialog. `enabled` is false when
+ * the operator has not installed a platform Meta app yet, and the page then
+ * leads with the credentials form instead.
+ */
+export interface SignupConfig {
+  enabled: boolean;
+  appId: string | null;
+  configId: string | null;
+  graphVersion: string;
+}
+
+export function fetchSignupConfig(): Promise<SignupConfig> {
+  return request<SignupConfig>("/v1/whatsapp/signup-config", { method: "GET" });
+}
+
+/** What Meta's dialog handed the browser: no token, no secret. */
+export interface EmbeddedSignupInput {
+  code: string;
+  wabaId: string;
+  phoneNumberId: string;
+}
+
+/**
+ * Throws an ApiError with one readable sentence on refusal: nothing was typed
+ * here, so there is no per-field breakdown to show.
+ */
+export function connectEmbeddedSignup(
+  input: EmbeddedSignupInput,
+): Promise<{ account: WhatsAppAccount; summary: string }> {
+  return request("/v1/whatsapp/embedded-signup", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

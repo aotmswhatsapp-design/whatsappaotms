@@ -24,6 +24,7 @@ import {
   previewSeasonality,
   previewTrend,
 } from "@/config/dashboard-preview";
+import { useWhatsAppStatus } from "@/hooks/use-whatsapp-status";
 import {
   CategoryCard,
   FlowCard,
@@ -60,6 +61,9 @@ export function DashboardBoard() {
   // Remounting the grid is the cleanest reset: it drops the internal order and
   // re-reads storage, which by then is empty.
   const [layoutKey, setLayoutKey] = useState(0);
+  // The sample charts are the same either way; only the sentence explaining
+  // them changes, and it must not claim there is no number once there is one.
+  const connected = useWhatsAppStatus().number !== null;
 
   const resetLayout = () => {
     try {
@@ -175,15 +179,32 @@ export function DashboardBoard() {
               Preview data
             </p>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              This account has no WhatsApp Business number, so the numbers below
-              are a sample of what a connected workspace looks like.{" "}
-              <Link
-                href="/workspace/whatsapp"
-                className="font-medium text-brand underline-offset-2 hover:underline"
-              >
-                Connect a number
-              </Link>{" "}
-              to replace every card with live traffic.
+              {connected ? (
+                <>
+                  These charts are still a sample of a connected workspace. Your
+                  number is connected, so live readings replace the samples as
+                  reporting lands.{" "}
+                  <Link
+                    href="/workspace/whatsapp"
+                    className="font-medium text-brand underline-offset-2 hover:underline"
+                  >
+                    Open the connection
+                  </Link>{" "}
+                  to see what Meta confirmed.
+                </>
+              ) : (
+                <>
+                  This account has no WhatsApp Business number, so the numbers
+                  below are a sample of what a connected workspace looks like.{" "}
+                  <Link
+                    href="/workspace/whatsapp"
+                    className="font-medium text-brand underline-offset-2 hover:underline"
+                  >
+                    Connect a number
+                  </Link>{" "}
+                  to replace every card with live traffic.
+                </>
+              )}
             </p>
           </div>
         </div>

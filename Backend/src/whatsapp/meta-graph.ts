@@ -35,6 +35,24 @@ export class MetaTransportError extends Error {
   }
 }
 
+/** Meta answered 200, but the body is missing the field the flow needs. */
+export class MetaShapeError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "MetaShapeError";
+  }
+}
+
+export interface TokenExchangeResult {
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+}
+
+export interface PhoneNumberList {
+  data?: { id?: string }[];
+}
+
 export interface PhoneNumberDetails {
   id: string;
   display_phone_number?: string;
@@ -96,7 +114,76 @@ export class MetaGraph {
     );
   }
 
-  private async get<T>(
+  /**
+   * Embedded Signup, step one: the dialog hands the browser a one-shot code,
+   * and only a server holding the app secret can trade it for a token. It goes
+   * over GET with credentials in the query string because that is the only
+   * shape Meta accepts for this endpoint.
+   */
+  async exchangeCode(input: {
+    version: string;
+    clientId: string;
+    clientSecret: string;
+    code: string;
+  }): Promise<string> {
+    const url = new URL(
+      `${this.base}/${encodeURIComponent(input.version)}/oauth/access_token`,
+    );
+    url.searchParams.set("client_id", input.clientId);
+    url.searchParams.set("client_secret", input.clientSecret);
+    url.searchParams.set("code", input.code);
+
+    const payload = await this.send<TokenExchangeResult>(url, { method: "GET" });
+
+    if (!payload.access_token) {
+      throw new MetaShapeError(
+        "Meta accepted the signup code but returned no access token.",
+      );
+    }
+
+    return payload.access_token;
+  }
+
+  /**
+   * Embedded Signup, step two: without this the account exists but Meta never
+   * calls us, so the customer would wait in "pending" forever.
+   */
+  async subscribeApp(
+    version: string,
+    businessAccountId: string,
+    token: string,
+  ): Promise<void> {
+    const url = new URL(
+      `${this.base}/${encodeURIComponent(version)}/${encodeURIComponent(businessAccountId)}/subscribed_apps`,
+    );
+
+    await this.send<Record<string, unknown>>(url, { method: "POST", token });
+  }
+
+  /**
+   * The numbers the WABA actually owns. The signup dialog tells the browser
+   * which number was picked; this is the server's proof that the account
+   * really contains it, so one tenant cannot claim another's number.
+   */
+  async listBusinessPhoneNumberIds(
+    version: string,
+    businessAccountId: string,
+    token: string,
+  ): Promise<string[]> {
+    const url = new URL(
+      `${this.base}/${encodeURIComponent(version)}/${encodeURIComponent(businessAccountId)}/phone_numbers`,
+    );
+    url.searchParams.set("fields", "id");
+
+    const payload = await this.send<PhoneNumberList>(url, { method: "GET", token });
+    const rows = Array.isArray(payload.data) ? payload.data : [];
+
+    return rows
+      .map((row) => row?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+  }
+
+  private get<T>(
     version: string,
     node: string,
     fields: string,
@@ -105,11 +192,22 @@ export class MetaGraph {
     const url = new URL(`${this.base}/${encodeURIComponent(version)}/${encodeURIComponent(node)}`);
     url.searchParams.set("fields", fields);
 
+    return this.send<T>(url, { method: "GET", token });
+  }
+
+  private async send<T>(
+    url: URL,
+    init: { method: "GET" | "POST"; token?: string },
+  ): Promise<T> {
+    const headers: Record<string, string> = { accept: "application/json" };
+    if (init.token) headers.authorization = `Bearer ${init.token}`;
+
     let response: Response;
 
     try {
       response = await fetch(url, {
-        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        method: init.method,
+        headers,
         signal: AbortSignal.timeout(TIMEOUT_MS),
         // Node's fetch has no HTTP cache, so every verification reaches Meta.
       });

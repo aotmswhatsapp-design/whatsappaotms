@@ -28,7 +28,15 @@ export function Stepper({
   className?: string;
 }) {
   return (
-    <ol className={cn("flex items-center gap-1.5", className)}>
+    // On a phone the connectors are dropped and the labels keep their natural
+    // width; squeezing them beside the rails truncated every stage to three
+    // letters, which told the customer nothing.
+    <ol
+      className={cn(
+        "flex items-center justify-between gap-1.5 sm:justify-normal",
+        className,
+      )}
+    >
       {steps.map((step, index) => {
         const state: StepState =
           index < current ? "done" : index === current ? "active" : "upcoming";
@@ -64,7 +72,10 @@ export function Stepper({
         return (
           <li
             key={step.id}
-            className={cn("flex min-w-0 items-center gap-1.5", index < steps.length - 1 && "flex-1")}
+            className={cn(
+              "flex min-w-0 items-center gap-1.5",
+              index < steps.length - 1 && "sm:flex-1",
+            )}
           >
             {/* Without a handler a stage is a label, not a dead button. */}
             {clickable ? (
@@ -91,7 +102,7 @@ export function Stepper({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "h-px min-w-3 flex-1 rounded-full",
+                  "hidden h-px min-w-3 flex-1 rounded-full sm:block",
                   index < current ? "bg-lime/50" : "bg-border",
                 )}
               />

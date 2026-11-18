@@ -13,6 +13,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
+import { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
 import { WhatsAppService } from "./whatsapp.service";
 
 @Controller("v1/whatsapp")
@@ -36,6 +37,32 @@ export class WhatsAppController {
     @Body() dto: ConnectWhatsAppDto,
   ) {
     return this.whatsapp.connect(claims, dto);
+  }
+
+  /**
+   * GET /api/v1/whatsapp/signup-config — whether this server can run Meta's
+   * one-click dialog, plus the two ids the browser SDK needs.
+   */
+  @Get("signup-config")
+  signupConfig() {
+    return this.whatsapp.signupConfig();
+  }
+
+  /**
+   * POST /api/v1/whatsapp/embedded-signup — the browser forwards the code and
+   * the two ids Meta's dialog returned; the server does the rest.
+   *
+   * Unlike `connect`, a refusal is a 4xx/5xx with one readable sentence: there
+   * is no per-field breakdown to render because the customer typed nothing.
+   */
+  @Post("embedded-signup")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  embeddedSignup(
+    @CurrentUser() claims: AuthClaims,
+    @Body() dto: EmbeddedSignupDto,
+  ) {
+    return this.whatsapp.connectEmbedded(claims, dto);
   }
 
   /**

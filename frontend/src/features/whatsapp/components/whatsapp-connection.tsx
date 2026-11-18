@@ -1,7 +1,13 @@
 "use client";
 
 import * as React from "react";
+import { ChevronDown, KeyRound } from "lucide-react";
 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Stepper } from "@/components/ui/stepper";
 import { useToast } from "@/components/ui/toast";
 import { notifyWhatsAppStatus } from "@/lib/api/whatsapp-status";
@@ -10,14 +16,18 @@ import {
   ApiError,
   checkConnection,
   fetchConnection,
+  fetchSignupConfig,
   type ConnectionPayload,
+  type SignupConfig,
   type Verdict,
   type WhatsAppAccount,
 } from "./api";
 import { CheckList } from "./check-list";
 import { ConnectForm } from "./connect-form";
+import { EmbeddedSignup } from "./embedded-signup";
 import { ErrorPanel } from "./error-panel";
 import { LivePanel } from "./live-panel";
+import { MetaRequirements } from "./meta-requirements";
 import { WaitingPanel } from "./waiting-panel";
 import { WebhookPanel } from "./webhook-panel";
 
@@ -65,6 +75,7 @@ export function WhatsAppConnection() {
   const [view, setView] = React.useState<View>("auto");
   const [expired, setExpired] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
+  const [signup, setSignup] = React.useState<SignupConfig | null>(null);
 
   const load = React.useCallback(async (): Promise<ConnectionPayload | null> => {
     try {
@@ -95,6 +106,14 @@ export function WhatsAppConnection() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
+    // Whether the one-click path exists is a second, independent question. A
+    // failure here must not block the credentials form, which always works.
+    fetchSignupConfig()
+      .then((next) => {
+        if (active) setSignup(next);
+      })
+      .catch(() => {});
 
     return () => {
       active = false;
@@ -208,6 +227,18 @@ export function WhatsAppConnection() {
     notifyWhatsAppStatus();
   }
 
+  /**
+   * Embedded Signup subscribes our app before it answers, so there is no
+   * handshake left to wait for: Meta's subscription is the proof, and the
+   * screen goes straight to the live panel.
+   */
+  function handleEmbeddedConnected(next: WhatsAppAccount) {
+    setPayload({ account: next, stage: "live", callbackUrl });
+    setVerdict(null);
+    setView("auto");
+    notifyWhatsAppStatus();
+  }
+
   function handleDisconnected() {
     setPayload({ account: null, stage: "details", callbackUrl });
     setVerdict(null);
@@ -231,6 +262,11 @@ export function WhatsAppConnection() {
 
   const showingWaiting = account !== null && view === "waiting";
   const showingForm = view === "details" || (!account && stage === "details");
+
+  // The one-click card is only offered when the API has a platform app; the
+  // manual form is then a disclosure rather than the front door.
+  const oneClick =
+    signup?.enabled && signup.appId && signup.configId ? signup : null;
 
   return (
     <div className="space-y-4">
@@ -309,49 +345,127 @@ export function WhatsAppConnection() {
         </section>
       ) : (
         <>
-          <section className="rounded-xl border border-border bg-card p-5">
-            <ConnectForm
-              existing={account !== null}
-              onConnected={handleConnected}
-              onVerdict={setVerdict}
-            />
-          </section>
-
-          {verdict && !verdict.ok ? (
-            <section className="rounded-xl border border-destructive/35 bg-card p-5">
-              <h2 className="text-sm font-semibold text-foreground">
-                Meta did not accept these details
-              </h2>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-                {verdict.summary}
-              </p>
-              {verdict.checks.length ? (
-                <div className="mt-4">
-                  <CheckList checks={verdict.checks} />
-                </div>
-              ) : null}
+          {oneClick ? (
+            <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+              <EmbeddedSignup
+                config={oneClick}
+                onConnected={handleEmbeddedConnected}
+              />
             </section>
-          ) : null}
+          ) : (
+            <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+              <ManualPanel
+                existing={account !== null}
+                onConnected={handleConnected}
+                onVerdict={setVerdict}
+                verdict={verdict}
+              />
+            </section>
+          )}
 
-          <section className="rounded-xl border border-border bg-card p-5">
-            <h2 className="text-sm font-semibold text-foreground">
-              Where each value comes from
-            </h2>
-            <ol className="mt-3 space-y-3">
-              {SOURCES.map((source, index) => (
-                <li key={source} className="flex gap-2.5">
-                  <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-semibold text-muted-foreground">
-                    {index + 1}
+          {oneClick ? (
+            <Collapsible defaultOpen={account !== null}>
+              <section className="overflow-hidden rounded-xl border border-border bg-card">
+                <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left sm:px-5">
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+                    <KeyRound
+                      aria-hidden="true"
+                      className="size-4 text-muted-foreground"
+                    />
+                    I already have my own Meta app
                   </span>
-                  <span className="text-[11.5px] leading-relaxed text-muted-foreground">
-                    {source}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </section>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="border-t border-border p-4 sm:p-5">
+                    <ManualPanel
+                      existing={account !== null}
+                      onConnected={handleConnected}
+                      onVerdict={setVerdict}
+                      verdict={verdict}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </section>
+            </Collapsible>
+          ) : (
+            <p className="rounded-xl border border-border bg-card px-4 py-3 text-[11.5px] leading-relaxed text-muted-foreground sm:px-5">
+              One-click setup appears here once this workspace is linked to the
+              platform&apos;s Meta app. The credentials above are the way in until
+              then.
+            </p>
+          )}
+
+          <MetaRequirements />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The credentials path: five values, checked against Meta before anything is
+ * stored, plus where each one lives in Meta's console.
+ *
+ * It is a component rather than a variable because it is mounted twice — as
+ * the only form when one-click is unavailable, and inside the disclosure when
+ * it is.
+ */
+function ManualPanel({
+  existing,
+  verdict,
+  onConnected,
+  onVerdict,
+}: {
+  existing: boolean;
+  verdict: Verdict | null;
+  onConnected: (account: WhatsAppAccount) => void;
+  onVerdict: (verdict: Verdict) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <ConnectForm
+        existing={existing}
+        onConnected={onConnected}
+        onVerdict={onVerdict}
+      />
+
+      {verdict && !verdict.ok ? (
+        <div className="rounded-lg border border-destructive/35 bg-background p-4">
+          <h3 className="text-[13px] font-semibold text-foreground">
+            Meta did not accept these details
+          </h3>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+            {verdict.summary}
+          </p>
+          {verdict.checks.length ? (
+            <div className="mt-3">
+              <CheckList checks={verdict.checks} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="border-t border-border pt-5">
+        <h3 className="text-sm font-semibold text-foreground">
+          Where each value comes from
+        </h3>
+        <ol className="mt-3 space-y-3">
+          {SOURCES.map((source, index) => (
+            <li key={source} className="flex gap-2.5">
+              <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-secondary text-[9px] font-semibold text-muted-foreground">
+                {index + 1}
+              </span>
+              <span className="text-[11.5px] leading-relaxed text-muted-foreground">
+                {source}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
     </div>
   );
 }

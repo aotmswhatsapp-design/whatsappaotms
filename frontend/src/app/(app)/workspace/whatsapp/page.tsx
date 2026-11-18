@@ -12,7 +12,7 @@ export default function WhatsAppPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        description="Verify your Meta app's credentials, hand the callback URL to Meta, and watch the webhook go live. Nothing is stored until every value passes."
+        description="Connect your WhatsApp Business number in one step through Meta, or paste your own app's credentials. Nothing is stored until Meta confirms it."
         eyebrow={nav.group}
         title={nav.title}
       />

@@ -11,7 +11,7 @@ import {
   type ConnectionStatus,
 } from "@/lib/api/whatsapp-status";
 
-const UNKNOWN: ConnectionStatus = { state: "none", reason: null };
+const UNKNOWN: ConnectionStatus = { state: "none", reason: null, number: null };
 
 /**
  * The sidebar's colour, kept current without polling.

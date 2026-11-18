@@ -88,6 +88,14 @@ enum WhatsAppStatus {
   FAILED
 }
 
+/// Where the credentials came from. Manual rows hand us a customer's own app
+/// token; Embedded Signup rows were minted by our platform app, which is also
+/// what signs and receives their webhook deliveries.
+enum WhatsAppSource {
+  MANUAL
+  EMBEDDED_SIGNUP
+}
+
 /// One Meta WhatsApp Business connection per user.
 ///
 /// The access token, the app secret and the webhook verify token are
@@ -111,6 +119,7 @@ model WhatsAppAccount {
   qualityRating      String?        @map("quality_rating")
   businessName       String?        @map("business_name")
   status             WhatsAppStatus @default(VERIFIED)
+  source             WhatsAppSource @default(MANUAL)
   lastVerifiedAt     DateTime?      @map("last_verified_at")
   accessTokenCipher  String         @map("access_token_cipher")
   verifyTokenCipher  String         @map("verify_token_cipher")

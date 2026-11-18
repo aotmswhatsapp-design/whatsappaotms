@@ -3,10 +3,26 @@ import { request } from "./http";
 /** The four signals the sidebar dot can show. */
 export type ConnectionState = "none" | "pending" | "live" | "error";
 
+/**
+ * The facts about the registered number the API sends alongside the state, so
+ * the Overview can name the channel without fetching the whole connection.
+ */
+export interface ConnectionNumber {
+  phoneNumberId: string;
+  businessAccountId: string;
+  display: string | null;
+  businessName: string | null;
+  verifiedName: string | null;
+  quality: string | null;
+  /** Meta's handshake, or the subscription one-click setup takes, landed. */
+  receiving: boolean;
+}
+
 export interface ConnectionStatus {
   state: ConnectionState;
   /** Only set for `error`: the sentence the tooltip shows. */
   reason: string | null;
+  number: ConnectionNumber | null;
 }
 
 /**

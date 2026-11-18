@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
@@ -24,12 +25,18 @@ export class WhatsAppWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly box: SecretBox,
+    private readonly config: ConfigService,
   ) {}
 
   /**
    * Meta's console sends exactly one GET: mode=subscribe, our token, and a
    * challenge to echo verbatim. The challenge is proof we own the endpoint, so
-   * it is returned only after the token matches a stored account.
+   * it is returned only after the token matches.
+   *
+   * Two tokens are accepted. A platform app is verified once for the whole
+   * deployment — there is no single workspace to mark, because each Embedded
+   * Signup row went live when our app was subscribed to it. A customer's own
+   * app still verifies with the per-workspace token the manual form shows.
    */
   async handshake(input: {
     mode: string | undefined;
@@ -42,6 +49,13 @@ export class WhatsAppWebhookService {
 
     if (!input.token || !input.challenge) {
       return { ok: false, reason: "malformed" };
+    }
+
+    const platformToken = this.config.get<string>("WHATSAPP_WEBHOOK_VERIFY_TOKEN");
+
+    if (platformToken && equals(platformToken, input.token)) {
+      this.logger.log("Webhook handshake accepted by the platform token.");
+      return { ok: true, challenge: input.challenge };
     }
 
     const candidates = await this.prisma.whatsAppAccount.findMany({
@@ -78,8 +92,8 @@ export class WhatsAppWebhookService {
 
   /**
    * A delivery. The payload's `phone_number_id` says which workspace it belongs
-   * to; that workspace's app secret says whether the bytes were signed by Meta.
-   * Only the timestamp and a counter are kept — no message content is stored.
+   * to; signatures say whether the bytes were signed by Meta. Only the
+   * timestamp and a counter are kept — no message content is stored.
    */
   async delivery(
     raw: Buffer | undefined,
@@ -115,23 +129,33 @@ export class WhatsAppWebhookService {
       return;
     }
 
+    // A platform-app delivery is signed with our app secret and a customer-app
+    // one with theirs; either proves Meta sent the bytes. Computed once because
+    // a single delivery can carry numbers from several workspaces.
+    const platformSecret = this.config.get<string>("META_APP_SECRET") ?? null;
+
+    const platformSigned =
+      signature !== undefined &&
+      platformSecret !== null &&
+      signatureMatches(raw, platformSecret, signature);
+
     for (const account of accounts) {
       const secret = account.appSecretCipher
         ? this.openOrNull(account.appSecretCipher)
         : null;
 
-      // A row stored before app secrets were collected cannot be verified, so
-      // its deliveries are counted as unproven rather than trusted.
-      if (!secret) {
-        this.logger.warn(
-          "Webhook delivery could not be verified: no app secret stored. Reconnect to fix.",
-        );
-        continue;
-      }
+      const rowSigned =
+        secret !== null &&
+        signature !== undefined &&
+        signatureMatches(raw, secret, signature);
 
-      if (!signature || !signatureMatches(raw, secret, signature)) {
+      if (!rowSigned && !platformSigned) {
+        // A row stored before app secrets were collected cannot verify on its
+        // own, so such deliveries are counted only when our platform app signed.
         this.logger.warn(
-          "Webhook delivery signature did not match the stored app secret; ignored.",
+          secret
+            ? "Webhook delivery signature matched neither the stored app secret nor the platform app's; ignored."
+            : "Webhook delivery could not be verified: no app secret stored and the signature is not the platform app's.",
         );
         continue;
       }
