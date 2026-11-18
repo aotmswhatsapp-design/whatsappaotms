@@ -1,6 +1,16 @@
 import { z } from "zod";
 
 /**
+ * A port that a hosting dashboard may leave blank. `APP_PORT=` in a dashboard
+ * arrives as an empty string, and coerce.number turns that into 0 — which the
+ * range check then rejects at boot. An empty value means "not set".
+ */
+const optionalPort = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.coerce.number().int().min(1).max(65_535).optional(),
+);
+
+/**
  * Fail fast on a bad environment. A missing SUPABASE_URL otherwise surfaces as
  * a confusing 401 for every request instead of a startup error.
  */
@@ -14,12 +24,12 @@ export const envSchema = z.object({
    * `PORT` and the API would try to bind the database port. APP_PORT therefore
    * wins when it is set, and `PORT` is only the fallback.
    */
-  APP_PORT: z.coerce.number().int().min(1).max(65_535).optional(),
+  APP_PORT: optionalPort,
   /**
    * Injected by hosting platforms (Render sets this on every web service).
    * Ignored whenever APP_PORT is present, so a local .env keeps control.
    */
-  PORT: z.coerce.number().int().min(1).max(65_535).optional(),
+  PORT: optionalPort,
   SUPABASE_URL: z.string().url(),
   /**
    * Keys for the auth REST API. Both are optional so the API still boots for a
