@@ -69,9 +69,10 @@ export async function request<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   let response: Response;
+  const url = `${BASE_URL}${path}`;
 
   try {
-    response = await fetch(`${BASE_URL}${path}`, { ...init, headers, cache: "no-store" });
+    response = await fetch(url, { ...init, headers, cache: "no-store" });
   } catch {
     throw new ApiError(
       0,
@@ -82,6 +83,16 @@ export async function request<T>(path: string, init: RequestInit): Promise<T> {
   const payload = (await response.json().catch(() => null)) as unknown;
 
   if (!response.ok) {
+    // The API always explains a 404 in JSON. A 404 without one came from
+    // something else wearing our host — a stale build, a proxy, or a
+    // NEXT_PUBLIC_API_URL that points at the frontend — so name the URL.
+    if (response.status === 404 && payload === null) {
+      throw new ApiError(
+        404,
+        `${url} answered without a JSON body, so it is not this API. Check NEXT_PUBLIC_API_URL and restart the backend.`,
+      );
+    }
+
     throw new ApiError(response.status, describe(payload, response.status));
   }
 
