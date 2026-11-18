@@ -9,8 +9,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("SUPABASE_POSTGRES_URL")
+  provider  = "postgresql"
+  url       = env("SUPABASE_POSTGRES_URL")
   // Runtime traffic goes through the transaction pooler (6543), which cannot
   // carry the prepared statements a migration needs. Prisma migrates over this
   // direct connection instead.
@@ -48,7 +48,11 @@ model User {
 
   memberships WorkspaceMember[]
   owned       Workspace[]       @relation("WorkspaceOwner")
-  whatsapp    WhatsAppAccount?
+  /// One per workspace this user has connected a number in.
+  whatsapp    WhatsAppAccount[]
+
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  notes                 InternalNote[] @relation("NoteAuthor")
 
   @@map("users")
 }
@@ -64,6 +68,13 @@ model Workspace {
 
   owner   User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members WorkspaceMember[]
+
+  /// Tenant data. Every conversation, message and contact is scoped here so
+  /// one agent's inbox cannot read another workspace's threads.
+  whatsapp      WhatsAppAccount?
+  contacts      Contact[]
+  conversations Conversation[]
+  messages      Message[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -110,7 +121,9 @@ enum WhatsAppSource {
 /// state is derived rather than stored.
 model WhatsAppAccount {
   id                 String         @id @default(uuid()) @db.Uuid
-  userId             String         @unique @map("user_id") @db.Uuid
+  /// Who connected it. Kept as an audit trail; tenancy is `workspaceId`.
+  userId             String         @map("user_id") @db.Uuid
+  workspaceId        String         @unique @map("workspace_id") @db.Uuid
   phoneNumberId      String         @map("phone_number_id")
   businessAccountId  String         @map("business_account_id")
   graphVersion       String         @map("graph_version")
@@ -127,7 +140,8 @@ model WhatsAppAccount {
   appSecretCipher    String?        @map("app_secret_cipher")
   /// Stamped by Meta's GET handshake, cleared when the token is rotated.
   webhookVerifiedAt  DateTime?      @map("webhook_verified_at")
-  /// Delivery proof only — no message bodies are ever stored.
+  /// Delivery proof for the WhatsApp screen. Message content lives in
+  /// `messages`, written by the inbox store after a signature check.
   lastEventAt        DateTime?      @map("last_event_at")
   eventCount         Int            @default(0) @map("event_count")
   /// Cache marker for the live re-check, so a page load is not a Meta call.
@@ -136,7 +150,160 @@ model WhatsAppAccount {
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  conversations Conversation[]
+
+  /// Every delivery looks a row up by the number Meta names in the payload.
+  @@index([phoneNumberId])
   @@map("whatsapp_accounts")
+}
+
+// ---------------------------------------------------------------------------
+// Inbox (PRD MODULE 5).
+//
+// This is the first place customer content is stored: phone numbers, names and
+// message text. Nothing here is ever written to logs, and deleting a
+// conversation must also delete its stored media.
+// ---------------------------------------------------------------------------
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageKind {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+  STICKER
+  LOCATION
+  CONTACTS
+  BUTTON
+  INTERACTIVE
+  UNSUPPORTED
+}
+
+/// QUEUED exists so a crash between our insert and Meta's answer leaves a
+/// visible row instead of a message that vanished.
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+/// One customer identity inside a workspace, created by the webhook from
+/// `value.contacts[]` so the inbox works before the Contacts module exists.
+model Contact {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  /// Digits only, exactly as Meta sends it (`wa_id`).
+  waId         String    @map("wa_id")
+  profileName  String?   @map("profile_name")
+  phoneDisplay String?   @map("phone_display")
+  tags         String[]  @default([])
+  lastSeenAt   DateTime? @map("last_seen_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([workspaceId, waId])
+  @@index([workspaceId, lastSeenAt])
+  @@map("contacts")
+}
+
+/// A thread with one contact on one number.
+///
+/// `lastInboundAt` is what the 24-hour service window is measured from;
+/// `lastMessageAt` and `unreadCount` are denormalised so the list is a single
+/// indexed query instead of an aggregate per row.
+model Conversation {
+  id                 String             @id @default(uuid()) @db.Uuid
+  workspaceId        String             @map("workspace_id") @db.Uuid
+  accountId          String             @map("account_id") @db.Uuid
+  contactId          String             @map("contact_id") @db.Uuid
+  status             ConversationStatus @default(OPEN)
+  assignedToUserId   String?            @map("assigned_to_user_id") @db.Uuid
+  lastInboundAt      DateTime?          @map("last_inbound_at")
+  lastMessageAt      DateTime           @default(now()) @map("last_message_at")
+  lastMessagePreview String?            @map("last_message_preview")
+  unreadCount        Int                @default(0) @map("unread_count")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  account    WhatsAppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact    Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignedTo User?           @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages   Message[]
+  notes      InternalNote[]
+
+  @@unique([accountId, contactId])
+  @@index([workspaceId, lastMessageAt])
+  @@index([workspaceId, status, lastMessageAt])
+  @@index([assignedToUserId])
+  @@map("conversations")
+}
+
+/// One WhatsApp message in either direction.
+///
+/// `wamid` is Meta's id and the dedupe key: deliveries are retried, and the
+/// same message must never become two rows. Media bytes live in Supabase
+/// Storage; `mediaPath` stays null until the first open downloads them.
+model Message {
+  id             String           @id @default(uuid()) @db.Uuid
+  workspaceId    String           @map("workspace_id") @db.Uuid
+  conversationId String           @map("conversation_id") @db.Uuid
+  direction      MessageDirection
+  kind           MessageKind      @default(TEXT)
+  status         MessageStatus    @default(QUEUED)
+  wamid          String?          @unique
+  body           String?
+  mediaId        String?          @map("media_id")
+  mediaMime      String?          @map("media_mime")
+  mediaName      String?          @map("media_name")
+  mediaSize      Int?             @map("media_size")
+  mediaSha256    String?          @map("media_sha256")
+  mediaPath      String?          @map("media_path")
+  errorReason    String?          @map("error_reason")
+  sentAt         DateTime?        @map("sent_at")
+  deliveredAt    DateTime?        @map("delivered_at")
+  readAt         DateTime?        @map("read_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("messages")
+}
+
+/// Agent-only. Kept out of `Message` so a note can never reach the send path
+/// by mistake.
+model InternalNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  authorUserId   String   @map("author_user_id") @db.Uuid
+  body           String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User         @relation("NoteAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("internal_notes")
 }

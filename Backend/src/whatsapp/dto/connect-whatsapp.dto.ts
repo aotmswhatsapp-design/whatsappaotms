@@ -39,10 +39,10 @@ export class ConnectWhatsAppDto {
   })
   appSecret!: string;
 
-  /** Graph API version, e.g. v21.0. */
+  /** Graph API version, e.g. v23.0. */
   @Transform(trimmed)
   @IsString()
-  @Matches(/^v\d{1,2}\.\d$/, { message: "Graph version looks like v21.0." })
+  @Matches(/^v\d{1,2}\.\d$/, { message: "Graph version looks like v23.0." })
   graphVersion!: string;
 
   /** WhatsApp Business Account (WABA) id, not the Business Manager id. */

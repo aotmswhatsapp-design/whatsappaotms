@@ -4,6 +4,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { SecretBox } from "../common/crypto/secret-box";
+import { parseDelivery } from "../inbox/inbox.payload";
+import { InboxStore } from "../inbox/inbox.store";
 import { PrismaService } from "../prisma/prisma.service";
 
 export type HandshakeOutcome =
@@ -26,6 +28,7 @@ export class WhatsAppWebhookService {
     private readonly prisma: PrismaService,
     private readonly box: SecretBox,
     private readonly config: ConfigService,
+    private readonly store: InboxStore,
   ) {}
 
   /**
@@ -92,8 +95,9 @@ export class WhatsAppWebhookService {
 
   /**
    * A delivery. The payload's `phone_number_id` says which workspace it belongs
-   * to; signatures say whether the bytes were signed by Meta. Only the
-   * timestamp and a counter are kept — no message content is stored.
+   * to; signatures say whether the bytes were signed by Meta. Only a verified
+   * delivery reaches the inbox store, which is the one place message content is
+   * written — and the row it writes is scoped to the number that received it.
    */
   async delivery(
     raw: Buffer | undefined,
@@ -119,7 +123,12 @@ export class WhatsAppWebhookService {
 
     const accounts = await this.prisma.whatsAppAccount.findMany({
       where: { phoneNumberId: { in: numbers } },
-      select: { id: true, appSecretCipher: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        phoneNumberId: true,
+        appSecretCipher: true,
+      },
     });
 
     if (accounts.length === 0) {
@@ -138,6 +147,10 @@ export class WhatsAppWebhookService {
       signature !== undefined &&
       platformSecret !== null &&
       signatureMatches(raw, platformSecret, signature);
+
+    // Parsed once: a single delivery can carry changes for several numbers, and
+    // each account below takes only its own.
+    const changes = parseDelivery(payload);
 
     for (const account of accounts) {
       const secret = account.appSecretCipher
@@ -165,7 +178,16 @@ export class WhatsAppWebhookService {
         data: { lastEventAt: new Date(), eventCount: { increment: 1 } },
       });
 
-      this.logger.log(`Signed delivery recorded for ${numbers.join(", ")}.`);
+      await this.store.record(
+        {
+          id: account.id,
+          workspaceId: account.workspaceId,
+          phoneNumberId: account.phoneNumberId,
+        },
+        changes,
+      );
+
+      this.logger.log(`Signed delivery stored for ${numbers.join(", ")}.`);
     }
   }
 

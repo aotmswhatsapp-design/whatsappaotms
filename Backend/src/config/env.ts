@@ -108,7 +108,7 @@ export const envSchema = z.object({
   META_GRAPH_VERSION: z
     .string()
     .regex(/^v\d{1,2}\.\d$/)
-    .default("v21.0"),
+    .default("v23.0"),
   /**
    * The token typed into the app's single Webhooks panel. With a platform app
    * Meta verifies that URL once, not once per customer, so this replaces the
@@ -120,6 +120,11 @@ export const envSchema = z.object({
     .optional()
     .or(z.literal("").transform(() => undefined)),
   CORS_ORIGINS: z.string().optional(),
+  /**
+   * Private Supabase Storage bucket for inbox attachments. Created on the
+   * first upload; left as the default so a deployment needs no new setting.
+   */
+  INBOX_MEDIA_BUCKET: z.string().min(1).default("inbox-media"),
   /**
    * Retention for the connection status: within this window a page load reads
    * the stored verdict instead of calling Graph again.

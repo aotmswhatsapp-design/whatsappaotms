@@ -84,7 +84,7 @@ export function EmbeddedSignup({
     const result = await runEmbeddedSignup({
       appId,
       configId,
-      version: config?.graphVersion ?? "v21.0",
+      version: config?.graphVersion ?? "v23.0",
     });
 
     if (!result.ok) {

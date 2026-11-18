@@ -50,7 +50,7 @@ const FIELDS: {
   {
     name: "graphVersion",
     label: "Graph API version",
-    placeholder: "v21.0",
+    placeholder: "v23.0",
     hint: "The version printed at the top of Meta's WhatsApp docs. Every request uses it.",
   },
   {
@@ -66,7 +66,7 @@ const INITIAL: Values = {
   accessToken: "",
   phoneNumberId: "",
   appSecret: "",
-  graphVersion: "v21.0",
+  graphVersion: "v23.0",
   businessAccountId: "",
 };
 
@@ -86,7 +86,7 @@ const RULES: Record<FieldKey, (value: string) => string | null> = {
       ? null
       : "16–128 letters, digits, dashes or underscores — no spaces.",
   graphVersion: (value) =>
-    /^v\d{1,2}\.\d$/.test(value) ? null : "Format is v21.0 (v, the number, a dot, then one digit).",
+    /^v\d{1,2}\.\d$/.test(value) ? null : "Format is v23.0 (v, the number, a dot, then one digit).",
   businessAccountId: (value) =>
     /^\d{5,25}$/.test(value)
       ? null

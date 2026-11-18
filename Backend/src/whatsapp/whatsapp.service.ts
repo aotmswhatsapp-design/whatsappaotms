@@ -10,9 +10,9 @@ import { ConfigService } from "@nestjs/config";
 import type { Prisma } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
-import { UsersService } from "../auth/users.service";
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
+import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
 import type { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
 import {
@@ -234,7 +234,7 @@ export class WhatsAppService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly users: UsersService,
+    private readonly workspaces: WorkspacesService,
     private readonly meta: MetaGraph,
     private readonly box: SecretBox,
     private readonly config: ConfigService,
@@ -253,7 +253,9 @@ export class WhatsAppService {
     claims: AuthClaims,
     input: ConnectWhatsAppDto,
   ): Promise<ConnectResult> {
-    const user = await this.users.syncFromClaims(claims);
+    // Tenant first: the account row is owned by the workspace, and `userId` is
+    // kept only to record who pasted the credentials.
+    const { userId, workspaceId } = await this.workspaces.primaryFor(claims);
 
     const version = input.graphVersion;
     const token = input.accessToken;
@@ -369,7 +371,7 @@ export class WhatsAppService {
     // rotating our own token behind the customer's back would silently turn a
     // working webhook into a 403 until they visit Meta again.
     const previous = await this.prisma.whatsAppAccount.findUnique({
-      where: { userId: user.id },
+      where: { workspaceId },
       select: { phoneNumberId: true, verifyTokenCipher: true },
     });
 
@@ -402,8 +404,8 @@ export class WhatsAppService {
     } as const;
 
     const row = await this.prisma.whatsAppAccount.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, ...values },
+      where: { workspaceId },
+      create: { userId, workspaceId, ...values },
       update: values,
       select: ACCOUNT_SELECT,
     });
@@ -453,7 +455,9 @@ export class WhatsAppService {
       );
     }
 
-    const user = await this.users.syncFromClaims(claims);
+    // Tenant first: the account row is owned by the workspace, and `userId` is
+    // kept only to record who pasted the credentials.
+    const { userId, workspaceId } = await this.workspaces.primaryFor(claims);
     const version = this.graphVersion;
     const token = await this.exchangeCode(app, input.code);
 
@@ -518,8 +522,8 @@ export class WhatsAppService {
     } as const;
 
     const row = await this.prisma.whatsAppAccount.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, ...values },
+      where: { workspaceId },
+      create: { userId, workspaceId, ...values },
       update: values,
       select: ACCOUNT_SELECT,
     });
@@ -534,8 +538,10 @@ export class WhatsAppService {
 
   /** Read-only: an account cannot exist before its user row does. */
   async connection(claims: AuthClaims): Promise<ConnectionPayload> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
     const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { userId: claims.id },
+      where: { workspaceId },
       select: ACCOUNT_SELECT,
     });
 
@@ -551,8 +557,10 @@ export class WhatsAppService {
   }
 
   async disconnect(claims: AuthClaims): Promise<{ removed: boolean }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
     const { count } = await this.prisma.whatsAppAccount.deleteMany({
-      where: { userId: claims.id },
+      where: { workspaceId },
     });
 
     return { removed: count > 0 };
@@ -565,8 +573,10 @@ export class WhatsAppService {
   async rotateVerifyToken(
     claims: AuthClaims,
   ): Promise<{ rotated: boolean; verifyToken: string | null }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
     const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { userId: claims.id },
+      where: { workspaceId },
       select: { id: true, source: true },
     });
 
@@ -599,8 +609,10 @@ export class WhatsAppService {
     claims: AuthClaims,
     options: { force?: boolean } = {},
   ): Promise<StatusPayload> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
     const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { userId: claims.id },
+      where: { workspaceId },
       select: STATUS_SELECT,
     });
 
@@ -797,7 +809,7 @@ export class WhatsAppService {
   }
 
   private get graphVersion(): string {
-    return this.config.get<string>("META_GRAPH_VERSION") ?? "v21.0";
+    return this.config.get<string>("META_GRAPH_VERSION") ?? "v23.0";
   }
 }
 

@@ -14,13 +14,15 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** A discriminator the server chose, e.g. `WINDOW_CLOSED`. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
   }
 }
 
-async function authorise(): Promise<Headers> {
+async function authorise(json = true): Promise<Headers> {
   // Imported lazily so a page that never calls the API does not pull the
   // Supabase client into its bundle.
   const { createClient } = await import("@/lib/supabase/client");
@@ -32,10 +34,12 @@ async function authorise(): Promise<Headers> {
     throw new ApiError(401, "Your session has expired. Sign in again and retry.");
   }
 
-  return new Headers({
-    authorization: `Bearer ${token}`,
-    "content-type": "application/json",
-  });
+  const headers = new Headers({ authorization: `Bearer ${token}` });
+
+  // Multipart sets its own content-type so fetch can add the boundary.
+  if (json) headers.set("content-type", "application/json");
+
+  return headers;
 }
 
 /**
@@ -58,16 +62,36 @@ export function describe(body: unknown, status: number): string {
 }
 
 export async function request<T>(path: string, init: RequestInit): Promise<T> {
-  let headers: Headers;
+  const headers = await sessionHeaders();
 
+  return send<T>(path, init, headers);
+}
+
+/**
+ * A multipart POST. Separate from `request` because the JSON helper sets a
+ * content-type, and a hand-set boundary is a broken upload.
+ */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const headers = await sessionHeaders(false);
+
+  return send<T>(path, { method: "POST", body: form }, headers);
+}
+
+async function sessionHeaders(json = true): Promise<Headers> {
   try {
-    headers = await authorise();
+    return await authorise(json);
   } catch (error) {
     throw error instanceof ApiError
       ? error
       : new ApiError(401, "Could not read your session.");
   }
+}
 
+async function send<T>(
+  path: string,
+  init: RequestInit,
+  headers: Headers,
+): Promise<T> {
   let response: Response;
   const url = `${BASE_URL}${path}`;
 
@@ -99,8 +123,22 @@ export async function request<T>(path: string, init: RequestInit): Promise<T> {
       );
     }
 
-    throw new ApiError(response.status, describe(payload, response.status));
+    throw new ApiError(
+      response.status,
+      describe(payload, response.status),
+      codeOf(payload),
+    );
   }
 
   return payload as T;
+}
+
+/** The server's machine-readable discriminator, when it sent one. */
+function codeOf(body: unknown): string | undefined {
+  if (body && typeof body === "object" && "code" in body) {
+    const { code } = body as { code: unknown };
+    if (typeof code === "string" && code.length > 0) return code;
+  }
+
+  return undefined;
 }

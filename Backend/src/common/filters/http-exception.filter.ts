@@ -13,6 +13,11 @@ interface ErrorBody {
   statusCode: number;
   error: string;
   message: string | string[];
+  /**
+   * An optional machine-readable discriminator, e.g. `WINDOW_CLOSED`. The
+   * client switches on this instead of matching an English sentence.
+   */
+  code?: string;
   path: string;
   timestamp: string;
 }
@@ -30,7 +35,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const { status, message, error } = this.describe(exception);
+    const { status, message, error, code } = this.describe(exception);
 
     if (status >= 500) {
       this.logger.error(
@@ -43,6 +48,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       statusCode: status,
       error,
       message,
+      ...(code ? { code } : {}),
       path: request.url,
       timestamp: new Date().toISOString(),
     };
@@ -54,6 +60,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     status: number;
     message: string | string[];
     error: string;
+    code?: string;
   } {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
@@ -64,10 +71,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
           : ((payload as { message?: string | string[] }).message ??
             exception.message);
 
+      const code =
+        typeof payload === "object" && payload !== null
+          ? (payload as { code?: unknown }).code
+          : undefined;
+
       return {
         status,
         message,
         error: HttpStatus[status] ?? "Error",
+        ...(typeof code === "string" && code.length > 0 ? { code } : {}),
       };
     }
 

@@ -43,7 +43,7 @@ const SOURCES = [
   "Meta Business settings → Users → System users → generate a token with whatsapp_business_messaging.",
   "WhatsApp Manager → Phone numbers → copy the numeric ID under the display number.",
   "App settings → Basic → App secret → Show. It signs every webhook delivery.",
-  "Copy the version from the top of Meta's WhatsApp Cloud API docs, e.g. v21.0.",
+  "Copy the version from the top of Meta's WhatsApp Cloud API docs, e.g. v23.0.",
   "Business settings → Accounts → WhatsApp accounts → copy the WhatsApp Account ID.",
 ];
 
