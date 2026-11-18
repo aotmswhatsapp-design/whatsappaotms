@@ -324,7 +324,9 @@ function reasonOf(error: unknown): string {
   }
 
   if (error instanceof MetaRequestError) {
-    return error.body.message.trim() || `Meta answered HTTP ${error.status}.`;
+    // `explanation` prefers Meta's `error_data.details`, which is the half of a
+    // "(#100) Invalid parameter" answer that says what to change.
+    return error.explanation;
   }
 
   if (error instanceof HttpException) return error.message;

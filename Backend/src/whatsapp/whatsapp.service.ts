@@ -871,7 +871,7 @@ function explain(error: unknown): string {
   }
 
   if (error instanceof MetaRequestError) {
-    return error.body.message.trim() || `Meta answered HTTP ${error.status}.`;
+    return error.explanation;
   }
 
   return error instanceof Error ? error.message : "Unexpected failure.";

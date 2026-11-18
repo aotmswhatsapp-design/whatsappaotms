@@ -170,12 +170,29 @@ function parseMessage(input: unknown): ParsedMessage | null {
     body:
       stringAt(objectAt(message.text)?.body) ??
       stringAt(content?.caption) ??
+      tapText(message) ??
       (kind === "UNSUPPORTED" ? `[${type}]` : null),
     mediaId: stringAt(content?.id),
     mediaMime: stringAt(content?.mime_type),
     mediaName: stringAt(content?.filename),
     mediaSha256: stringAt(content?.sha256),
   };
+}
+
+/**
+ * The words the customer tapped. A reply arrives as `button` or `interactive`
+ * and carries its label in a different place in each shape — Meta's own docs
+ * are explicit that the interactive shape has no `button_reply` once the
+ * message was delivered as a template, so all three are read.
+ */
+function tapText(message: Json): string | null {
+  const interactive = objectAt(message.interactive);
+
+  return (
+    stringAt(objectAt(message.button)?.text) ??
+    stringAt(objectAt(interactive?.button_reply)?.title) ??
+    stringAt(objectAt(interactive?.list_reply)?.title)
+  );
 }
 
 function parseStatus(input: unknown): ParsedStatus | null {

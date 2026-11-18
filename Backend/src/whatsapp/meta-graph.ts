@@ -10,6 +10,11 @@ export interface MetaErrorBody {
   code?: number;
   error_subcode?: number;
   fbtrace_id?: string;
+  /**
+   * Where Meta puts the sentence a human can act on when `message` is only a
+   * label like "(#100) Invalid parameter".
+   */
+  error_data?: { messaging_product?: string; details?: string };
 }
 
 /** Meta answered, and the answer was an error. Carries the code we classify on. */
@@ -24,6 +29,18 @@ export class MetaRequestError extends Error {
 
   get code(): number | undefined {
     return this.body.code;
+  }
+
+  /**
+   * The most specific sentence Meta gave us: `error_data.details` explains a
+   * rejection that `message` only names. Falls back to the envelope.
+   */
+  get explanation(): string {
+    return (
+      this.body.error_data?.details?.trim() ||
+      this.body.message.trim() ||
+      `Meta answered HTTP ${this.status}.`
+    );
   }
 }
 

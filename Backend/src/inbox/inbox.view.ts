@@ -17,6 +17,15 @@ import type {
 /** WhatsApp's customer-service window, measured from the last inbound message. */
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** The kinds that actually carry a file. A tapped button does not. */
+const MEDIA_KINDS: ReadonlySet<MessageKind> = new Set([
+  "IMAGE",
+  "DOCUMENT",
+  "AUDIO",
+  "VIDEO",
+  "STICKER",
+]);
+
 export const CONVERSATION_SELECT = {
   id: true,
   status: true,
@@ -98,7 +107,7 @@ export interface MessageView {
   deliveredAt: string | null;
   readAt: string | null;
   errorReason: string | null;
-  /** Null for a text message. `available` is false when Meta gave no file. */
+  /** Null unless the message carries a file. `available` is false when Meta gave no file. */
   media: {
     mime: string | null;
     name: string | null;
@@ -151,16 +160,17 @@ export function messageView(row: MessageSource): MessageView {
     deliveredAt: iso(row.deliveredAt),
     readAt: iso(row.readAt),
     errorReason: row.errorReason,
-    media:
-      row.kind === "TEXT" || row.kind === "UNSUPPORTED"
-        ? null
-        : {
-            mime: row.mediaMime,
-            name: row.mediaName,
-            size: row.mediaSize,
-            // A row stored before media download existed can still ask Meta.
-            available: Boolean(row.mediaId || row.mediaPath),
-          },
+    // A location, a contact card or a tapped button is not an attachment;
+    // describing it as one makes the bubble claim the file is gone.
+    media: MEDIA_KINDS.has(row.kind)
+      ? {
+          mime: row.mediaMime,
+          name: row.mediaName,
+          size: row.mediaSize,
+          // A row stored before media download existed can still ask Meta.
+          available: Boolean(row.mediaId || row.mediaPath),
+        }
+      : null,
   };
 }
 
