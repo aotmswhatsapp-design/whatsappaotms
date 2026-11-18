@@ -59,9 +59,24 @@ export const envSchema = z.object({
    * length only has to be long enough to be worth hashing.
    */
   WHATSAPP_ENCRYPTION_KEY: z.string().min(32),
+  /**
+   * The public URL Meta posts to: `<api origin>/api/v1/whatsapp/webhook`.
+   * Optional so a local API still boots; when it is unset the connection screen
+   * says the callback is not configured instead of inventing one.
+   */
+  WHATSAPP_WEBHOOK_PUBLIC_URL: z
+    .string()
+    .url()
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   /** Test seam: point this at a local Graph stub to prove the success path. */
   META_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
   CORS_ORIGINS: z.string().optional(),
+  /**
+   * Retention for the connection status: within this window a page load reads
+   * the stored verdict instead of calling Graph again.
+   */
+  WHATSAPP_STATUS_TTL_MS: z.coerce.number().int().min(0).default(300_000),
   /** Global per-IP ceiling: requests per window, and the window in ms. */
   THROTTLE_TTL_MS: z.coerce.number().int().min(1_000).default(60_000),
   THROTTLE_LIMIT: z.coerce.number().int().min(1).default(120),

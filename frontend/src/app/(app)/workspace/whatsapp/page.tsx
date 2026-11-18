@@ -12,7 +12,7 @@ export default function WhatsAppPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        description="Enter the five values from your Meta app. The server asks Meta's Graph API about each one and stores them encrypted — only when every check passes."
+        description="Verify your Meta app's credentials, hand the callback URL to Meta, and watch the webhook go live. Nothing is stored until every value passes."
         eyebrow={nav.group}
         title={nav.title}
       />

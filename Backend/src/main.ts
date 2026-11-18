@@ -13,6 +13,9 @@ import { parseOrigins, resolvePort } from "./config/env";
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: false,
+    // Meta signs the exact bytes it sent. Re-serialising a parsed body changes
+    // whitespace and key order, so the HMAC check needs the untouched buffer.
+    rawBody: true,
   });
 
   const config = app.get(ConfigService);

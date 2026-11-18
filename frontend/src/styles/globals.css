@@ -72,6 +72,10 @@
   --blue-soft: #dce5f7;
   --lime: #3f6212;
   --lime-soft: #e4f0c6;
+  /* Amber is the third state a connection can be in — credentials accepted,
+     webhook not proven yet. 5.4:1 on the sheet, so it is a label colour too. */
+  --warning: #8a5a06;
+  --warning-soft: #fbeecb;
 }
 
 /**
@@ -281,6 +285,8 @@
   --color-blue-soft: var(--blue-soft);
   --color-lime: var(--lime);
   --color-lime-soft: var(--lime-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

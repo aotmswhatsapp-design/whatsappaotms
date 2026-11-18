@@ -29,6 +29,12 @@ export interface WorkspaceNavItem {
   /** Shown in the command palette and as the page subtitle. */
   description: string;
   icon: LucideIcon;
+  /**
+   * Items that carry a live state show a status dot. Only the WhatsApp item
+   * has one today; the value names the feature whose status the shell reads,
+   * so the nav stays a plain config module with no imports from `features/`.
+   */
+  statusKey?: "whatsapp";
 }
 
 export interface WorkspaceNavGroup {
@@ -126,6 +132,7 @@ export const workspaceNav: WorkspaceNavGroup[] = [
         href: "/workspace/whatsapp",
         description: "Connect your WhatsApp Business account",
         icon: PlugZap,
+        statusKey: "whatsapp",
       },
       {
         title: "Team",

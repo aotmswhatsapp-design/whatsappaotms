@@ -22,7 +22,7 @@ export class WhatsAppController {
 
   /**
    * POST /api/v1/whatsapp/connect — verify the five details against Meta and
-   * store them only if every check passes.
+   * store them only if every check passes. The verify token is generated here.
    *
    * 200 with `ok: false` rather than a 4xx: the verdict *is* the payload, and
    * the client needs the per-check breakdown to say which field to fix.
@@ -38,10 +38,37 @@ export class WhatsAppController {
     return this.whatsapp.connect(claims, dto);
   }
 
-  /** GET /api/v1/whatsapp/connection — the stored connection, if any. */
+  /**
+   * GET /api/v1/whatsapp/connection — the stored connection, the stage it
+   * belongs to, and the two values Meta's console asks for.
+   */
   @Get("connection")
   connection(@CurrentUser() claims: AuthClaims) {
     return this.whatsapp.connection(claims);
+  }
+
+  /** POST /api/v1/whatsapp/verify-token/rotate — new token, handshake reset. */
+  @Post("verify-token/rotate")
+  @HttpCode(200)
+  rotateVerifyToken(@CurrentUser() claims: AuthClaims) {
+    return this.whatsapp.rotateVerifyToken(claims);
+  }
+
+  /**
+   * GET /api/v1/whatsapp/status — what the sidebar dot reads. Cached for
+   * WHATSAPP_STATUS_TTL_MS, so a page load is not automatically a Meta call.
+   */
+  @Get("status")
+  status(@CurrentUser() claims: AuthClaims) {
+    return this.whatsapp.status(claims);
+  }
+
+  /** POST /api/v1/whatsapp/check — the same re-check, forced past the cache. */
+  @Post("check")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  check(@CurrentUser() claims: AuthClaims) {
+    return this.whatsapp.recheckNow(claims);
   }
 
   /** DELETE /api/v1/whatsapp/connection — forget the stored credentials. */

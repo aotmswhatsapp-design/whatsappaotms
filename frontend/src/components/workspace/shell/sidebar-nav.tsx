@@ -10,8 +10,35 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { isNavItemActive, workspaceNav } from "@/config/workspace-nav";
+import { StatusDot, type StatusDotTone } from "@/components/ui/status-dot";
+import { isNavItemActive, workspaceNav, type WorkspaceNavItem } from "@/config/workspace-nav";
+import { useWhatsAppStatus } from "@/hooks/use-whatsapp-status";
+import type { ConnectionStatus } from "@/lib/api/whatsapp-status";
 import { cn } from "@/lib/utils";
+
+/** The dot's colour and the words that say the same thing. */
+function dotFor(
+  item: WorkspaceNavItem,
+  state: ConnectionStatus,
+): { tone: StatusDotTone; label: string } | null {
+  if (item.statusKey !== "whatsapp" || state.state === "none") return null;
+
+  if (state.state === "live") {
+    return { tone: "live", label: "WhatsApp connected and receiving events" };
+  }
+
+  if (state.state === "pending") {
+    return {
+      tone: "pending",
+      label: "WhatsApp saved — waiting for Meta to confirm the webhook",
+    };
+  }
+
+  return {
+    tone: "error",
+    label: `WhatsApp error: ${state.reason ?? "Meta rejected the stored credentials"}`,
+  };
+}
 
 /**
  * Grouped workspace navigation. Groups collapse, the group holding the current
@@ -25,6 +52,7 @@ import { cn } from "@/lib/utils";
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const whatsapp = useWhatsAppStatus();
 
   return (
     <nav aria-label="Workspace" className="px-2.5 pb-4">
@@ -62,6 +90,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               <ul className="mt-1 space-y-0.5">
                 {group.items.map((item) => {
                   const isActive = isNavItemActive(item.href, pathname);
+                  const dot = dotFor(item, whatsapp);
 
                   return (
                     <li key={item.href}>
@@ -86,6 +115,13 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                           aria-hidden="true"
                         />
                         <span className="truncate">{item.title}</span>
+                        {dot ? (
+                          <StatusDot
+                            className="ml-auto"
+                            label={dot.label}
+                            tone={dot.tone}
+                          />
+                        ) : null}
                       </Link>
                     </li>
                   );

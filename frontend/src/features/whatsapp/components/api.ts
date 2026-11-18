@@ -1,4 +1,6 @@
-import { createClient } from "@/lib/supabase/client";
+import { request } from "@/lib/api/http";
+
+export { ApiError } from "@/lib/api/http";
 
 export type CheckState = "ok" | "failed" | "skipped";
 
@@ -7,6 +9,15 @@ export interface CheckResult {
   label: string;
   state: CheckState;
   detail: string;
+}
+
+/** What to paste into Meta, and the proof that Meta used it. */
+export interface WebhookFacts {
+  callbackUrl: string | null;
+  verifiedAt: string | null;
+  lastEventAt: string | null;
+  eventCount: number;
+  verifyToken: string | null;
 }
 
 export interface WhatsAppAccount {
@@ -19,8 +30,21 @@ export interface WhatsAppAccount {
   businessName: string | null;
   status: string;
   lastVerifiedAt: string | null;
+  lastCheckAt: string | null;
+  failureReason: string | null;
   accessTokenHint: string;
   verifyTokenHint: string;
+  appSecretHint: string | null;
+  webhook: WebhookFacts;
+}
+
+/** Where the flow stands, as the API computes it. `details` = nothing stored. */
+export type ConnectionStage = "details" | "webhook" | "live" | "error";
+
+export interface ConnectionPayload {
+  account: WhatsAppAccount | null;
+  stage: ConnectionStage;
+  callbackUrl: string | null;
 }
 
 export interface ConnectResult {
@@ -40,89 +64,9 @@ export interface Verdict {
 export interface ConnectInput {
   accessToken: string;
   phoneNumberId: string;
-  verifyToken: string;
+  appSecret: string;
   graphVersion: string;
   businessAccountId: string;
-}
-
-/** A failure we can explain on screen, with the status that caused it. */
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-const BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api"
-).replace(/\/+$/, "");
-
-async function authorise(): Promise<Headers> {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-
-  if (!token) {
-    throw new ApiError(401, "Your session has expired. Sign in again and retry.");
-  }
-
-  return new Headers({
-    authorization: `Bearer ${token}`,
-    "content-type": "application/json",
-  });
-}
-
-/**
- * Nest returns `{ message: string | string[] }` for both validation failures
- * and thrown HTTP exceptions; flattening keeps one readable sentence.
- */
-function describe(body: unknown, status: number): string {
-  if (body && typeof body === "object" && "message" in body) {
-    const { message } = body as { message: unknown };
-
-    if (Array.isArray(message)) return message.join(" ");
-    if (typeof message === "string" && message.trim()) return message;
-  }
-
-  if (status === 401) return "Your session has expired. Sign in again and retry.";
-  if (status === 429) return "Too many attempts. Wait a minute and try again.";
-  if (status >= 500) return "The API failed while checking these details.";
-
-  return `The request failed (HTTP ${status}).`;
-}
-
-async function request<T>(path: string, init: RequestInit): Promise<T> {
-  let headers: Headers;
-
-  try {
-    headers = await authorise();
-  } catch (error) {
-    throw error instanceof ApiError
-      ? error
-      : new ApiError(401, "Could not read your session.");
-  }
-
-  let response: Response;
-
-  try {
-    response = await fetch(`${BASE_URL}${path}`, { ...init, headers, cache: "no-store" });
-  } catch {
-    throw new ApiError(
-      0,
-      `Could not reach the API at ${BASE_URL}. Is the backend running?`,
-    );
-  }
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-
-  if (!response.ok) {
-    throw new ApiError(response.status, describe(payload, response.status));
-  }
-
-  return payload as T;
 }
 
 /** 200 with `ok: false` is a verdict, not an error — only transport fails throw. */
@@ -133,14 +77,27 @@ export function connectWhatsApp(input: ConnectInput): Promise<ConnectResult> {
   });
 }
 
-export function fetchConnection(): Promise<{ account: WhatsAppAccount | null }> {
-  return request<{ account: WhatsAppAccount | null }>("/v1/whatsapp/connection", {
-    method: "GET",
-  });
+export function fetchConnection(): Promise<ConnectionPayload> {
+  return request<ConnectionPayload>("/v1/whatsapp/connection", { method: "GET" });
 }
 
 export function disconnectWhatsApp(): Promise<{ removed: boolean }> {
   return request<{ removed: boolean }>("/v1/whatsapp/connection", {
     method: "DELETE",
   });
+}
+
+export function rotateVerifyToken(): Promise<{
+  rotated: boolean;
+  verifyToken: string | null;
+}> {
+  return request("/v1/whatsapp/verify-token/rotate", { method: "POST" });
+}
+
+/** Forces a Graph re-check; used by "Check again" on the error and live panels. */
+export function checkConnection(): Promise<{
+  state: "none" | "pending" | "live" | "error";
+  reason: string | null;
+}> {
+  return request("/v1/whatsapp/check", { method: "POST" });
 }

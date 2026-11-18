@@ -1,10 +1,5 @@
 import { Transform } from "class-transformer";
-import {
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-} from "class-validator";
+import { IsString, Matches, MaxLength, MinLength } from "class-validator";
 
 /**
  * Pasted credentials routinely arrive with a trailing newline or a stray
@@ -13,6 +8,11 @@ import {
 const trimmed = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
 
+/**
+ * The five values a customer copies out of Meta. The verify token is not here
+ * on purpose: the platform generates it, because a value the customer invents
+ * is a value they can mistype into the other half of the handshake.
+ */
 export class ConnectWhatsAppDto {
   /** Permanent system-user token from Meta Business settings. */
   @Transform(trimmed)
@@ -27,12 +27,17 @@ export class ConnectWhatsAppDto {
   @Matches(/^\d{5,25}$/, { message: "Phone number ID is numeric, e.g. 1098..." })
   phoneNumberId!: string;
 
-  /** Our own shared secret; Meta echoes it back during the webhook handshake. */
+  /**
+   * App settings → Basic → App secret. Thirty-two hex characters on every app
+   * Meta has issued in the last several years; the length window is wider than
+   * that so a differently-formatted secret is not rejected before it is tried.
+   */
   @Transform(trimmed)
   @IsString()
-  @MinLength(8, { message: "Verify token needs at least 8 characters." })
-  @MaxLength(128, { message: "Verify token must be 128 characters or fewer." })
-  verifyToken!: string;
+  @Matches(/^[A-Za-z0-9_-]{16,128}$/, {
+    message: "App secret is 16–128 letters, digits, dashes or underscores.",
+  })
+  appSecret!: string;
 
   /** Graph API version, e.g. v21.0. */
   @Transform(trimmed)

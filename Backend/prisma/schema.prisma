@@ -90,10 +90,16 @@ enum WhatsAppStatus {
 
 /// One Meta WhatsApp Business connection per user.
 ///
-/// The access token and the webhook verify token are AES-256-GCM ciphertext at
-/// rest and are never returned to the browser — the API only exposes a four
-/// character hint. A row exists only for credentials Meta confirmed, so status
-/// is VERIFIED on write; FAILED is reserved for a later re-verify that fails.
+/// The access token, the app secret and the webhook verify token are
+/// AES-256-GCM ciphertext at rest. Only last-four hints leave the API, plus the
+/// verify token itself — the customer has to paste that one into Meta's console,
+/// so it cannot stay hidden.
+///
+/// A row exists only for credentials Meta confirmed, so status is VERIFIED on
+/// write; FAILED is reserved for a live re-check that no longer passes.
+/// `webhook_verified_at` is the line between "credentials accepted" and
+/// "actually receiving events": the sidebar is amber until it is set, and that
+/// state is derived rather than stored.
 model WhatsAppAccount {
   id                 String         @id @default(uuid()) @db.Uuid
   userId             String         @unique @map("user_id") @db.Uuid
@@ -108,6 +114,16 @@ model WhatsAppAccount {
   lastVerifiedAt     DateTime?      @map("last_verified_at")
   accessTokenCipher  String         @map("access_token_cipher")
   verifyTokenCipher  String         @map("verify_token_cipher")
+  /// Nullable: rows written before app secrets were collected stay readable.
+  appSecretCipher    String?        @map("app_secret_cipher")
+  /// Stamped by Meta's GET handshake, cleared when the token is rotated.
+  webhookVerifiedAt  DateTime?      @map("webhook_verified_at")
+  /// Delivery proof only — no message bodies are ever stored.
+  lastEventAt        DateTime?      @map("last_event_at")
+  eventCount         Int            @default(0) @map("event_count")
+  /// Cache marker for the live re-check, so a page load is not a Meta call.
+  lastCheckAt        DateTime?      @map("last_check_at")
+  failureReason      String?        @map("failure_reason")
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")
 

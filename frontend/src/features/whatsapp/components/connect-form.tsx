@@ -42,10 +42,10 @@ const FIELDS: {
     inputMode: "numeric",
   },
   {
-    name: "verifyToken",
-    label: "Verify token",
-    placeholder: "a shared secret you invent",
-    hint: "Meta echoes this string back when it verifies our webhook. Any 8–128 characters; store the same value in Meta later.",
+    name: "appSecret",
+    label: "App secret",
+    placeholder: "32 characters from App settings → Basic",
+    hint: "App settings → Basic → App secret → Show. Meta signs every webhook delivery with it, which is how the API proves a call is really from Meta.",
   },
   {
     name: "graphVersion",
@@ -65,7 +65,7 @@ const FIELDS: {
 const INITIAL: Values = {
   accessToken: "",
   phoneNumberId: "",
-  verifyToken: "",
+  appSecret: "",
   graphVersion: "v21.0",
   businessAccountId: "",
 };
@@ -81,10 +81,10 @@ const RULES: Record<FieldKey, (value: string) => string | null> = {
     /^\d{5,25}$/.test(value)
       ? null
       : "Digits only. This is the ID, not the display phone number.",
-  verifyToken: (value) =>
-    value.length >= 8 && value.length <= 128
+  appSecret: (value) =>
+    /^[A-Za-z0-9_-]{16,128}$/.test(value)
       ? null
-      : "Use between 8 and 128 characters.",
+      : "16–128 letters, digits, dashes or underscores — no spaces.",
   graphVersion: (value) =>
     /^v\d{1,2}\.\d$/.test(value) ? null : "Format is v21.0 (v, the number, a dot, then one digit).",
   businessAccountId: (value) =>
@@ -105,9 +105,12 @@ function validate(values: Values): Errors {
 }
 
 export function ConnectForm({
+  existing,
   onVerdict,
   onConnected,
 }: {
+  /** An account is already stored, so these values replace it. */
+  existing: boolean;
   onVerdict: (verdict: Verdict) => void;
   onConnected: (account: WhatsAppAccount) => void;
 }) {
@@ -159,19 +162,19 @@ export function ConnectForm({
         onConnected(result.account);
         // The credentials are stored now; leaving a live token rendered in a
         // text field serves no one. Keep the ids for a later edit.
-        setValues((current) => ({ ...current, accessToken: "", verifyToken: "" }));
+        setValues((current) => ({ ...current, accessToken: "", appSecret: "" }));
       }
 
       toast.push({
         tone: result.ok ? "success" : "error",
-        title: result.ok ? "WhatsApp connected" : "Meta did not accept these details",
+        title: result.ok ? "Credentials verified" : "Meta did not accept these details",
         description: result.summary,
         checks: result.checks.map((check) => ({
           label: check.label,
           state: check.state,
           detail: check.detail,
         })),
-        duration: result.ok ? 12_000 : 0,
+        duration: result.ok ? 10_000 : 0,
       });
     } catch (error) {
       const message =
@@ -200,11 +203,11 @@ export function ConnectForm({
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <KeyRound className="size-4 text-brand" aria-hidden="true" />
-            Connection details
+            {existing ? "Replace the credentials" : "Connection details"}
           </h2>
           <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-            Confirm and each value is checked against Meta. Nothing is stored
-            unless all five pass.
+            Each value is checked against Meta before anything is stored. A
+            rejected value never reaches the database.
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
@@ -271,7 +274,7 @@ export function ConnectForm({
           ) : (
             <>
               <PlugZap aria-hidden="true" />
-              Confirm and verify
+              {existing ? "Verify and replace" : "Confirm and verify"}
             </>
           )}
         </Button>
