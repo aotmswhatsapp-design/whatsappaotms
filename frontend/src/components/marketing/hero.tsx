@@ -62,13 +62,13 @@ export function Hero() {
 
           <p className="title-2 mt-6 max-w-[680px] text-muted-foreground">
             Campaigns, a shared inbox, chatbots and analytics on one workspace.
-            You pay, we verify the business, connect the number and build the
-            workspace for you.
+            Starter, Growth or Business, with the modules inside. We set up the
+            Meta app and connect the number with you, on site.
           </p>
 
           <div className="mt-8 flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-center">
             <CtaLink href={site.links.pricing}>
-              Start with a plan
+              See the pricing
               <ArrowRight className="size-4" weight="bold" aria-hidden="true" />
             </CtaLink>
             <CtaLink href="/how-it-works" variant="outline">
@@ -82,7 +82,8 @@ export function Hero() {
               weight="fill"
               aria-hidden="true"
             />
-            Live within 24 hours. Setup and Meta verification handled for you.
+            Live the same day. The Meta app, number and payment method are set
+            up with you.
           </p>
         </div>
 

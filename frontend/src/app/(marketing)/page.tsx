@@ -10,7 +10,6 @@ import { ProblemSolution } from "@/components/marketing/problem-solution";
 import { ProductSurface } from "@/components/marketing/product-surface";
 import { SetupCost } from "@/components/marketing/setup-cost";
 import { faqs } from "@/config/faq";
-import { plans } from "@/config/plans";
 import { site } from "@/config/site";
 
 /**
@@ -43,7 +42,7 @@ const TaglineReveal = dynamic(() =>
 
 const brandName = site.name.trim() || "AOTMS";
 const description =
-  "Managed WhatsApp automation for growing businesses. Choose a plan and we build the workspace, connect your number and get you live within 24 hours.";
+  "Managed WhatsApp automation for growing businesses. Starter, Growth or Business, modules included, with the Meta app and number set up for you on site.";
 
 export const metadata: Metadata = {
   title: "WhatsApp automation, live in a day",
@@ -97,7 +96,7 @@ export default function HomePage() {
       <Benefits />
       <HowItWorks />
       <ProductSurface />
-      <Pricing plans={plans} />
+      <Pricing />
       <SetupCost />
       <Faq />
       <FinalCta />

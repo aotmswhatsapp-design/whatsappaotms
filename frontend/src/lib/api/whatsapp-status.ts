@@ -14,7 +14,7 @@ export interface ConnectionNumber {
   businessName: string | null;
   verifiedName: string | null;
   quality: string | null;
-  /** Meta's handshake, or the subscription one-click setup takes, landed. */
+  /** Meta's webhook handshake landed, so deliveries are being accepted. */
   receiving: boolean;
 }
 

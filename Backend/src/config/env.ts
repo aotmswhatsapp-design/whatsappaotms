@@ -81,44 +81,6 @@ export const envSchema = z.object({
     .or(z.literal("").transform(() => undefined)),
   /** Test seam: point this at a local Graph stub to prove the success path. */
   META_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
-  /**
-   * Our own Meta app, used by Embedded Signup: customers authorise their
-   * WhatsApp Business account inside Meta's dialog and we receive a code to
-   * exchange. All three are optional so the API boots without them — the
-   * signup endpoint answers 503 and the screen falls back to manual credentials
-   * until they are configured.
-   */
-  META_APP_ID: z
-    .string()
-    .regex(/^\d{6,}$/)
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
-  META_APP_SECRET: z
-    .string()
-    .min(10)
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
-  /** "Facebook Login for Business" configuration that carries the ES feature. */
-  META_ES_CONFIG_ID: z
-    .string()
-    .regex(/^\d{6,}$/)
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
-  /** Version the platform app calls: signup exchange and subscribed_apps. */
-  META_GRAPH_VERSION: z
-    .string()
-    .regex(/^v\d{1,2}\.\d$/)
-    .default("v23.0"),
-  /**
-   * The token typed into the app's single Webhooks panel. With a platform app
-   * Meta verifies that URL once, not once per customer, so this replaces the
-   * per-workspace token for Embedded Signup rows.
-   */
-  WHATSAPP_WEBHOOK_VERIFY_TOKEN: z
-    .string()
-    .min(8)
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
   CORS_ORIGINS: z.string().optional(),
   /**
    * Private Supabase Storage bucket for inbox attachments. Created on the

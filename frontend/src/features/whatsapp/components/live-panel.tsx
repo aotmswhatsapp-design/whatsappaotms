@@ -31,8 +31,6 @@ export function LivePanel({
   const [confirming, setConfirming] = React.useState(false);
   const [pending, setPending] = React.useState(false);
 
-  const embedded = account.source === "EMBEDDED_SIGNUP";
-
   const rows: [string, string][] = [
     ["Phone number", account.displayPhoneNumber ?? `ID ${account.phoneNumberId}`],
     ["Verified name", account.verifiedName ?? "—"],
@@ -40,18 +38,8 @@ export function LivePanel({
     ["Business account", account.businessName ?? `ID ${account.businessAccountId}`],
     ["Graph version", account.graphVersion],
     ["Access token", account.accessTokenHint],
-    [
-      "App secret",
-      embedded
-        ? "Held by the platform app"
-        : (account.appSecretHint ?? "not stored — reconnect"),
-    ],
-    // Both are proof Meta will call us, but one was pasted in and the other was
-    // subscribed by the API, so the label says which happened.
-    [
-      embedded ? "Meta subscription" : "Handshake",
-      when(account.webhook.verifiedAt),
-    ],
+    ["App secret", account.appSecretHint ?? "not stored — reconnect"],
+    ["Handshake", when(account.webhook.verifiedAt)],
     ["Last delivery", when(account.webhook.lastEventAt)],
     ["Deliveries", String(account.webhook.eventCount)],
   ];
@@ -89,10 +77,9 @@ export function LivePanel({
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-foreground">WhatsApp is live</h2>
           <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
-            {embedded
-              ? "Meta authorised this number and our app is subscribed to its events, so deliveries arrive without anything pasted into Meta."
-              : "Meta accepted the credentials, verified the callback URL with our token, and is delivering events."}{" "}
-            The sidebar dot stays green from here.
+            Meta accepted the credentials, verified the callback URL with our
+            token, and is delivering events. The sidebar dot stays green from
+            here.
           </p>
         </div>
       </div>
@@ -167,9 +154,9 @@ export function LivePanel({
 
       {confirming ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground">
-          {embedded
-            ? "Disconnecting removes the stored token and stops counting events. The number stays on WhatsApp; to revoke access entirely, remove the app in Meta Business settings."
-            : "Disconnecting deletes the token, the app secret and the webhook proof. Meta keeps posting to the URL until you remove it in the Webhooks panel of the app; those deliveries are ignored."}
+          Disconnecting deletes the token, the app secret and the webhook proof.
+          Meta keeps posting to the URL until you remove it in the Webhooks
+          panel of the app; those deliveries are ignored.
         </p>
       ) : null}
     </div>

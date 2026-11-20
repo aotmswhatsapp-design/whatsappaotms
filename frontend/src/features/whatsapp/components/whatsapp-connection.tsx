@@ -1,13 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, KeyRound } from "lucide-react";
 
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Stepper } from "@/components/ui/stepper";
 import { useToast } from "@/components/ui/toast";
 import { notifyWhatsAppStatus } from "@/lib/api/whatsapp-status";
@@ -16,15 +10,12 @@ import {
   ApiError,
   checkConnection,
   fetchConnection,
-  fetchSignupConfig,
   type ConnectionPayload,
-  type SignupConfig,
   type Verdict,
   type WhatsAppAccount,
 } from "./api";
 import { CheckList } from "./check-list";
 import { ConnectForm } from "./connect-form";
-import { EmbeddedSignup } from "./embedded-signup";
 import { ErrorPanel } from "./error-panel";
 import { LivePanel } from "./live-panel";
 import { MetaRequirements } from "./meta-requirements";
@@ -75,10 +66,6 @@ export function WhatsAppConnection() {
   const [view, setView] = React.useState<View>("auto");
   const [expired, setExpired] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
-  const [signup, setSignup] = React.useState<SignupConfig | null>(null);
-  // Whether the answer has arrived. Until it has, the screen must not claim
-  // one-click is unavailable — it simply does not know yet.
-  const [signupResolved, setSignupResolved] = React.useState(false);
 
   const load = React.useCallback(async (): Promise<ConnectionPayload | null> => {
     try {
@@ -108,17 +95,6 @@ export function WhatsAppConnection() {
       })
       .finally(() => {
         if (active) setLoading(false);
-      });
-
-    // Whether the one-click path exists is a second, independent question. A
-    // failure here must not block the credentials form, which always works.
-    fetchSignupConfig()
-      .then((next) => {
-        if (active) setSignup(next);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setSignupResolved(true);
       });
 
     return () => {
@@ -233,18 +209,6 @@ export function WhatsAppConnection() {
     notifyWhatsAppStatus();
   }
 
-  /**
-   * Embedded Signup subscribes our app before it answers, so there is no
-   * handshake left to wait for: Meta's subscription is the proof, and the
-   * screen goes straight to the live panel.
-   */
-  function handleEmbeddedConnected(next: WhatsAppAccount) {
-    setPayload({ account: next, stage: "live", callbackUrl });
-    setVerdict(null);
-    setView("auto");
-    notifyWhatsAppStatus();
-  }
-
   function handleDisconnected() {
     setPayload({ account: null, stage: "details", callbackUrl });
     setVerdict(null);
@@ -269,10 +233,8 @@ export function WhatsAppConnection() {
   const showingWaiting = account !== null && view === "waiting";
   const showingForm = view === "details" || (!account && stage === "details");
 
-  // The one-click card is only offered when the API has a platform app; the
-  // manual form is then a disclosure rather than the front door.
-  const oneClick =
-    signup?.enabled && signup.appId && signup.configId ? signup : null;
+  // The credentials form is the only door, and it is never hidden behind a
+  // disclosure.
 
   return (
     <div className="space-y-4">
@@ -354,47 +316,24 @@ export function WhatsAppConnection() {
       ) : (
         <>
           <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
-            {signupResolved ? (
-              <EmbeddedSignup
-                config={signup}
-                onConnected={handleEmbeddedConnected}
-              />
-            ) : (
-              <p aria-live="polite" className="text-sm text-muted-foreground">
-                Checking which connection methods this workspace offers…
-              </p>
-            )}
-          </section>
+            <h2 className="text-base font-semibold text-foreground">
+              Connect your WhatsApp Cloud API
+            </h2>
+            <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
+              Five values from the Meta app that owns this number. Each one is
+              checked against Graph before anything is stored, and the verify
+              token below is generated for this workspace.
+            </p>
 
-          {/* The credentials path is always reachable, open by default when
-              one-click cannot run, so nobody has to hunt for a way in. */}
-          <Collapsible defaultOpen={!oneClick || account !== null}>
-            <section className="overflow-hidden rounded-xl border border-border bg-card">
-              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-4 py-4 text-left sm:px-5">
-                <span className="flex items-center gap-2.5 text-[15px] font-semibold text-foreground">
-                  <KeyRound
-                    aria-hidden="true"
-                    className="size-4 text-muted-foreground"
-                  />
-                  I already have my own Meta app
-                </span>
-                <ChevronDown
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
-                />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="border-t border-border p-4 sm:p-5">
-                  <ManualPanel
-                    existing={account !== null}
-                    onConnected={handleConnected}
-                    onVerdict={setVerdict}
-                    verdict={verdict}
-                  />
-                </div>
-              </CollapsibleContent>
-            </section>
-          </Collapsible>
+            <div className="mt-5">
+              <CredentialsPanel
+                existing={account !== null}
+                onConnected={handleConnected}
+                onVerdict={setVerdict}
+                verdict={verdict}
+              />
+            </div>
+          </section>
 
           <MetaRequirements />
         </>
@@ -404,14 +343,10 @@ export function WhatsAppConnection() {
 }
 
 /**
- * The credentials path: five values, checked against Meta before anything is
+ * The credentials form: five values, checked against Meta before anything is
  * stored, plus where each one lives in Meta's console.
- *
- * It is a component rather than a variable because it is mounted twice — as
- * the only form when one-click is unavailable, and inside the disclosure when
- * it is.
  */
-function ManualPanel({
+function CredentialsPanel({
   existing,
   verdict,
   onConnected,

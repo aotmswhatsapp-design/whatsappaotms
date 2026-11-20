@@ -2,14 +2,14 @@ import { Reveal } from "@/components/marketing/reveal";
 
 const STEPS = [
   {
-    title: "Choose a plan",
+    title: "Pick your plan",
     detail:
-      "Pick Starter, Growth or Business. The first month and the one time setup fee are charged together.",
+      "Starter, Growth or Business, with the modules built in. The first month and the one time setup fee are charged together.",
   },
   {
-    title: "We build the workspace",
+    title: "We set it up with you",
     detail:
-      "Verification, number onboarding, your first templates and your plan limits are set up by our team.",
+      "On site: the Meta app and developer account, the number on the Cloud API, the card on your own WhatsApp account, and your first templates.",
   },
   {
     title: "Send your first campaign",
@@ -28,7 +28,7 @@ export function HowItWorks() {
         <Reveal>
           <p className="caption-3 text-brand">How it works</p>
           <h2 className="heading-2 mt-4 max-w-[680px]">
-            From payment to first campaign, in three steps
+            From the first payment to the first campaign, in three steps
           </h2>
         </Reveal>
 
@@ -52,7 +52,8 @@ export function HowItWorks() {
 
         <Reveal delay={0.16}>
           <p className="body-4 mt-12 text-muted-foreground">
-            Live within 24 hours, measured from the payment clearing.
+            Live the same day, once the Meta app, the number and the payment
+            method are in place.
           </p>
         </Reveal>
       </div>

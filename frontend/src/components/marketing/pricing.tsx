@@ -1,55 +1,60 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle } from "@phosphor-icons/react";
+import { CheckCircle, Minus } from "@phosphor-icons/react";
 
 import { CtaLink } from "@/components/marketing/cta-link";
+import { annualDiscountPercent, plans } from "@/config/pricing";
 import { cn } from "@/lib/utils";
 
 export interface PricingPlan {
   name: string;
   price: string;
   yearlyPrice: string;
+  yearlyTotal: string;
+  yearlySaving: string;
   period: string;
-  features: string[];
   description: string;
+  features: string[];
+  modules: { name: string; included: boolean }[];
   buttonText: string;
   href: string;
   isPopular: boolean;
 }
 
-interface PricingProps {
-  plans: PricingPlan[];
-  title?: string;
-  description?: string;
-}
-
 /**
- * `yearlyPrice` is the monthly equivalent when billed annually, not the annual
- * total, so both figures render as `₹x / month`.
+ * `price` is the monthly price and `yearlyPrice` the monthly equivalent when
+ * billed annually, so both render as `₹x / month`. In annual mode the yearly
+ * amount is printed on its own line underneath, because it is twelve of those
+ * months at once and must not be mistaken for the monthly figure.
  */
 const formatPrice = (value: string) => Number(value).toLocaleString("en-IN");
 
-export function Pricing({
-  plans,
-  title = "Simple, transparent pricing",
-  description = "Every plan includes the shared inbox, campaigns, chatbot flows and analytics. Change plan whenever you need more room.",
-}: PricingProps) {
+/**
+ * Three plans, one card each. The workspace is the same in all of them, so the
+ * cards differ by the modules they unlock rather than by a second price list.
+ * Meta's per-message charges are explained in their own block instead of being
+ * priced here, because Meta bills them to the client's own account.
+ */
+export function Pricing() {
   const [annual, setAnnual] = React.useState(false);
 
   return (
-    /* Back on the deep field. The product band above stays paper, so the page
-       alternates instead of running two light sections together, and the plans
-       are raised teal cards with the accent on the popular one. */
     <section
       id="plans"
       className="scroll-mt-24 border-b border-border bg-background text-foreground"
     >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
         <div className="mx-auto max-w-[680px] text-center">
-          <p className="caption-3 text-brand">Plans</p>
-          <h2 className="heading-2 mt-4">{title}</h2>
-          <p className="body-2 mt-6 text-muted-foreground">{description}</p>
+          <p className="caption-3 text-brand">Pricing</p>
+          <h2 className="heading-2 mt-4">One platform fee. Three plans.</h2>
+          <p className="body-2 mt-6 text-muted-foreground">
+            The platform fee is the same in all three: the workspace, the inbox,
+            your contacts, your team and the WhatsApp connection. Starter,
+            Growth and Business differ by the modules they unlock.
+            WhatsApp&apos;s own message charges are billed by Meta to your
+            account, and never marked up here.
+          </p>
         </div>
 
         <div className="mt-8 flex justify-center">
@@ -83,70 +88,134 @@ export function Pricing({
               )}
             >
               Annual
-              <span className="ml-1 text-brand">save 20%</span>
+              <span className="ml-1 text-brand">
+                save {annualDiscountPercent}%
+              </span>
             </button>
           </div>
         </div>
 
-        <div className="mt-12 grid gap-4 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <article
-              key={plan.name}
-              className={cn(
-                "flex flex-col rounded-2xl border bg-card p-6",
-                plan.isPopular ? "border-brand" : "border-border",
-              )}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <h3 className="title-1">{plan.name}</h3>
-                {plan.isPopular ? (
-                  <span className="caption-3 rounded-full bg-brand-soft px-2 py-1 text-brand">
-                    Popular
+        <div className="mt-12 grid items-stretch gap-5 lg:grid-cols-3">
+          {plans.map((plan) => {
+            const moduleCount = plan.modules.filter(
+              (module) => module.included,
+            ).length;
+
+            return (
+              <article
+                key={plan.name}
+                className={cn(
+                  "flex h-full flex-col rounded-2xl border bg-card p-6 sm:p-7",
+                  plan.isPopular ? "border-brand" : "border-border",
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="title-1">{plan.name}</h3>
+                  {plan.isPopular ? (
+                    <span className="caption-3 rounded-full bg-brand-soft px-2 py-1 text-brand">
+                      Most popular
+                    </span>
+                  ) : null}
+                </div>
+                <p className="body-6 mt-2 text-muted-foreground">
+                  {plan.description}
+                </p>
+
+                <p className="heading-3 mt-6 tabular-nums">
+                  ₹{formatPrice(annual ? plan.yearlyPrice : plan.price)}
+                  <span className="body-6 text-muted-foreground">
+                    {" "}
+                    / {plan.period}
                   </span>
-                ) : null}
-              </div>
+                </p>
+                {/* The yearly amount sits on its own line: it is not a
+                    per-month figure and must not read as one. */}
+                {annual ? (
+                  <p className="caption-5 mt-1 text-muted-foreground">
+                    ₹{formatPrice(plan.yearlyTotal)} billed yearly · you save ₹
+                    {formatPrice(plan.yearlySaving)}
+                  </p>
+                ) : (
+                  <p className="caption-5 mt-1 text-muted-foreground">
+                    billed monthly
+                  </p>
+                )}
 
-              <p className="body-5 mt-2 text-muted-foreground">
-                {plan.description}
-              </p>
-
-              <p className="heading-3 mt-6 tabular-nums">
-                ₹{formatPrice(annual ? plan.yearlyPrice : plan.price)}
-                <span className="body-6 text-muted-foreground">
-                  {" "}
-                  / {plan.period}
-                </span>
-              </p>
-              <p className="caption-5 mt-1 text-muted-foreground">
-                {annual ? "billed annually" : "billed monthly"}
-              </p>
-
-              <ul className="mt-6 flex flex-col gap-3">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex gap-2">
-                    <CheckCircle
-                      className="mt-0.5 size-4 shrink-0 text-brand"
-                      weight="fill"
-                      aria-hidden="true"
-                    />
-                    <span className="body-5">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              {/* `mt-auto` keeps every button on the same line across the row
-                  even when the feature lists differ in length. */}
-              <div className="mt-auto pt-8">
                 <CtaLink
+                  className="mt-6 w-full"
                   href={plan.href}
                   variant={plan.isPopular ? "brand" : "outline"}
-                  className="w-full"
                 >
                   {plan.buttonText}
                 </CtaLink>
-              </div>
-            </article>
-          ))}
+
+                <ul className="mt-7 flex flex-col gap-2.5 border-t border-border pt-6">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex gap-2">
+                      <CheckCircle
+                        className="mt-0.5 size-4 shrink-0 text-brand"
+                        weight="fill"
+                        aria-hidden="true"
+                      />
+                      <span className="body-5">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-auto pt-6">
+                  <div className="flex items-baseline justify-between gap-3 border-t border-border pt-5">
+                    <p className="caption-3 text-muted-foreground">Modules</p>
+                    <p className="caption-4 text-muted-foreground">
+                      {moduleCount} of {plan.modules.length}
+                    </p>
+                  </div>
+                  <ul className="mt-3 flex flex-col gap-2">
+                    {plan.modules.map((module) => (
+                      <li key={module.name} className="flex gap-2">
+                        {module.included ? (
+                          <CheckCircle
+                            className="mt-0.5 size-3.5 shrink-0 text-brand"
+                            weight="fill"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Minus
+                            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <span
+                          className={cn(
+                            "body-6",
+                            module.included
+                              ? "text-foreground"
+                              : "text-muted-foreground/70",
+                          )}
+                        >
+                          {module.name}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="mt-10 rounded-2xl border border-border bg-secondary p-5 sm:p-6">
+          <h3 className="title-2">
+            WhatsApp message charges are Meta&apos;s, not ours
+          </h3>
+          <p className="body-5 mt-2 text-muted-foreground">
+            Meta bills every template — marketing, utility and authentication —
+            and since 1 October 2026 every service reply, to the WhatsApp
+            Business account that sends it. The card for those charges is
+            registered in your own Meta account, and Meta invoices you directly.
+            These rates are Meta&apos;s: this platform does not resell them, add
+            a margin, or hold your card. The first 1,000 service messages per
+            number per month are free, and inbound messages are always free.
+          </p>
         </div>
 
         <div className="mt-8">
@@ -155,7 +224,13 @@ export function Pricing({
             billed once, with your first invoice.
           </p>
           <p className="caption-2 mt-2 text-center text-muted-foreground">
-            Billed monthly. No annual lock in unless you choose it.
+            Annual billing takes {annualDiscountPercent}% off every plan and is
+            charged once a year. Moving up a plan does not charge the setup fee
+            again.
+          </p>
+          <p className="caption-2 mt-2 text-center text-muted-foreground">
+            Each plan covers one WhatsApp number. A second number runs in its
+            own workspace, on its own plan.
           </p>
         </div>
       </div>

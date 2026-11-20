@@ -6,17 +6,22 @@ export const faqs = [
   {
     question: "How long does it take to go live?",
     answer:
-      "We aim to have the workspace ready within 24 hours of the payment clearing. Meta reviews verification and templates on its own schedule, so a slow review can move that date.",
+      "Setup happens with you on site. Once the Meta app, the number and the payment method are in place, the workspace is ready the same day. Meta reviews templates on its own schedule, so a slow review can move a campaign date.",
   },
   {
     question: "Who handles Meta verification?",
     answer:
-      "We do. Filing the business verification, onboarding the number and writing your first templates are all part of the one time setup fee.",
+      "We do, together with you. The Meta app, the system user token, the webhook and your first templates are all part of the one time setup fee, and business verification is filed for you and followed until Meta approves it.",
   },
   {
     question: "Do I need my own WhatsApp Business account?",
     answer:
-      "Yes. You connect your own WhatsApp Business account through Meta's signup flow. The credentials stay encrypted and are used only to run your workspace.",
+      "You need a number and a business that Meta can verify. We create the Meta app and the WhatsApp Business account with you, then connect it here. Every credential is checked against Meta before it is stored, and it is encrypted at rest.",
+  },
+  {
+    question: "Who pays Meta for messages?",
+    answer:
+      "You do, directly. Meta bills every template, and since 1 October 2026 every service reply, to your WhatsApp Business account on the card registered in your own Meta account. The plan price and the setup fee cover software and service only: Meta's rates are never marked up here. Inbound messages are always free, and the first 1,000 service messages per number per month are free.",
   },
   {
     question: "Can I use my own message templates?",
@@ -26,7 +31,7 @@ export const faqs = [
   {
     question: "How is billing handled?",
     answer:
-      "Plans are billed in INR and exclude 18% GST. Monthly is the default. Annual billing takes 20% off the monthly equivalent and is charged for the year.",
+      "Starter, Growth and Business are billed in INR and exclude 18% GST, monthly by default. Annual billing takes 10% off the plan price and is charged once a year. The one time setup fee is billed once, with the first invoice. Each plan covers one WhatsApp number, so a second number runs in its own workspace on its own plan. Meta's message charges are separate and paid by you to Meta, not to us.",
   },
   {
     question: "What happens when my plan ends?",
@@ -36,6 +41,6 @@ export const faqs = [
   {
     question: "How many people can use the workspace?",
     answer:
-      "Starter includes 2 agents, Growth 10 and Business 50. The owner invites managers and agents by email, and roles decide what each person can change.",
+      "Agents are not a priced limit: every plan covers the whole team, and roles decide what each person can change.",
   },
 ];

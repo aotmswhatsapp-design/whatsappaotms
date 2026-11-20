@@ -1,7 +1,6 @@
 import { CheckCircle, Receipt } from "@phosphor-icons/react/dist/ssr";
 
 import { Reveal } from "@/components/marketing/reveal";
-import { plans } from "@/config/plans";
 import { setup } from "@/config/setup";
 
 /**
@@ -9,8 +8,6 @@ import { setup } from "@/config/setup";
  * never mistaken for the whole cost of getting started.
  */
 export function SetupCost() {
-  const planNames = plans.map((plan) => plan.name).join(", ");
-
   return (
     <section
       id="setup"
@@ -21,12 +18,12 @@ export function SetupCost() {
         <Reveal>
           <p className="caption-3 text-brand">Setup</p>
           <h2 className="heading-2 mt-4 max-w-[680px]">
-            One setup fee. Then just the plan.
+            One setup fee. Then the plan you pick.
           </h2>
           <p className="title-2 mt-6 max-w-[680px] text-muted-foreground">
-            ₹{setup.fee} is charged once, when we build your workspace. Meta
-            verification, number onboarding and your first templates are part of
-            it.
+            ₹{setup.fee} is charged once, when we set your workspace up on site.
+            The Meta app, the number, the payment method and your first
+            templates are part of it.
           </p>
         </Reveal>
 
@@ -54,7 +51,7 @@ export function SetupCost() {
               <dl className="mt-8 flex flex-col gap-3">
                 <div className="flex items-baseline justify-between gap-4">
                   <dt className="body-5 text-muted-foreground">Applies to</dt>
-                  <dd className="body-5 text-right">{planNames}</dd>
+                  <dd className="body-5 text-right">Every workspace</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
                   <dt className="body-5 text-muted-foreground">

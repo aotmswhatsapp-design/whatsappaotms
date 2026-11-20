@@ -99,9 +99,10 @@ enum WhatsAppStatus {
   FAILED
 }
 
-/// Where the credentials came from. Manual rows hand us a customer's own app
-/// token; Embedded Signup rows were minted by our platform app, which is also
-/// what signs and receives their webhook deliveries.
+/// Where the credentials came from. Only `MANUAL` is written now: every row is
+/// a customer's own Meta app, verified against Graph before it is stored. The
+/// second value is kept because Postgres cannot drop an enum member without a
+/// rewrite, and rows created by the retired one-click flow must stay readable.
 enum WhatsAppSource {
   MANUAL
   EMBEDDED_SIGNUP

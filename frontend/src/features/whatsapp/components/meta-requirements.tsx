@@ -11,104 +11,132 @@ import {
 } from "@/components/ui/accordion";
 
 /**
- * The Meta side of the setup, in the order Meta asks for it.
+ * The Meta side of the setup, in the order it has to happen.
  *
- * Every line here comes from the dashboard Meta shows for this use case, and
- * each item is collapsible: the screen should help when asked, not read like a
- * manual. Required permissions are marked, because adding unneeded ones is what
- * gets an App Review rejected.
+ * Everything here belongs to the account that owns the number, so it happens
+ * in Meta's own dashboard and never on this page. Items are collapsible
+ * because the screen should help when asked, not read like a manual.
  */
 const ITEMS: { value: string; title: string; body: ReactNode }[] = [
   {
-    value: "permissions",
-    title: "App permissions",
-    body: (
-      <>
-        <p>
-          Required for any WhatsApp API call, and added to a new app by default:
-        </p>
-        <ul className="mt-2 space-y-1.5">
-          {[
-            "public_profile",
-            "whatsapp_business_management",
-            "whatsapp_business_messaging",
-          ].map((permission) => (
-            <li key={permission}>
-              <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[12px]">
-                {permission}
-              </code>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2">
-          Optional, and only if the product needs them:{" "}
-          <code className="font-mono text-[12px]">business_management</code>,{" "}
-          <code className="font-mono text-[12px]">email</code>, and{" "}
-          <code className="font-mono text-[12px]">whatsapp_business_manage_events</code>{" "}
-          (marketing messages only). Unneeded permissions can fail App Review.
-        </p>
-      </>
-    ),
-  },
-  {
-    value: "business",
-    title: "Business verification",
+    value: "app",
+    title: "The Meta app",
     body: (
       <ul className="space-y-1.5">
-        <li>Business name, address, phone number, email and website.</li>
-        <li>A way for Meta to confirm your connection to the business.</li>
-        <li>Documents if the details are not already on file.</li>
         <li>
-          Verification comes first: App Review cannot be submitted until it is
-          done.
+          developers.facebook.com → My Apps → Create app → the
+          &quot;WhatsApp&quot; use case. The app has to belong to the business
+          that owns the number.
+        </li>
+        <li>
+          Three permissions are added by default:{" "}
+          <code className="font-mono text-[12px]">public_profile</code>,{" "}
+          <code className="font-mono text-[12px]">
+            whatsapp_business_management
+          </code>{" "}
+          and{" "}
+          <code className="font-mono text-[12px]">
+            whatsapp_business_messaging
+          </code>
+          .
+        </li>
+        <li>
+          No App Review and no Live switch are needed: the app only touches
+          assets its own business owns, so Development mode is enough.
         </li>
       </ul>
     ),
   },
   {
-    value: "review",
-    title: "App Review",
+    value: "token",
+    title: "A permanent access token",
     body: (
       <ul className="space-y-1.5">
-        <li>App icon, privacy policy URL and an app category.</li>
         <li>
-          Video evidence of the app sending a message and managing templates.
+          Business settings → Users → System users → add a system user → assign
+          the WhatsApp account → generate a token with both WhatsApp permissions.
         </li>
         <li>
-          Submit only the permissions the product actually uses; that is what
-          reviewers check.
+          A system user token does not expire the way a personal token does, so
+          the connection cannot die in sixty days.
+        </li>
+        <li>
+          Treat it as a password: this form encrypts it at rest and never shows
+          more than its last four characters.
         </li>
       </ul>
     ),
   },
   {
-    value: "webhooks",
-    title: "Webhook and permanent token",
+    value: "webhook",
+    title: "Webhook, verify token and app secret",
     body: (
       <ul className="space-y-1.5">
         <li>
-          WhatsApp → Configuration → Webhook: paste the callback URL and verify
-          token, then Verify and save.
+          WhatsApp → Configuration → Webhook: paste the callback URL shown above
+          and the <code className="font-mono text-[12px]">wa_…</code> verify
+          token this workspace generated, then Verify and save.
         </li>
         <li>
-          Subscribe to the <code className="font-mono text-[12px]">messages</code>{" "}
-          field; that is the event this workspace counts.
+          Subscribe to the{" "}
+          <code className="font-mono text-[12px]">messages</code> field; that is
+          the event the inbox counts. Account alerts are worth subscribing too,
+          because they warn before Meta stops delivering.
         </li>
         <li>
-          A system user token is the permanent alternative to the short-lived
-          test token — the credentials form below accepts it.
+          App settings → Basic → App secret is what proves a delivery was signed
+          by Meta, so it is asked for in the form as well.
         </li>
       </ul>
     ),
   },
   {
-    value: "publish",
-    title: "Publish the app",
+    value: "payment",
+    title: "A payment method (mandatory)",
     body: (
       <ul className="space-y-1.5">
-        <li>Icon between 512×512 and 1024×1024, under 5 MB.</li>
-        <li>A privacy policy URL, plus a data deletion URL or callback.</li>
-        <li>App settings → publish. Before this, only test users can connect.</li>
+        <li>
+          Meta bills every template, and since 1 October 2026 every service
+          reply, to the WhatsApp Business account that sends it. The card lives
+          on that account; this platform never handles it.
+        </li>
+        <li>
+          Meta Business Suite →{" "}
+          <a
+            className="underline underline-offset-2"
+            href="https://business.facebook.com/latest/billing_hub/payment_methods/"
+            rel="noreferrer"
+            target="_blank"
+          >
+            Billing &amp; payments → Payment methods
+          </a>{" "}
+          → add the card. Without one, messages stop being delivered.
+        </li>
+        <li>
+          The first 1,000 service messages per number per month are free, and
+          inbound messages are always free.
+        </li>
+      </ul>
+    ),
+  },
+  {
+    value: "verification",
+    title: "Number and business verification",
+    body: (
+      <ul className="space-y-1.5">
+        <li>
+          The number must not be active on the WhatsApp app. Delete it there
+          before registering it on the Cloud API.
+        </li>
+        <li>
+          Business settings → Business info → verify the business. Meta wants
+          the legal name, address and documents that tie the business to the
+          account.
+        </li>
+        <li>
+          Verification is not needed to send the first message, but it gates the
+          higher messaging and phone number limits, so start it early.
+        </li>
       </ul>
     ),
   },
@@ -122,8 +150,9 @@ export function MetaRequirements() {
         What Meta requires
       </h2>
       <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
-        Only the account owner can do these in Meta&apos;s own dashboard. None of
-        them happen here, and none of them are needed before you connect.
+        These happen inside Meta&apos;s dashboard, once per client, and none of
+        them happen on this page. The form above only verifies what you
+        collected.
       </p>
 
       <Accordion className="mt-1" collapsible type="single">
