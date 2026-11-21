@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 
-import { Benefits } from "@/components/marketing/benefits";
 import { FinalCta } from "@/components/marketing/final-cta";
 import { Hero } from "@/components/marketing/hero";
 import { HowItWorks } from "@/components/marketing/how-it-works";
+import { Industries } from "@/components/marketing/industries";
 import { LogoStrip } from "@/components/marketing/logo-strip";
 import { ProblemSolution } from "@/components/marketing/problem-solution";
 import { ProductSurface } from "@/components/marketing/product-surface";
@@ -88,7 +88,7 @@ export default function HomePage() {
       <Hero />
       <LogoStrip />
       <ProblemSolution />
-      <Benefits />
+      <Industries />
       <HowItWorks />
       <ProductSurface />
       <Pricing />

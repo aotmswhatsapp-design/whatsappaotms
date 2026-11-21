@@ -23,7 +23,7 @@ export function HowItWorks() {
     <section
       id="how-it-works"
       data-theme="band"
-      className="scroll-mt-24 border-b border-border bg-background"
+      className="scroll-mt-24 border-b border-border bg-white"
     >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
         <Reveal>
