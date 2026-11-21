@@ -1,5 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 
+import { AnnouncementBar } from "@/components/marketing/announcement-bar";
 import { SiteFooter } from "@/components/marketing/footer/site-footer";
 import { Navbar } from "@/components/marketing/navbar";
 import { SessionNavbar } from "@/features/auth/components/session-navbar";
@@ -16,7 +17,7 @@ export default function MarketingLayout({
        as on `<body>`: colour is inherited as a computed value, so a heading with
        no colour class would otherwise keep the body's ink on the field. */
     <div
-      data-theme="deep"
+      data-theme="day"
       className="flex min-h-dvh flex-col bg-background text-foreground"
     >
       {/* Keyboard users land here first; it is off screen until focused. */}
@@ -26,6 +27,9 @@ export default function MarketingLayout({
       >
         Skip to content
       </a>
+      {/* Outside the sticky wrapper: the strip scrolls away while the bar keeps
+          its own transparent-over-the-hero state at the top of the page. */}
+      <AnnouncementBar />
       {/* Falls back to the signed-out navbar so the shell prerenders statically
           and only the avatar arrives with the session. */}
       <Suspense fallback={<Navbar />}>

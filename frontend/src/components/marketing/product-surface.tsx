@@ -16,11 +16,11 @@ function Panel({ label, children }: { label: string; children: ReactNode }) {
 /** Four surfaces, each shown as a small still of the workspace. */
 export function ProductSurface() {
   return (
-    /* The first of the two paper bands. The scope supplies light roles, and the
-       band paints and inks itself so the components inside keep their classes. */
+    /* The light blue band. The scope supplies the roles, and the section paints
+       and inks itself so the components inside keep their classes. */
     <section
       id="product"
-      data-theme="paper"
+      data-theme="band"
       className="scroll-mt-24 border-b border-border bg-background text-foreground"
     >
       <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-24">

@@ -42,7 +42,7 @@ export function UserMenu({
 }: {
   user: SessionUser;
   tone?: "sheet" | "plain";
-  popoverTheme?: "deep" | "paper";
+  popoverTheme?: "day" | "band" | "ink" | "sheet";
 }) {
   const label = user.name ?? user.email;
 

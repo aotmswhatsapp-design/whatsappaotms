@@ -39,7 +39,7 @@ interface NavbarProps {
 }
 
 const itemBase =
-  "title-4 rounded-lg px-3 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none";
+  "title-3 rounded-lg px-4 py-2 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none";
 
 /**
  * Full width navigation that sits flush against the top edge on a plain
@@ -113,21 +113,21 @@ const Navbar = ({
           : "border-transparent bg-transparent",
       )}
     >
-      <header className="mx-auto flex h-18 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-        {/* The asset carries its own orange lettering, which fights the teal
-            field, so the mark keeps a paper plate under it. */}
+      <header className="mx-auto flex h-20 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        {/* The mark carries its own blue and orange lettering, which reads
+            cleanly on the white field, so it needs no plate behind it. */}
         <Link
           href={logo.url}
-          className="rounded-md bg-foreground px-2 py-1.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="rounded-md px-2 py-1.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           <Image
             src={logo.src}
             alt={logo.alt}
             width={site.logo.width}
             height={site.logo.height}
-            sizes="142px"
+            sizes="158px"
             priority
-            className="h-9 w-auto"
+            className="h-10 w-auto"
           />
         </Link>
 
@@ -154,7 +154,7 @@ const Navbar = ({
 
         <div className="hidden items-center gap-2 lg:flex">
           {user ? (
-            <UserMenu user={user} popoverTheme="deep" tone="plain" />
+            <UserMenu user={user} popoverTheme="day" tone="plain" />
           ) : (
             <>
               <Link
@@ -166,7 +166,7 @@ const Navbar = ({
               >
                 {auth.login.text}
               </Link>
-              <CtaLink href={auth.signup.url} size="sm">
+              <CtaLink href={auth.signup.url} size="md">
                 {auth.signup.text}
               </CtaLink>
             </>
@@ -194,20 +194,20 @@ const Navbar = ({
             transition={{ duration: 0.4, ease: EASE }}
             className="fixed inset-0 z-50 flex flex-col bg-background lg:hidden"
           >
-            <div className="flex h-18 items-center justify-between border-b border-border px-4 sm:px-6">
+            <div className="flex h-20 items-center justify-between border-b border-border px-4 sm:px-6">
               <Link
                 href={logo.url}
                 onClick={() => setOpen(false)}
-                className="rounded-md bg-foreground px-2 py-1.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="rounded-md px-2 py-1.5 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <Image
                   src={logo.src}
                   alt={logo.alt}
                   width={site.logo.width}
                   height={site.logo.height}
-                  sizes="142px"
+                  sizes="158px"
                   loading="eager"
-                  className="h-9 w-auto"
+                  className="h-10 w-auto"
                 />
               </Link>
               <button
@@ -245,7 +245,7 @@ const Navbar = ({
                     onClick={() => setOpen(false)}
                     aria-current={pathname === item.url ? "page" : undefined}
                     className={cn(
-                      "heading-4 block rounded-lg px-2 py-3 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                      "heading-3 block rounded-lg px-2 py-3 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       pathname === item.url
                         ? "text-foreground"
                         : "text-muted-foreground hover:text-foreground",
@@ -263,14 +263,14 @@ const Navbar = ({
                   <span className="body-5 text-muted-foreground">
                     {user.name ?? user.email}
                   </span>
-                  <UserMenu user={user} popoverTheme="deep" tone="plain" />
+                  <UserMenu user={user} popoverTheme="day" tone="plain" />
                 </div>
               ) : (
                 <>
                   <CtaLink
                     href={auth.signup.url}
                     className="w-full"
-                    size="sm"
+                    size="md"
                   >
                     {auth.signup.text}
                   </CtaLink>

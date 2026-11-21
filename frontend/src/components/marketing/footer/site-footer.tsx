@@ -53,12 +53,19 @@ const columnHeading = "caption-3 tracking-wider text-muted-foreground uppercase"
  * top, and the name is set large and fading into the page so scrolling to the
  * bottom always lands on the wordmark.
  *
+ * It carries the last black band of the palette. The scope is on the element
+ * itself, so the giant wordmark fades from light ink into near black without
+ * any of the classes below changing.
+ *
  * On phones the columns fold into native `<details>` rows, which need no
  * JavaScript; the plus turns into a cross on the base curve.
  */
 export function SiteFooter() {
   return (
-    <footer className="relative flex min-h-dvh flex-col overflow-hidden border-t border-border bg-background">
+    <footer
+      data-theme="ink"
+      className="relative flex min-h-dvh flex-col overflow-hidden border-t border-border bg-background"
+    >
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 pt-16 sm:px-6 lg:px-8 lg:pt-24">
         <div className="my-auto grid gap-12 md:grid-cols-12">
           <div className="md:col-span-5">

@@ -88,7 +88,12 @@ export function Pricing() {
               )}
             >
               Annual
-              <span className="ml-1 text-brand">
+              {/* Inside the pressed pill the label sits on near black, where
+                  emerald is only 3.6:1: the badge borrows the pill's own ink
+                  instead of fighting it. */}
+              <span
+                className={cn("ml-1", annual ? "text-background/75" : "text-brand")}
+              >
                 save {annualDiscountPercent}%
               </span>
             </button>
@@ -104,6 +109,10 @@ export function Pricing() {
             return (
               <article
                 key={plan.name}
+                /* The most popular plan is the palette's one black card: the
+                   scope hands it light ink, a lifted surface and the lighter
+                   green, so every class below stays as it is. */
+                data-theme={plan.isPopular ? "ink" : undefined}
                 className={cn(
                   "flex h-full flex-col rounded-2xl border bg-card p-6 sm:p-7",
                   plan.isPopular ? "border-brand" : "border-border",

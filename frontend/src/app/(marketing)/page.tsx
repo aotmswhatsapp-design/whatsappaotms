@@ -34,11 +34,7 @@ const Pricing = dynamic(() =>
 const Faq = dynamic(() =>
   import("@/components/marketing/faq").then((module) => module.Faq),
 );
-const TaglineReveal = dynamic(() =>
-  import("@/components/marketing/tagline-reveal").then(
-    (module) => module.TaglineReveal,
-  ),
-);
+
 
 const brandName = site.name.trim() || "AOTMS";
 const description =
@@ -91,7 +87,6 @@ export default function HomePage() {
       />
       <Hero />
       <LogoStrip />
-      <TaglineReveal />
       <ProblemSolution />
       <Benefits />
       <HowItWorks />

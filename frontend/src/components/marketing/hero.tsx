@@ -1,73 +1,52 @@
 import { ArrowRight, CheckCircle } from "@phosphor-icons/react/dist/ssr";
 
 import { CtaLink } from "@/components/marketing/cta-link";
-import { HeroClouds } from "@/components/marketing/hero-clouds";
-import { WhatsAppChat } from "@/components/marketing/whatsapp-chat";
-import { Iphone15Pro } from "@/components/ui/iphone-15-pro";
+import { HeroArt } from "@/components/marketing/hero-art";
 import { site } from "@/config/site";
 
 /**
- * Hero: one offer, one action, and the product itself rather than a picture of
- * it. Centred, because the phone below needs the full width to read as a
- * device sitting on the page; the copy column stops at 680px either way.
+ * Hero: two columns from `lg`, copy first.
  *
- * The section is lifted under the transparent bar and carries the page's only
- * accent wash. Lime sits at 8% rather than higher because lime over teal
- * blends toward sea-green past roughly 10%, which reads as a stain instead of
- * as light; at this stop the source bleeds from the top of the window and
- * settles back into the field by the middle of the hero.
+ * The field is flat white. The colour is carried by the artwork on the right —
+ * a mint disc and a light blue slab — rather than by a wash behind the copy, so
+ * the headline is read on paper and the eye has one place to land afterwards.
  *
- * The cloud layer behind it is the only WebGL on the site. It is painted under
- * the copy and holds low density in the centre band, so the headline is always
- * read on flat field instead of on lit cloud.
+ * The copy column is indented 56px from `lg` and the spark mark hangs in that
+ * gutter. The reference hero is inset the same way: a heading flush to the grid
+ * edge with a mark beside it reads as one block, while a mark floating over the
+ * text reads as a sticker.
+ *
+ * The section still slides under the transparent bar (`-mt-20 pt-20`), so the
+ * white field runs to the top of the window instead of starting at a seam.
  */
 export function Hero() {
   return (
-    <section className="relative -mt-18 overflow-hidden border-b border-border bg-linear-to-b from-brand/8 via-background via-45% to-background pt-18">
-      <HeroClouds />
+    <section className="relative -mt-20 overflow-hidden border-b border-border bg-background pt-20">
+      <div className="mx-auto w-full max-w-6xl px-4 pt-10 pb-16 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:items-end lg:gap-12 lg:pt-16 lg:pb-24 xl:max-w-7xl">
+        <div className="relative lg:pl-14">
+          {/* The reference's motion mark, hanging in the copy's gutter. It is
+              hidden where the copy is full width, because below `lg` there is
+              no gutter to hang it in. */}
+          <SparkMark className="absolute top-[3.1rem] left-0 hidden w-11 text-blue/55 lg:block" />
 
-      {/* Three signal motes: the only accent in the hero above the button. They
-          sit clear of the copy column, and are hidden where that column is the
-          full width of the screen. */}
-      <span
-        aria-hidden="true"
-        className="hero-mote top-[24%] left-[8%] hidden size-[5px] [animation-delay:-6s] [animation-duration:46s] sm:block"
-      />
-      <span
-        aria-hidden="true"
-        className="hero-mote top-[30%] right-[11%] hidden size-[4px] [animation-delay:-19s] [animation-duration:58s] sm:block"
-      />
-      <span
-        aria-hidden="true"
-        className="hero-mote top-[47%] left-[14%] hidden size-[3px] [animation-delay:-31s] [animation-duration:52s] sm:block"
-      />
+          <p className="title-1 text-foreground">Managed WhatsApp automation</p>
 
-      {/* `relative` is load-bearing: the canvas above is positioned, so without
-          it the copy would paint underneath the clouds. */}
-      <div className="relative mx-auto w-full max-w-6xl px-4 pt-16 sm:px-6 lg:pt-20 xl:max-w-7xl">
-        <div className="mx-auto flex flex-col items-center text-center">
-          <p className="caption-3 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
-            <span
-              aria-hidden="true"
-              className="size-1.5 rounded-full bg-brand"
-            />
-            Managed WhatsApp automation
-          </p>
-
-          {/* Pearl on teal is 12.0:1, so the headline takes the plain foreground
-              and the lime stays on the action below it. */}
-          <h1 className="heading-1 mt-6 text-foreground xl:whitespace-nowrap">
+          {/* Near black on white is 19:1, so the headline takes the plain
+              foreground and the green stays on the action below it. The size
+              is set on the headline alone: `.heading-1` tops out at 60px, and
+              the hero is the one place that steps past the scale. */}
+          <h1 className="heading-1 mt-3 text-[2.5rem] leading-[1.05] text-foreground sm:text-[3rem] sm:leading-none lg:text-[4rem] lg:leading-[1] xl:text-[4.5rem] xl:leading-[0.98]">
             Your first WhatsApp campaign in a day
           </h1>
 
-          <p className="title-2 mt-6 max-w-[680px] text-muted-foreground">
+          <p className="title-1 mt-6 max-w-[600px] leading-8 text-muted-foreground">
             Campaigns, a shared inbox, chatbots and analytics on one workspace.
             Starter, Growth or Business, with the modules inside. We set up the
             Meta app and connect the number with you, on site.
           </p>
 
-          <div className="mt-8 flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <CtaLink href={site.links.pricing}>
+          <div className="mt-8 flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
+            <CtaLink href={site.links.pricing} variant="pop">
               See the pricing
               <ArrowRight className="size-4" weight="bold" aria-hidden="true" />
             </CtaLink>
@@ -76,7 +55,7 @@ export function Hero() {
             </CtaLink>
           </div>
 
-          <p className="body-5 mt-6 text-center text-muted-foreground">
+          <p className="body-5 mt-6 text-muted-foreground">
             <CheckCircle
               className="mr-2 inline size-4 -translate-y-px text-brand align-middle"
               weight="fill"
@@ -87,17 +66,38 @@ export function Hero() {
           </p>
         </div>
 
-        {/* The device is taller than its box: the box crops it and the mask
-            dissolves the cut, so the phone reads as sliding out of frame
-            instead of stopping on a hard edge. */}
-        <div className="relative mx-auto mt-12 w-[clamp(256px,66vw,384px)] sm:mt-16">
-          <div className="relative h-[clamp(320px,54vh,470px)] overflow-hidden [mask-image:linear-gradient(to_bottom,#000_70%,rgba(0,0,0,0.4)_86%,transparent_95%)]">
-            <Iphone15Pro>
-              <WhatsAppChat />
-            </Iphone15Pro>
-          </div>
+        {/* The negative bottom margin cancels the container's padding, so the
+            photograph is cropped by the section's border instead of ending on a
+            straight line inside the white field. */}
+        <div className="mt-14 -mb-16 sm:mt-16 lg:mt-0 lg:-mb-24">
+          <HeroArt />
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * Three strokes opening away from the headline, which is what the reference's
+ * mark is: motion escaping the text rather than an icon sitting next to it.
+ */
+function SparkMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 26 40"
+      aria-hidden="true"
+      className={`h-auto ${className ?? ""}`}
+    >
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={4}
+        strokeLinecap="round"
+      >
+        <path d="M16 5L3 14" />
+        <path d="M23 20H1" />
+        <path d="M16 35L3 26" />
+      </g>
+    </svg>
   );
 }
