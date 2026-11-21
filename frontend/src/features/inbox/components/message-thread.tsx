@@ -181,11 +181,11 @@ export function MessageThread({
           the queue's 110px block so the hairline runs straight across the
           divider. */}
       <header className="shrink-0 border-b border-border bg-card">
-        <div className="flex h-16 items-center gap-3 pr-2 pl-3 sm:pl-4">
+        <div className="flex h-16 min-w-0 items-center gap-3 pr-2 pl-3 sm:pl-4">
           <button
             type="button"
             aria-label="Back to conversations"
-            className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+            className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground xl:hidden"
             onClick={onBack}
           >
             <ArrowLeft aria-hidden="true" className="size-[18px]" />
@@ -263,12 +263,12 @@ export function MessageThread({
           </DropdownMenu>
         </div>
 
-        <div className="flex items-center gap-1.5 px-3 pb-2.5 sm:px-4">
+        <div className="flex min-w-0 items-center gap-1.5 px-3 pb-2.5 sm:px-4">
           <Field>
             <select
               aria-label="Conversation status"
               className={cn(
-                "h-9 appearance-none rounded-full border pr-8 pl-3 text-[12.5px] font-medium outline-none transition-colors",
+                "h-9 min-w-0 appearance-none rounded-full border pr-8 pl-3 text-[12.5px] font-medium outline-none transition-colors",
                 "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-brand/10",
                 conversation.status === "PENDING"
                   ? "border-transparent bg-warning-soft text-warning"
@@ -291,7 +291,7 @@ export function MessageThread({
             <select
               aria-label="Assigned agent"
               className={cn(
-                "h-9 max-w-40 appearance-none truncate rounded-full border pr-8 pl-3 text-[12.5px] font-medium outline-none transition-colors sm:max-w-52",
+                "h-9 max-w-40 min-w-0 appearance-none truncate rounded-full border pr-8 pl-3 text-[12.5px] font-medium outline-none transition-colors sm:max-w-52",
                 "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-brand/10",
                 conversation.assignedTo
                   ? "border-border bg-card text-foreground"

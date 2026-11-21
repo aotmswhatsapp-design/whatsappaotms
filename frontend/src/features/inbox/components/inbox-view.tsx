@@ -32,9 +32,9 @@ const THREAD_POLL_MS = 3_000;
 const SEARCH_DEBOUNCE_MS = 300;
 
 /** Bounds for the queue pane. Narrower clips the preview; wider starves the thread. */
-const LIST_DEFAULT = 352;
-const LIST_MIN = 288;
-const LIST_MAX = 552;
+const LIST_DEFAULT = 392;
+const LIST_MIN = 320;
+const LIST_MAX = 640;
 
 /**
  * The inbox's client boundary: it owns the queue, the open thread and the
@@ -316,45 +316,55 @@ export function InboxView() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
-        <span className="inline-flex items-center gap-2">
+    <div
+      // One card for the whole screen: the shell leaves this box the space
+      // below the title, and only the two panes scroll inside it.
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card"
+      style={{ "--inbox-list": `${listWidth}px` } as React.CSSProperties}
+    >
+      {/* The channel and the counts used to float above the card as a loose
+          line, which cost a whole band of height and left the panel reading as
+          a widget on a page. As the card's own top bar they are the window's
+          title strip instead. */}
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 text-[12.5px] text-muted-foreground sm:px-4">
+        <span className="inline-flex min-w-0 items-center gap-2">
           <StatusDot
             label={summary.channel.live ? "Receiving" : "Waiting for Meta"}
             tone={summary.channel.live ? "live" : "pending"}
           />
-          <span className="font-medium text-foreground">
+          <span className="truncate font-medium text-foreground">
             {summary.channel.verifiedName ?? "WhatsApp"}
           </span>
-          {summary.channel.display ? <span>{summary.channel.display}</span> : null}
-          <span>{summary.channel.live ? "receiving" : "awaiting webhook"}</span>
+          {summary.channel.display ? (
+            <span className="hidden truncate sm:inline">
+              {summary.channel.display}
+            </span>
+          ) : null}
+          <span className="hidden shrink-0 md:inline">
+            {summary.channel.live ? "receiving" : "awaiting webhook"}
+          </span>
         </span>
 
-        <span>
+        <span className="shrink-0 tabular-nums">
           {summary.counts.open} open · {summary.counts.pending} pending ·{" "}
           {summary.unread} unread
         </span>
       </div>
 
       {error ? (
-        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-[14px] text-destructive">
+        <p className="shrink-0 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-[13px] leading-relaxed text-destructive sm:px-4">
           {error}
         </p>
       ) : null}
 
-      <div
-        className={cn(
-          // The panel owns everything the shell leaves below the heading: the
-          // sidebar and top bar stay put and only the two panes scroll.
-          "flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card",
-        )}
-        style={{ "--inbox-list": `${listWidth}px` } as React.CSSProperties}
-      >
+      <div className="flex min-h-0 flex-1">
         <div
           className={cn(
-            "min-h-0 flex-col border-border",
-            "w-full lg:w-[var(--inbox-list)] lg:flex-none lg:border-r",
-            selectedId ? "hidden lg:flex" : "flex",
+            // The split needs room for both panes, so it starts at xl; below
+            // that one pane at a time, the way a phone reads it.
+            "min-h-0 min-w-0 flex-col border-border",
+            "w-full xl:w-[var(--inbox-list)] xl:flex-none xl:border-r",
+            selectedId ? "hidden xl:flex" : "flex",
           )}
         >
           <ConversationList
@@ -378,7 +388,7 @@ export function InboxView() {
           aria-valuemin={LIST_MIN}
           aria-valuenow={listWidth}
           tabIndex={0}
-          className="group hidden w-2 shrink-0 cursor-col-resize touch-none items-center justify-center outline-none transition-colors focus-visible:bg-brand/10 lg:flex"
+          className="group hidden w-2 shrink-0 cursor-col-resize touch-none items-center justify-center outline-none transition-colors focus-visible:bg-brand/10 xl:flex"
           onKeyDown={nudge}
           onPointerCancel={stopResize}
           onPointerDown={startResize}
@@ -393,8 +403,8 @@ export function InboxView() {
 
         <div
           className={cn(
-            "min-h-0 flex-1",
-            selectedId ? "block" : "hidden lg:block",
+            "min-h-0 min-w-0 flex-1",
+            selectedId ? "block" : "hidden xl:block",
           )}
         >
           <MessageThread

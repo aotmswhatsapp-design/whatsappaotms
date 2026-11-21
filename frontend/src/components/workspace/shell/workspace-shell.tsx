@@ -45,7 +45,11 @@ export function WorkspaceShell({
 
       <div className="flex min-w-0 flex-col">
         <WorkspaceTopBar user={user} onOpenNav={() => setNavOpen(true)} />
-        <main className="mx-auto w-full max-w-[86rem] flex-1 px-4 py-6 text-[15px] sm:px-6 lg:px-8 lg:py-8">
+        {/* 104rem rather than 86rem: the data screens (inbox, contacts,
+            campaigns, analytics) were capped well inside a wide monitor and
+            lost a fifth of the window to margin. Prose pages keep their own
+            `max-w` on the copy, so they centre instead of stretching. */}
+        <main className="mx-auto w-full max-w-[104rem] flex-1 px-4 py-6 text-[15px] sm:px-6 lg:px-8 lg:py-8">
           {children}
         </main>
       </div>

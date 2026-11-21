@@ -242,7 +242,7 @@ export function ConversationList({
                         type="button"
                         aria-current={selected ? "true" : undefined}
                         className={cn(
-                          "relative flex w-full items-center gap-3 py-2.5 pr-4 pl-5 text-left transition-colors",
+                          "relative flex w-full items-center gap-3 py-3 pr-4 pl-5 text-left transition-colors",
                           selected ? "bg-brand-soft/60" : "hover:bg-accent/50",
                         )}
                         onClick={() => onSelect(conversation.id)}
@@ -250,7 +250,7 @@ export function ConversationList({
                         {selected ? (
                           <span
                             aria-hidden="true"
-                            className="absolute top-2.5 bottom-2.5 left-1.5 w-[3px] rounded-full bg-brand"
+                            className="absolute top-3 bottom-3 left-1.5 w-[3px] rounded-full bg-brand"
                           />
                         ) : null}
 
@@ -272,7 +272,7 @@ export function ConversationList({
                           <span className="flex items-baseline gap-2">
                             <span
                               className={cn(
-                                "truncate text-[14.5px] leading-tight text-foreground",
+                                "truncate text-[15px] leading-tight text-foreground",
                                 unread ? "font-semibold" : "font-medium",
                               )}
                             >
@@ -294,7 +294,7 @@ export function ConversationList({
                           <span className="mt-1 flex items-center gap-2">
                             <span
                               className={cn(
-                                "truncate text-[13px]",
+                                "truncate text-[13.5px]",
                                 unread
                                   ? "text-foreground/80"
                                   : "text-muted-foreground",
