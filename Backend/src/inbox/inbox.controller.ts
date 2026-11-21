@@ -156,6 +156,20 @@ export class InboxController {
     return this.inbox.markRead(claims, id);
   }
 
+  /**
+   * POST /api/v1/inbox/conversations/:id/typing — read receipt plus the
+   * "typing…" bubble. Answers 200 even when Meta refuses: it is cosmetic and
+   * must never interrupt the agent's draft.
+   */
+  @Post("conversations/:id/typing")
+  @HttpCode(200)
+  showTyping(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.inbox.showTyping(claims, id);
+  }
+
   /** POST /api/v1/inbox/conversations/:id/notes — an internal note. */
   @Post("conversations/:id/notes")
   addNote(

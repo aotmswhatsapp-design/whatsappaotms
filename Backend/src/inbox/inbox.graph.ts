@@ -184,6 +184,36 @@ export class InboxGraph {
   }
 
   /**
+   * Marks the customer's newest message read and shows "typing…" while we
+   * write the answer. Meta couples the two in one call, so the customer also
+   * gets the blue ticks that a database-only `markRead` never sent.
+   *
+   * Meta dismisses the bubble when we reply or after 25 seconds; sending it
+   * for a conversation nobody is answering would be a lie, which is why the
+   * caller fires this from the composer rather than on thread open.
+   */
+  async markReadAndTyping(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    messageId: string;
+  }): Promise<void> {
+    await this.request<{ success?: boolean }>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: input.messageId,
+          typing_indicator: { type: "text" },
+        },
+      },
+    );
+  }
+
+  /**
    * Two requests: the media node answers a short-lived URL, and that URL — on
    * a different host — still requires the same bearer token.
    */

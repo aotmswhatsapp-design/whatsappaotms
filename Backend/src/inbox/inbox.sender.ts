@@ -4,6 +4,7 @@ import {
   ConflictException,
   HttpException,
   Injectable,
+  Logger,
   NotFoundException,
   PayloadTooLargeException,
 } from "@nestjs/common";
@@ -62,6 +63,8 @@ export interface SendTarget {
  */
 @Injectable()
 export class InboxSender {
+  private readonly logger = new Logger(InboxSender.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly graph: InboxGraph,
@@ -255,6 +258,47 @@ export class InboxSender {
     } catch (error) {
       await this.markFailed(row.id, error);
       throw toHttp(error);
+    }
+  }
+
+  /**
+   * The read receipt and typing bubble for the newest thing the customer said.
+   *
+   * Nothing here may surface as an error: the agent is mid-sentence, and a
+   * banner over a reply that will send fine is worse than a bubble that never
+   * appeared. A failure is logged with Meta's own sentence and reported as
+   * `sent: false` so the composer can stay silent.
+   *
+   * The message id is ours to choose, not the client's — Meta only accepts an
+   * id from the inbound webhook, and the newest one is what is being answered.
+   */
+  async typing(
+    input: SendTarget,
+  ): Promise<{ sent: boolean; reason: "no-inbound" | "meta" | null }> {
+    const newest = await this.prisma.message.findFirst({
+      where: {
+        conversationId: input.conversationId,
+        direction: "INBOUND",
+        wamid: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { wamid: true },
+    });
+
+    if (!newest?.wamid) return { sent: false, reason: "no-inbound" };
+
+    try {
+      await this.graph.markReadAndTyping({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        messageId: newest.wamid,
+      });
+
+      return { sent: true, reason: null };
+    } catch (error) {
+      this.logger.warn(`Typing indicator failed: ${reasonOf(error)}`);
+      return { sent: false, reason: "meta" };
     }
   }
 

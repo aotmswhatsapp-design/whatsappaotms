@@ -22,6 +22,7 @@ import {
   addNote,
   sendMedia,
   sendText,
+  showTyping,
   type Conversation,
   type InboxMessage,
   type InboxNote,
@@ -31,6 +32,12 @@ import { TemplatePanel } from "./template-panel";
 
 /** Mirrors the API's cap, so an oversized file fails before it is uploaded. */
 const MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Meta drops the typing bubble on its own after 25 seconds, so a long draft
+ * re-arms it well inside that window without a call on every keystroke.
+ */
+const TYPING_EVERY_MS = 20_000;
 
 /** The two shapes the attach menu offers. Anything else is still accepted by
  * WhatsApp, but a picker that cannot describe a file is worse than two honest
@@ -58,6 +65,9 @@ export function Composer({
   const area = React.useRef<HTMLTextAreaElement>(null);
   const picker = React.useRef<HTMLInputElement>(null);
 
+  /** The last thread we told Meta we were typing in, and when. */
+  const announced = React.useRef<{ id: string; at: number }>({ id: "", at: 0 });
+
   const [mode, setMode] = React.useState<Mode>("reply");
   const [text, setText] = React.useState("");
   const [sending, setSending] = React.useState(false);
@@ -78,6 +88,30 @@ export function Composer({
     return "Could not send that. Try again.";
   }
 
+  /**
+   * Only fires once the agent has actually typed something: opening a thread is
+   * not a promise to answer, and Meta asks that the bubble never imply one.
+   * Notes and a closed window are excluded for the same reason — neither can
+   * end in a reply. A refusal is silent; it is a courtesy, not a feature the
+   * agent should be interrupted for.
+   */
+  function announceTyping(): void {
+    if (mode !== "reply" || locked) return;
+
+    const now = Date.now();
+    const last = announced.current;
+
+    if (last.id === conversation.id && now - last.at < TYPING_EVERY_MS) return;
+
+    announced.current = { id: conversation.id, at: now };
+    void showTyping(conversation.id).catch(() => undefined);
+  }
+
+  /** Sending dismisses the bubble on Meta's side; the next draft starts over. */
+  function forgetTyping(): void {
+    announced.current = { id: "", at: 0 };
+  }
+
   async function submit(): Promise<void> {
     const body = text.trim();
 
@@ -93,6 +127,7 @@ export function Composer({
       } else {
         const { message } = await sendText(conversation.id, body);
         onSent(message);
+        forgetTyping();
       }
 
       setText("");
@@ -119,6 +154,7 @@ export function Composer({
       // The typed text becomes the caption, which is what WhatsApp shows.
       const { message } = await sendMedia(conversation.id, file, text);
       onSent(message);
+      forgetTyping();
       setText("");
     } catch (cause) {
       setError(failure(cause));
@@ -245,7 +281,11 @@ export function Composer({
               }
               rows={rows}
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => {
+                setText(event.target.value);
+
+                if (event.target.value.trim().length > 0) announceTyping();
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

@@ -417,6 +417,27 @@ export class InboxService {
     return { unreadCount: 0 };
   }
 
+  /**
+   * Tells WhatsApp an agent is answering, which also marks the customer's
+   * newest message read. The window is not checked: the composer disables
+   * itself once it closes, so a call arriving late is already wrong and Meta's
+   * refusal is swallowed by the sender.
+   */
+  async showTyping(
+    claims: AuthClaims,
+    id: string,
+  ): Promise<{ sent: boolean; reason: "no-inbound" | "meta" | null }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const target = await this.sendTarget(workspaceId, id);
+
+    return this.sender.typing({
+      workspaceId,
+      conversationId: target.conversationId,
+      waId: target.waId,
+      account: target.account,
+    });
+  }
+
   async addNote(
     claims: AuthClaims,
     id: string,

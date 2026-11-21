@@ -228,6 +228,17 @@ export function markRead(id: string): Promise<{ unreadCount: number }> {
   return request(`/v1/inbox/conversations/${id}/read`, { method: "POST" });
 }
 
+/**
+ * Marks the customer's newest message read and shows "typing…" until the reply
+ * goes out. The server picks the message id; a refusal answers 200 with
+ * `sent: false`, so callers treat it as fire-and-forget.
+ */
+export function showTyping(
+  id: string,
+): Promise<{ sent: boolean; reason: "no-inbound" | "meta" | null }> {
+  return request(`/v1/inbox/conversations/${id}/typing`, { method: "POST" });
+}
+
 export function addNote(
   id: string,
   body: string,
