@@ -186,35 +186,35 @@ export function MessageThread({
       {/* One row, the shape of the phone app: who you are talking to, the
           number and the reply window on the subline, then the assignment
           controls and the actions pinned right. The queue keeps its taller
-          header, so the green band ends above the queue's band — WhatsApp Web
-          does exactly the same, and a stepped divider reads as two panes
-          rather than as one broken one.
+          header, so this bar ends above the queue's — WhatsApp Web does
+          exactly the same, and a stepped divider reads as two panes rather
+          than as one broken one.
 
-          The band is the one place the green fills a surface. White labels on
-          #008069 are 4.9:1, so the name, the subline and the two chip menus
-          all sit on it directly; the chips themselves stay white so their ink
-          never depends on what is behind them. */}
-      <header className="shrink-0 bg-brand text-brand-foreground">
+          The bar is the card's own surface now, and a hairline underneath is
+          the only thing dividing it from the thread. Every control carries
+          dark ink: the chips sit on the secondary plate and the avatar on the
+          same one, because white-on-white would erase both. */}
+      <header className="shrink-0 border-b border-border bg-card text-foreground">
         <div className="flex h-14 min-w-0 items-center gap-2.5 pr-2 pl-2 sm:pl-3">
           <button
             type="button"
             aria-label="Back to conversations"
-            className="grid size-8 shrink-0 place-items-center rounded-full outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/70 xl:hidden"
+            className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 xl:hidden"
             onClick={onBack}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
           </button>
 
-          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white/20 text-[11.5px] font-semibold text-brand-foreground">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-[11.5px] font-semibold text-foreground">
             {initials(conversation.contact.name, conversation.contact.waId)}
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] leading-tight font-semibold text-brand-foreground">
+            <p className="truncate text-[13px] leading-tight font-semibold text-foreground">
               {conversation.contact.name ??
                 displayPhone(conversation.contact.waId)}
             </p>
-            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-brand-foreground/75">
+            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
               {/* An unnamed contact already uses the number as the title, so
                   repeating it here would just say the same thing twice. */}
               {conversation.contact.name ? (
@@ -224,7 +224,7 @@ export function MessageThread({
                       conversation.contact.phone ?? conversation.contact.waId,
                     )}
                   </span>
-                  <span aria-hidden="true" className="shrink-0 text-brand-foreground/40">
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground/50">
                     ·
                   </span>
                 </>
@@ -244,8 +244,8 @@ export function MessageThread({
               <select
                 aria-label="Conversation status"
                 className={cn(
-                  "h-8 min-w-0 appearance-none rounded-full border border-transparent bg-card pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
-                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
+                  "h-8 min-w-0 appearance-none rounded-full border border-border bg-secondary pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
+                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/25",
                   conversation.status === "PENDING"
                     ? "text-warning"
                     : conversation.status === "CLOSED"
@@ -267,8 +267,8 @@ export function MessageThread({
               <select
                 aria-label="Assigned agent"
                 className={cn(
-                  "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border border-transparent bg-card pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
-                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
+                  "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border border-border bg-secondary pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
+                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/25",
                   conversation.assignedTo ? "text-foreground" : "text-muted-foreground",
                 )}
                 value={conversation.assignedTo?.id ?? ""}
@@ -299,7 +299,7 @@ export function MessageThread({
               <button
                 type="button"
                 aria-label="Conversation actions"
-                className="grid size-9 shrink-0 place-items-center rounded-full text-brand-foreground/90 outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-40"
+                className="grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-40"
                 disabled={deleting}
               >
                 {deleting ? (
@@ -381,13 +381,13 @@ export function MessageThread({
         </div>
       </header>
 
-      {/* The wallpaper is the picture now, not a colour: a grey field behind
-          white bubbles read as a mail client. `inbox-wallpaper` sits next to
-          the inbox palette in `globals.css` because it needs both the image
-          and the flat green sampled from it. */}
+      {/* The canvas is plain card white now. The wallpaper that used to fill
+          it was deleted, and a solid fill left in its place read as a coloured
+          panel rather than a chat. With no picture behind them, the inbound
+          bubble needs its hairline or it dissolves into the background. */}
       <div
         ref={scroller}
-        className="inbox-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
+        className="min-h-0 flex-1 overflow-y-auto bg-card px-3 py-4 sm:px-4"
       >
         {/* A readable column inside the pane: at 1400px the thread is wider
             than any comfortable line length, and bubbles hugging opposite
@@ -395,7 +395,7 @@ export function MessageThread({
             so a 1920 window does not leave a gutter on both sides. */}
         <div className="mx-auto w-full max-w-[46rem] space-y-2 2xl:max-w-[60rem]">
           {entries.length === 0 ? (
-            <p className="py-10 text-center text-[13px] text-white/80">
+            <p className="py-10 text-center text-[13px] text-muted-foreground">
               Nothing in this thread yet.
             </p>
           ) : null}
@@ -411,7 +411,7 @@ export function MessageThread({
               >
                 {newDay ? (
                   <div className="flex justify-center py-2">
-                    <span className="rounded-full border border-border bg-card/95 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur-sm">
+                    <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       {dayLabel(entry.at)}
                     </span>
                   </div>
@@ -447,7 +447,7 @@ function Bubble({ message }: { message: InboxMessage }) {
           "max-w-[85%] rounded-xl px-3 py-2 text-[13.5px] shadow-xs sm:max-w-[75%]",
           outbound
             ? "rounded-br-sm bg-brand-soft text-foreground"
-            : "rounded-bl-sm bg-card text-foreground",
+            : "rounded-bl-sm border border-border bg-card text-foreground",
         )}
       >
         {message.media ? (
@@ -566,7 +566,7 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
       }
       className={cn(
         "shrink-0 tabular-nums",
-        left ? "text-brand-foreground/75" : "text-brand-foreground/60",
+        left ? "text-muted-foreground" : "text-muted-foreground/70",
       )}
       role="timer"
       title={

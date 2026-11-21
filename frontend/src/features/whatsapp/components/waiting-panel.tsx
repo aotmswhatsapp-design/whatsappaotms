@@ -4,6 +4,8 @@ import { ArrowLeft, KeyRound, LoaderCircle, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
+import { WebhookFields } from "./webhook-fields";
+
 /**
  * Step three: the wait, made legible.
  *
@@ -13,6 +15,7 @@ import { Button } from "@/components/ui/button";
  */
 export function WaitingPanel({
   callbackUrl,
+  verifyToken,
   expired,
   checking,
   onCheck,
@@ -20,6 +23,8 @@ export function WaitingPanel({
   onEditDetails,
 }: {
   callbackUrl: string | null;
+  /** Kept beside the URL: this is the screen where a wrong token is fixed. */
+  verifyToken: string | null;
   expired: boolean;
   checking: boolean;
   onCheck: () => void;
@@ -45,12 +50,12 @@ export function WaitingPanel({
         </div>
       </div>
 
-      <dl className="rounded-lg bg-secondary px-3.5 py-3">
-        <dt className="text-[12.5px] font-medium text-muted-foreground">Meta is calling</dt>
-        <dd className="mt-1 font-mono text-[13px] break-all text-foreground">
-          {callbackUrl ?? "No callback URL configured — Meta has nowhere to call."}
-        </dd>
-      </dl>
+      <div className="space-y-2">
+        <p className="text-[12.5px] font-medium text-muted-foreground">
+          Meta is calling
+        </p>
+        <WebhookFields callbackUrl={callbackUrl} verifyToken={verifyToken} />
+      </div>
 
       {expired ? (
         <p className="rounded-lg bg-warning-soft px-3 py-2.5 text-[13px] leading-relaxed text-warning">

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 import { ApiError, disconnectWhatsApp, type WhatsAppAccount } from "./api";
-import { CopyField } from "./copy-field";
+import { WebhookFields } from "./webhook-fields";
 import { when } from "./when";
 
 /**
@@ -18,11 +18,14 @@ import { when } from "./when";
  */
 export function LivePanel({
   account,
+  callbackUrl,
   checking,
   onRecheck,
   onDisconnected,
 }: {
   account: WhatsAppAccount;
+  /** The URL the API advertises, which outranks the one stored at connect time. */
+  callbackUrl: string | null;
   checking: boolean;
   onRecheck: () => void;
   onDisconnected: () => void;
@@ -96,10 +99,9 @@ export function LivePanel({
         ))}
       </dl>
 
-      <CopyField
-        hint="Registered in the app's Webhooks panel. Meta posts every event here."
-        label="Callback URL"
-        value={account.webhook.callbackUrl}
+      <WebhookFields
+        callbackUrl={callbackUrl ?? account.webhook.callbackUrl}
+        verifyToken={account.webhook.verifyToken}
       />
 
       {account.webhook.eventCount === 0 ? (

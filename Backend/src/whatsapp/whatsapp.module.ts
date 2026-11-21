@@ -18,5 +18,8 @@ import { WhatsAppWebhookService } from "./whatsapp-webhook.service";
   // guard: it needs SecretBox, and one module means one place to look.
   controllers: [WhatsAppController, WhatsAppWebhookController],
   providers: [WhatsAppService, WhatsAppWebhookService, MetaGraph, SecretBox],
+  // Templates talk to the same Graph API and open the same stored secrets, so
+  // they consume these two rather than building a second client that drifts.
+  exports: [MetaGraph, SecretBox],
 })
 export class WhatsAppModule {}

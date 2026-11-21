@@ -8,7 +8,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 import { ApiError, rotateVerifyToken, type WhatsAppAccount } from "./api";
-import { CopyField } from "./copy-field";
+import { WebhookFields } from "./webhook-fields";
 
 const STEPS = [
   "Open developers.facebook.com, pick the app that owns this number, then WhatsApp → Configuration.",
@@ -96,10 +96,9 @@ export function WebhookPanel({
       </div>
 
       <div className="space-y-4">
-        <CopyField
-          hint="One URL for every workspace. Meta calls it for the handshake and for every delivery."
-          label="Callback URL"
-          value={url}
+        <WebhookFields
+          callbackUrl={url}
+          verifyToken={account.webhook.verifyToken}
         />
 
         {url ? null : (
@@ -110,12 +109,6 @@ export function WebhookPanel({
             and reload this page.
           </p>
         )}
-
-        <CopyField
-          hint="Generated for this workspace. Meta echoes it back when it verifies the URL."
-          label="Verify token"
-          value={account.webhook.verifyToken}
-        />
       </div>
 
       <ol className="space-y-3 rounded-lg bg-secondary px-4 py-3.5">

@@ -9,6 +9,7 @@ import { validateEnv } from "./config/env";
 import { HealthModule } from "./health/health.module";
 import { InboxModule } from "./inbox/inbox.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { TemplatesModule } from "./templates/templates.module";
 import { WhatsAppModule } from "./whatsapp/whatsapp.module";
 
 @Module({
@@ -36,6 +37,7 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module";
     WhatsAppModule,
     BusinessModule,
     InboxModule,
+    TemplatesModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

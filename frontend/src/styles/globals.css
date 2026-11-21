@@ -395,30 +395,6 @@
   --lime-soft: #d9fdd3;
 }
 
-/**
- * The conversation wallpaper. The doodle pattern is what makes the thread read
- * as a chat rather than as a list of cards, so it belongs to the canvas behind
- * the bubbles and to nothing else — not the queue, not the header.
- *
- * `cover` rather than `repeat`: the drawing is not built as a seamless tile, its
- * motifs are cut at the image's own edges, so tiling it would slice doodles in
- * half at every seam. `cover` keeps every motif whole and can never show one.
- *
- * The fill colour is sampled from the image's own field (#286951), so whatever
- * the picture does not reach is the same green and never flashes white while the
- * file decodes.
- *
- * White bubbles and the #d9fdd3 outbound bubble both sit on it unchanged: the
- * wallpaper is deliberately darker than the chat grey it replaces, which raises
- * the contrast of every bubble edge instead of lowering it.
- */
-[data-theme="inbox"] .inbox-wallpaper {
-  background-color: #286951;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover;
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

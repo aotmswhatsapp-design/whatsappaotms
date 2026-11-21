@@ -6,6 +6,11 @@ import { SecretBox } from "../common/crypto/secret-box";
 import { parseDelivery } from "../inbox/inbox.payload";
 import { InboxStore } from "../inbox/inbox.store";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  templateStatusEvents,
+  wabaIds,
+  type TemplateStatusEvent,
+} from "../templates/template-status";
 
 export type HandshakeOutcome =
   | { ok: true; challenge: string }
@@ -105,25 +110,36 @@ export class WhatsAppWebhookService {
     }
 
     const numbers = phoneNumberIds(payload);
+    const templateEvents = templateStatusEvents(payload);
+    const wabas = wabaIds(payload);
 
-    if (numbers.length === 0) {
-      this.logger.log("Webhook delivery carried no phone_number_id; ignored.");
+    if (numbers.length === 0 && wabas.length === 0) {
+      this.logger.log("Webhook delivery named no number and no account; ignored.");
       return;
     }
 
+    // A message delivery names the number that received it. A template status
+    // names only the business account, so both are matched — asking for a
+    // phone_number_id is what made template statuses disappear entirely.
     const accounts = await this.prisma.whatsAppAccount.findMany({
-      where: { phoneNumberId: { in: numbers } },
+      where: {
+        OR: [
+          { phoneNumberId: { in: numbers } },
+          { businessAccountId: { in: wabas } },
+        ],
+      },
       select: {
         id: true,
         workspaceId: true,
         phoneNumberId: true,
+        businessAccountId: true,
         appSecretCipher: true,
       },
     });
 
     if (accounts.length === 0) {
       this.logger.warn(
-        `Webhook delivery for an unregistered number (${numbers.join(", ")}); ignored.`,
+        `Webhook delivery for an unregistered account (${[...numbers, ...wabas].join(", ")}); ignored.`,
       );
       return;
     }
@@ -154,21 +170,67 @@ export class WhatsAppWebhookService {
         continue;
       }
 
+      // An account can be named by a template event alone, in which case there
+      // is no message to store.
+      const receivedMessage = numbers.includes(account.phoneNumberId);
+      const mine = templateEvents.filter(
+        (event) => event.wabaId === account.businessAccountId,
+      );
+
+      if (!receivedMessage && mine.length === 0) continue;
+
       await this.prisma.whatsAppAccount.update({
         where: { id: account.id },
         data: { lastEventAt: new Date(), eventCount: { increment: 1 } },
       });
 
-      await this.store.record(
-        {
-          id: account.id,
-          workspaceId: account.workspaceId,
-          phoneNumberId: account.phoneNumberId,
-        },
-        changes,
-      );
+      if (receivedMessage) {
+        await this.store.record(
+          {
+            id: account.id,
+            workspaceId: account.workspaceId,
+            phoneNumberId: account.phoneNumberId,
+          },
+          changes,
+        );
 
-      this.logger.log(`Signed delivery stored for ${numbers.join(", ")}.`);
+        this.logger.log(`Signed delivery stored for ${account.phoneNumberId}.`);
+      }
+
+      if (mine.length > 0) {
+        await this.applyTemplateStatus(account.workspaceId, mine);
+      }
+    }
+  }
+
+  /**
+   * Meta's review verdict, written over the cached row. A template that no sync
+   * has seen yet has no row to update and is skipped: the next list read brings
+   * it in, and inventing a row here would invent its category too.
+   */
+  private async applyTemplateStatus(
+    workspaceId: string,
+    events: TemplateStatusEvent[],
+  ): Promise<void> {
+    for (const event of events) {
+      const { count } = await this.prisma.messageTemplate.updateMany({
+        where: { workspaceId, metaId: event.templateId },
+        data: {
+          status: event.event,
+          // A rejection carries the reason; anything else clears it.
+          rejectedReason: event.event === "REJECTED" ? event.reason : null,
+          lastSyncedAt: new Date(),
+        },
+      });
+
+      if (count === 0) {
+        this.logger.log(
+          `Template ${event.templateId} (${event.name ?? "unnamed"}) is ${event.event}, but no cached row matches it yet.`,
+        );
+        continue;
+      }
+
+      this.logger.log(`Template ${event.templateId} is now ${event.event}.`);
     }
   }
 

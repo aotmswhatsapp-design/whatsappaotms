@@ -284,6 +284,7 @@ export function WhatsAppConnection() {
         <section className="rounded-xl border border-border bg-card p-5">
           <WaitingPanel
             callbackUrl={callbackUrl}
+            verifyToken={account.webhook.verifyToken}
             checking={checking}
             expired={expired}
             onBack={() => setView("auto")}
@@ -295,6 +296,7 @@ export function WhatsAppConnection() {
         <section className="rounded-xl border border-border bg-card p-5">
           <LivePanel
             account={account}
+            callbackUrl={callbackUrl}
             checking={checking}
             onDisconnected={handleDisconnected}
             onRecheck={recheckAgainstMeta}

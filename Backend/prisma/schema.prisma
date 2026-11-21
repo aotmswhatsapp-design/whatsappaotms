@@ -75,6 +75,7 @@ model Workspace {
   contacts      Contact[]
   conversations Conversation[]
   messages      Message[]
+  templates     MessageTemplate[]
 
   /// The workspace's own identity. Customers never see these fields: the
   /// profile they see on WhatsApp lives in Meta and is read through Graph.
@@ -329,4 +330,58 @@ model InternalNote {
 
   @@index([conversationId, createdAt])
   @@map("internal_notes")
+}
+
+// ---------------------------------------------------------------------------
+// Templates (Meta message templates).
+//
+// Meta is the source of truth: a row here is a cache of what the account holds,
+// keyed by the id Meta assigned. `metaId` is nullable because a submission Meta
+// rejects outright never gets an id, and that rejection is still worth keeping.
+// ---------------------------------------------------------------------------
+
+enum TemplateCategory {
+  AUTHENTICATION
+  MARKETING
+  UTILITY
+}
+
+enum ParameterFormat {
+  NAMED
+  POSITIONAL
+}
+
+/// Every value Meta documents for a template's `status`. Stored as a string
+/// rather than an enum: Meta adds states over time, and an unknown state must
+/// render as itself instead of failing the sync of the whole account.
+model MessageTemplate {
+  id              String          @id @default(uuid()) @db.Uuid
+  workspaceId     String          @map("workspace_id") @db.Uuid
+  /// The template id Meta assigned. Null until Meta accepts the creation call.
+  metaId          String?         @map("meta_id")
+  name            String
+  language        String
+  category        TemplateCategory
+  parameterFormat ParameterFormat @default(POSITIONAL) @map("parameter_format")
+  status          String          @default("PENDING")
+  /// GREEN / YELLOW / RED, or null before the first quality signal.
+  qualityScore    String?         @map("quality_score")
+  rejectedReason  String?         @map("rejected_reason")
+  /// The exact `components` array sent to Meta, verbatim. Rebuilding it from
+  /// our own fields would drift; an audit has to see what was submitted.
+  components      Json
+  lastSyncedAt    DateTime?       @map("last_synced_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  /// One row per Meta template. Two workspaces can never share an id, but the
+  /// pair is the real key: a sync upserts on it.
+  @@unique([workspaceId, metaId])
+  /// Name + language is Meta's own uniqueness rule; a row without a metaId
+  /// still cannot be duplicated.
+  @@unique([workspaceId, name, language])
+  @@index([workspaceId, status])
+  @@map("message_templates")
 }

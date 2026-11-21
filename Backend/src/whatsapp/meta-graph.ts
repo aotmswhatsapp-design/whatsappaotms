@@ -95,6 +95,39 @@ export interface BusinessProfileDetails {
 export type QrImageFormat = "SVG" | "PNG";
 
 /**
+ * One entry on the WABA's `message_templates` edge. Only `id`, `name` and
+ * `status` are guaranteed: `quality_score` appears only for approved templates
+ * and `rejected_reason` only for rejected ones, so everything else is optional.
+ */
+export interface MessageTemplateDetails {
+  id: string;
+  name: string;
+  status?: string;
+  category?: string;
+  language?: string;
+  quality_score?: { score?: string } | string | null;
+  rejected_reason?: string | null;
+  components?: unknown;
+  parameter_format?: string;
+}
+
+/** What a creation call accepts, already assembled into Meta's components. */
+export interface MessageTemplateDraft {
+  name: string;
+  category: string;
+  language: string;
+  parameter_format: string;
+  components: unknown[];
+}
+
+/** Meta answers a creation with the new id and the review verdict so far. */
+export interface MessageTemplateCreated {
+  id: string;
+  status?: string;
+  category?: string;
+}
+
+/**
  * One entry on the phone number's `message_qrdls` edge. `code` is the short
  * link's identifier, `deep_link_url` is what goes on a poster and
  * `qr_image_url` is Meta's rendered image on their CDN — it is not ours, so it
@@ -267,6 +300,90 @@ export class MetaGraph {
     await this.send<{ success?: boolean }>(
       this.urlOf(version, [phoneNumberId, "message_qrdls", code]),
       { method: "DELETE", token },
+    );
+  }
+
+  /**
+   * Every template on the account, newest first as Meta orders them.
+   *
+   * `complete` matters more than it looks: a caller that mirrors deletions must
+   * not treat the page cap as "these are all of them", or every template past
+   * the cap would be marked deleted. The field list is asked for in full and
+   * retried without the newer fields on code 100, so a version that does not
+   * expose `parameter_format` still returns a usable list instead of failing.
+   */
+  async listMessageTemplates(
+    version: string,
+    businessAccountId: string,
+    token: string,
+  ): Promise<{ items: MessageTemplateDetails[]; complete: boolean }> {
+    const items: MessageTemplateDetails[] = [];
+    const full = "id,name,status,category,language,quality_score,rejected_reason,components,parameter_format";
+    const minimal = "id,name,status,category,language,components";
+
+    let next: string | null = this.urlOf(version, [
+      businessAccountId,
+      "message_templates",
+    ]).toString();
+
+    const withFields = (url: string, fields: string): string => {
+      const asked = new URL(url);
+      asked.searchParams.set("fields", fields);
+      asked.searchParams.set("limit", "200");
+      return asked.toString();
+    };
+
+    let fields = full;
+    let first = withFields(next, fields);
+
+    for (let page = 0; page < 5 && next !== null; page += 1) {
+      let payload: {
+        data?: MessageTemplateDetails[];
+        paging?: { next?: string };
+      };
+
+      try {
+        payload = await this.send<{
+          data?: MessageTemplateDetails[];
+          paging?: { next?: string };
+        }>(new URL(first), { method: "GET", token });
+      } catch (error) {
+        // Only the first page carries our field list; a later page failing is a
+        // real failure and must not silently truncate the account.
+        if (page !== 0 || !(error instanceof MetaRequestError) || error.code !== 100) {
+          throw error;
+        }
+
+        fields = minimal;
+        first = withFields(next, fields);
+        payload = await this.send<{
+          data?: MessageTemplateDetails[];
+          paging?: { next?: string };
+        }>(new URL(first), { method: "GET", token });
+      }
+
+      items.push(...(payload.data ?? []));
+      next = payload.paging?.next ?? null;
+      // Paging links are absolute and already carry the field list.
+      if (next !== null) first = next;
+    }
+
+    return { items, complete: next === null };
+  }
+
+  /**
+   * Creating answers `{ id, status, category }`. The template enters review
+   * immediately; `status` is Meta's first word on it, not a final verdict.
+   */
+  createMessageTemplate(
+    version: string,
+    businessAccountId: string,
+    token: string,
+    draft: MessageTemplateDraft,
+  ): Promise<MessageTemplateCreated> {
+    return this.send<MessageTemplateCreated>(
+      this.urlOf(version, [businessAccountId, "message_templates"]),
+      { method: "POST", token, body: draft },
     );
   }
 
