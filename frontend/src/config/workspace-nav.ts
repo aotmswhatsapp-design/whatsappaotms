@@ -149,7 +149,7 @@ export const workspaceNav: WorkspaceNavGroup[] = [
       {
         title: "Business profile",
         href: "/workspace/profile",
-        description: "Company details your customers will see",
+        description: "Your workspace details and the profile customers see",
         icon: Building2,
       },
     ],
