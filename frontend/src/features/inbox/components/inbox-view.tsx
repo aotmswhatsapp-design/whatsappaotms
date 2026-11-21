@@ -319,6 +319,12 @@ export function InboxView() {
     <div
       // One card for the whole screen: the shell leaves this box the space
       // below the title, and only the two panes scroll inside it.
+      //
+      // `data-theme="inbox"` is what makes this card read as WhatsApp rather
+      // than as the rest of the app: the scope in `globals.css` swaps the warm
+      // roles for white, chat grey and green, and it stops at the card's edge,
+      // so the sidebar behind it keeps the teal palette.
+      data-theme="inbox"
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card"
       style={{ "--inbox-list": `${listWidth}px` } as React.CSSProperties}
     >
@@ -326,7 +332,7 @@ export function InboxView() {
           line, which cost a whole band of height and left the panel reading as
           a widget on a page. As the card's own top bar they are the window's
           title strip instead. */}
-      <div className="flex shrink-0 items-center justify-between gap-2.5 border-b border-border px-3 py-1.5 text-[11.5px] text-muted-foreground sm:px-4">
+      <div className="flex shrink-0 items-center justify-between gap-2.5 border-b border-border px-3 py-2 text-[11px] text-muted-foreground sm:px-4">
         <span className="inline-flex min-w-0 items-center gap-2">
           <StatusDot
             label={summary.channel.live ? "Receiving" : "Waiting for Meta"}
@@ -352,7 +358,7 @@ export function InboxView() {
       </div>
 
       {error ? (
-        <p className="shrink-0 border-b border-destructive/20 bg-destructive/10 px-3 py-1.5 text-[12px] leading-relaxed text-destructive sm:px-4">
+        <p className="shrink-0 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-[11.5px] leading-relaxed text-destructive sm:px-4">
           {error}
         </p>
       ) : null}

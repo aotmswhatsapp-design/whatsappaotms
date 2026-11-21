@@ -18,7 +18,7 @@ export default function InboxPage() {
         <p className="text-[10px] leading-3 font-semibold tracking-[0.14em] text-brand uppercase">
           {nav.group}
         </p>
-        <h1 className="mt-1 text-[17px] leading-5 font-semibold tracking-tight text-foreground">
+        <h1 className="mt-1 text-[16px] leading-5 font-semibold tracking-tight text-foreground">
           {nav.title}
         </h1>
       </div>

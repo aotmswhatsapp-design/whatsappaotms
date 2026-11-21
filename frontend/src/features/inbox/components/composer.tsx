@@ -35,7 +35,8 @@ const MAX_BYTES = 25 * 1024 * 1024;
  * WhatsApp, but a picker that cannot describe a file is worse than two honest
  * ones. */
 const PHOTOS = "image/*,video/*";
-const DOCUMENTS = ".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,application/pdf";
+const DOCUMENTS =
+  ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf";
 
 type Mode = "reply" | "note";
 
@@ -150,7 +151,7 @@ export function Composer({
   return (
     <div className="shrink-0 border-t border-border bg-card px-3 pt-2 pb-1.5 sm:px-4">
       {error ? (
-        <p className="mb-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-[12px] leading-relaxed text-destructive">
+        <p className="mb-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-[11.5px] leading-relaxed text-destructive">
           {error}
         </p>
       ) : null}
@@ -160,7 +161,7 @@ export function Composer({
           buttons can say from inside the bar. */}
       <div
         className={cn(
-          "flex items-end gap-1 rounded-xl border bg-card p-1 transition-colors",
+          "flex items-end gap-1.5 rounded-xl border bg-card p-1.5 transition-colors",
           mode === "note" ? "border-warning/40" : "border-border",
           active
             ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10"
@@ -170,13 +171,13 @@ export function Composer({
         <div
           role="group"
           aria-label="Message type"
-          className="mb-0.5 flex shrink-0 items-center gap-0.5 rounded-full bg-secondary/80 p-0.5"
+          className="mb-1 flex shrink-0 items-center gap-0.5 rounded-full bg-secondary p-0.5"
         >
           <ModeButton
             active={mode === "reply"}
             disabled={locked}
             onClick={() => switchMode("reply")}
-            icon={<SendHorizontal aria-hidden="true" className="size-3" />}
+            icon={<SendHorizontal aria-hidden="true" className="size-3.5" />}
             label="Reply"
             title={
               locked ? "The customer has not written for 24 hours." : undefined
@@ -185,7 +186,7 @@ export function Composer({
           <ModeButton
             active={mode === "note"}
             onClick={() => switchMode("note")}
-            icon={<StickyNote aria-hidden="true" className="size-3" />}
+            icon={<StickyNote aria-hidden="true" className="size-3.5" />}
             label="Note"
           />
         </div>
@@ -197,13 +198,13 @@ export function Composer({
                 <button
                   type="button"
                   aria-label="Attach a file"
-                  className="mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  className="mb-1 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
                   disabled={locked || sending}
                 >
                   <Paperclip aria-hidden="true" className="size-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-52" side="top">
+              <DropdownMenuContent align="start" className="w-56" data-theme="inbox" side="top">
                 <DropdownMenuItem onSelect={() => pick(PHOTOS)}>
                   <ImageIcon aria-hidden="true" />
                   Photo or video
@@ -230,7 +231,7 @@ export function Composer({
         <textarea
           ref={area}
           aria-label={mode === "note" ? "Internal note" : "Reply"}
-          className="max-h-32 min-h-8 flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground"
+          className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-[12.5px] leading-relaxed outline-none placeholder:text-muted-foreground"
           disabled={!active || sending}
           placeholder={
             mode === "note"
@@ -254,7 +255,7 @@ export function Composer({
           type="button"
           aria-label={mode === "note" ? "Save note" : "Send reply"}
           className={cn(
-            "mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-brand-foreground transition-[background-color,opacity] hover:opacity-90 disabled:opacity-40",
+            "mb-1 grid size-9 shrink-0 place-items-center rounded-full text-brand-foreground transition-[background-color,opacity] hover:opacity-90 disabled:opacity-40",
             mode === "note" ? "bg-warning" : "bg-brand",
           )}
           disabled={!active || sending || text.trim().length === 0}
@@ -268,7 +269,7 @@ export function Composer({
         </button>
       </div>
 
-      <p className="mt-1 px-1 text-[10.5px] text-muted-foreground">
+      <p className="mt-1 px-1 text-[10px] text-muted-foreground">
         {locked && mode === "reply"
           ? "Replies reopen when the customer writes again."
           : mode === "note"
@@ -299,7 +300,7 @@ function ModeButton({
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex h-7 items-center justify-center gap-1 rounded-full px-1.5 text-[11.5px] font-medium transition-colors sm:px-2",
+        "inline-flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[11px] font-medium transition-colors sm:px-2.5",
         active
           ? "bg-card text-foreground shadow-xs"
           : "text-muted-foreground hover:text-foreground",

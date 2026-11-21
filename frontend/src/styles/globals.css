@@ -282,7 +282,8 @@
 [data-theme="day"],
 [data-theme="band"],
 [data-theme="ink"],
-[data-theme="sheet"] {
+[data-theme="sheet"],
+[data-theme="inbox"] {
   color: var(--foreground);
 }
 
@@ -333,6 +334,65 @@
   --blue-soft: #d6e0f7;
   --lime: #3f6212;
   --lime-soft: #e2ecc8;
+}
+
+/**
+ * The inbox. One surface in the product reads customer messages, so it borrows
+ * WhatsApp's own two colours instead of the app's teal: white panels, a grey
+ * canvas, and the green that marks a reply.
+ *
+ * This palette sits on a subtree, not on a route. `inbox-view.tsx` puts
+ * `data-theme="inbox"` on the single card that holds the queue and the thread,
+ * so the shell, the sidebar and every other module keep the warm palette above.
+ * The card stays white; only the canvas behind the bubbles takes `--background`.
+ *
+ * Portalled menus escape that card, so the three dropdowns in the inbox pass
+ * the same attribute onto their content.
+ *
+ *   White       #FFFFFF   60%   the panels: queue, header, composer, inbound bubbles
+ *   Chat grey   #F0F2F5   20%   the canvas the conversation floats on
+ *   WhatsApp    #008069   10%   the chat header and every action
+ *
+ * Contrast: white on #008069 is 4.9:1, so the band carries its labels and the
+ * white chips on it at one stop. `--muted-foreground` sits deeper than
+ * WhatsApp's own grey because it has to clear 4.5:1 on the pale green bubble
+ * (4.6:1) and not only on white (5.1:1).
+ */
+[data-theme="inbox"] {
+  color-scheme: light;
+
+  --background: #f0f2f5;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --secondary: #f0f2f5;
+  --muted: #f0f2f5;
+  --accent: #e9edef;
+  --border: #e9edef;
+  --input: #7c8b94;
+
+  --foreground: #111b21;
+  --card-foreground: #111b21;
+  --popover-foreground: #111b21;
+  --secondary-foreground: #111b21;
+  --accent-foreground: #111b21;
+  --muted-foreground: #62717a;
+
+  --primary: #008069;
+  --primary-foreground: #ffffff;
+  --brand: #008069;
+  --brand-foreground: #ffffff;
+  /* The outbound bubble. The ink stays dark: white on this plate is 1.2:1. */
+  --brand-soft: #d9fdd3;
+  --ring: #008069;
+
+  --destructive: #a11f05;
+
+  /* The read receipt, deepened from WhatsApp's #53BDEB — that blue is 1.5:1
+     on the pale green bubble, so the second tick would vanish; this is 3.2:1. */
+  --blue: #1c8fd6;
+  --blue-soft: #d6ecf7;
+  --lime: #1f9d55;
+  --lime-soft: #d9fdd3;
 }
 
 @theme inline {

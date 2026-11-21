@@ -1,9 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Loader2 } from "lucide-react";
+import {
+  CircleAlert,
+  FileText,
+  Loader2,
+  MapPin,
+  MousePointerClick,
+  UserRound,
+} from "lucide-react";
 
-import { ApiError, fetchMedia, type InboxMessage, type MediaLink } from "../api";
+import {
+  ApiError,
+  fetchMedia,
+  type InboxMessage,
+  type MediaLink,
+  type MessageKind,
+} from "../api";
 import { formatBytes } from "../format";
 
 /**
@@ -61,7 +74,21 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
     );
   }
 
-  if (message.kind === "IMAGE" || message.kind === "STICKER") {
+  if (message.kind === "STICKER") {
+    return (
+      <a href={link.url} target="_blank" rel="noreferrer" className="block">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={link.url}
+          alt={link.name ?? "Sticker"}
+          className="max-h-36 w-auto max-w-full"
+          loading="lazy"
+        />
+      </a>
+    );
+  }
+
+  if (message.kind === "IMAGE") {
     return (
       <a href={link.url} target="_blank" rel="noreferrer" className="block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -99,13 +126,60 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
     >
       <FileText aria-hidden="true" className="size-4 shrink-0" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] font-medium">
+        <span className="block truncate text-[12px] font-medium">
           {link.name ?? message.media?.name ?? "Document"}
         </span>
-        <span className="block text-[11px] text-muted-foreground">
+        <span className="block text-[10.5px] text-muted-foreground">
           {formatBytes(message.media?.size ?? null) || "Download"}
         </span>
       </span>
     </a>
+  );
+}
+
+/**
+ * The kinds that arrive with nothing to fetch.
+ *
+ * A location, a contact card or a button reply has no media row, and the bubble
+ * only rendered `MessageMedia` — so those messages showed up as empty bubbles.
+ * WhatsApp sends a poll as an interactive message too, which is why that case
+ * shares the label rather than pretending the poll is gone.
+ */
+const LABELS: Partial<
+  Record<MessageKind, { label: string; icon: React.ReactNode }>
+> = {
+  LOCATION: {
+    label: "Location",
+    icon: <MapPin aria-hidden="true" className="size-3.5 shrink-0" />,
+  },
+  CONTACTS: {
+    label: "Contact card",
+    icon: <UserRound aria-hidden="true" className="size-3.5 shrink-0" />,
+  },
+  BUTTON: {
+    label: "Button reply",
+    icon: <MousePointerClick aria-hidden="true" className="size-3.5 shrink-0" />,
+  },
+  INTERACTIVE: {
+    label: "Interactive reply",
+    icon: <MousePointerClick aria-hidden="true" className="size-3.5 shrink-0" />,
+  },
+  UNSUPPORTED: {
+    label: "This message type can't be shown here",
+    icon: <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />,
+  },
+};
+
+/** A one-line label for the kinds above, so none of them renders blank. */
+export function MessageLabel({ kind }: { kind: MessageKind }) {
+  const entry = LABELS[kind];
+
+  if (!entry) return null;
+
+  return (
+    <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+      {entry.icon}
+      {entry.label}
+    </p>
   );
 }

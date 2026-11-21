@@ -46,7 +46,7 @@ import {
   initials,
   windowCountdown,
 } from "../format";
-import { MessageMedia } from "./message-media";
+import { MessageLabel, MessageMedia } from "./message-media";
 
 type Entry =
   | { kind: "message"; at: string; message: InboxMessage }
@@ -177,29 +177,34 @@ export function MessageThread({
       {/* Two fixed rows: who you are talking to, then the two assignment
           controls. Pinned rather than wrapped — a header that re-flows as the
           resizer moves is what made this pane feel unstable — and sized to
-          the queue's 96px block so the hairline runs straight across the
-          divider. */}
-      <header className="shrink-0 border-b border-border bg-card">
-        <div className="flex h-14 min-w-0 items-center gap-2.5 pr-2 pl-3 sm:pl-4">
+          the queue's 100px block so the hairline runs straight across the
+          divider.
+
+          The band is the one place the green fills a surface. White labels on
+          #008069 are 4.9:1, so the name, the countdown and the two chip menus
+          all sit on it directly; the chips themselves stay white so their ink
+          never depends on what is behind them. */}
+      <header className="shrink-0 bg-brand text-brand-foreground">
+        <div className="flex h-14 min-w-0 items-center gap-2.5 pr-2 pl-2 sm:pl-3">
           <button
             type="button"
             aria-label="Back to conversations"
-            className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground xl:hidden"
+            className="grid size-8 shrink-0 place-items-center rounded-full outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/70 xl:hidden"
             onClick={onBack}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
           </button>
 
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white/20 text-[11.5px] font-semibold text-brand-foreground">
             {initials(conversation.contact.name, conversation.contact.waId)}
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13.5px] leading-tight font-semibold text-foreground">
+            <p className="truncate text-[13px] leading-tight font-semibold text-brand-foreground">
               {conversation.contact.name ??
                 displayPhone(conversation.contact.waId)}
             </p>
-            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
+            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-brand-foreground/75">
               {/* An unnamed contact already uses the number as the title, so
                   repeating it here would just say the same thing twice. */}
               {conversation.contact.name ? (
@@ -209,7 +214,7 @@ export function MessageThread({
                       conversation.contact.phone ?? conversation.contact.waId,
                     )}
                   </span>
-                  <span aria-hidden="true" className="shrink-0 text-border">
+                  <span aria-hidden="true" className="shrink-0 text-brand-foreground/40">
                     ·
                   </span>
                 </>
@@ -223,7 +228,7 @@ export function MessageThread({
               <button
                 type="button"
                 aria-label="Conversation actions"
-                className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-40"
+                className="grid size-9 shrink-0 place-items-center rounded-full text-brand-foreground/90 outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/70 disabled:opacity-40"
                 disabled={deleting}
               >
                 {deleting ? (
@@ -233,7 +238,7 @@ export function MessageThread({
                 )}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="w-64" data-theme="inbox">
               <DropdownMenuItem
                 className="text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg]:text-destructive"
                 onSelect={() => void remove()}
@@ -249,18 +254,18 @@ export function MessageThread({
           </DropdownMenu>
         </div>
 
-        <div className="flex min-w-0 items-center gap-1.5 px-3 pb-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-2 sm:px-3">
           <Field>
             <select
               aria-label="Conversation status"
               className={cn(
-                "h-8 min-w-0 appearance-none rounded-full border pr-7 pl-2.5 text-[11.5px] font-medium outline-none transition-colors",
-                "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-brand/10",
+                "h-9 min-w-0 appearance-none rounded-full border border-transparent bg-card pr-7 pl-3 text-[11px] font-medium outline-none transition-colors",
+                "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
                 conversation.status === "PENDING"
-                  ? "border-transparent bg-warning-soft text-warning"
+                  ? "text-warning"
                   : conversation.status === "CLOSED"
-                    ? "border-transparent bg-secondary text-muted-foreground"
-                    : "border-border bg-card text-foreground",
+                    ? "text-muted-foreground"
+                    : "text-foreground",
               )}
               value={conversation.status}
               onChange={(event) =>
@@ -277,11 +282,9 @@ export function MessageThread({
             <select
               aria-label="Assigned agent"
               className={cn(
-                "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border pr-7 pl-2.5 text-[11.5px] font-medium outline-none transition-colors sm:max-w-52",
-                "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-brand/10",
-                conversation.assignedTo
-                  ? "border-border bg-card text-foreground"
-                  : "border-transparent bg-secondary text-muted-foreground",
+                "h-9 max-w-40 min-w-0 appearance-none truncate rounded-full border border-transparent bg-card pr-7 pl-3 text-[11px] font-medium outline-none transition-colors sm:max-w-52",
+                "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
+                conversation.assignedTo ? "text-foreground" : "text-muted-foreground",
               )}
               value={conversation.assignedTo?.id ?? ""}
               onChange={(event) =>
@@ -313,8 +316,9 @@ export function MessageThread({
       >
         {/* A readable column inside the pane: at 1400px the thread is wider
             than any comfortable line length, and bubbles hugging opposite
-            edges turn into a tennis match. */}
-        <div className="mx-auto w-full max-w-[46rem] space-y-2">
+            edges turn into a tennis match. The cap widens once with the pane
+            so a 1920 window does not leave a gutter on both sides. */}
+        <div className="mx-auto w-full max-w-[46rem] space-y-2 2xl:max-w-[60rem]">
           {entries.length === 0 ? (
             <p className="py-10 text-center text-[13px] text-muted-foreground">
               Nothing in this thread yet.
@@ -332,7 +336,7 @@ export function MessageThread({
               >
                 {newDay ? (
                   <div className="flex justify-center py-2">
-                    <span className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[10.5px] font-medium text-muted-foreground shadow-xs">
+                    <span className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-xs">
                       {dayLabel(entry.at)}
                     </span>
                   </div>
@@ -361,10 +365,14 @@ function Bubble({ message }: { message: InboxMessage }) {
     <div className={cn("flex", outbound ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-xl px-3 py-2 text-[14px] shadow-xs sm:max-w-[75%]",
+          // WhatsApp draws the sender in green and the customer in white, with
+          // the ink staying dark on both — white type on #D9FDD3 is 1.2:1.
+          // The corner nearest the sender's edge is squarer, which reads as a
+          // tail without drawing an actual one.
+          "max-w-[85%] rounded-xl px-3 py-2 text-[13.5px] shadow-xs sm:max-w-[75%]",
           outbound
-            ? "rounded-br-md bg-brand text-brand-foreground"
-            : "rounded-bl-md border border-border bg-card text-foreground",
+            ? "rounded-br-sm bg-brand-soft text-foreground"
+            : "rounded-bl-sm bg-card text-foreground",
         )}
       >
         {message.media ? (
@@ -373,29 +381,23 @@ function Bubble({ message }: { message: InboxMessage }) {
           </div>
         ) : null}
 
+        {/* A location, a contact card or a button reply carries no file, so
+            without this line those bubbles were rendered empty. */}
+        <MessageLabel kind={message.kind} />
+
         {message.body ? (
-          <p className="break-words whitespace-pre-wrap leading-relaxed">
+          <p className="mt-0.5 break-words whitespace-pre-wrap leading-relaxed">
             {message.body}
           </p>
         ) : null}
 
         {message.errorReason ? (
-          <p
-            className={cn(
-              "mt-1 text-[12px]",
-              outbound ? "text-brand-foreground/90" : "text-destructive",
-            )}
-          >
+          <p className="mt-1 text-[11.5px] text-destructive">
             {message.errorReason}
           </p>
         ) : null}
 
-        <div
-          className={cn(
-            "mt-1 flex items-center justify-end gap-1 text-[10px]",
-            outbound ? "text-brand-foreground/70" : "text-muted-foreground",
-          )}
-        >
+        <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
           <time dateTime={message.createdAt}>{clockTime(message.createdAt)}</time>
           {outbound ? <Tick status={message.status} /> : null}
         </div>
@@ -404,17 +406,24 @@ function Bubble({ message }: { message: InboxMessage }) {
   );
 }
 
+/**
+ * The receipt. One tick is sent, two is delivered, two in blue is read — the
+ * order WhatsApp users already know, so it needs no label in normal use; the
+ * `aria-label` carries it for anyone who cannot see the colour.
+ */
 function Tick({ status }: { status: InboxMessage["status"] }) {
   if (status === "FAILED") {
-    return <CircleAlert aria-label="Not delivered" className="size-3" />;
+    return (
+      <CircleAlert aria-label="Not delivered" className="size-3.5 text-destructive" />
+    );
   }
 
   if (status === "QUEUED") {
-    return <Clock aria-label="Sending" className="size-3" />;
+    return <Clock aria-label="Sending" className="size-3.5" />;
   }
 
   if (status === "SENT") {
-    return <Check aria-label="Sent" className="size-3" />;
+    return <Check aria-label="Sent" className="size-3.5" />;
   }
 
   const read = status === "READ";
@@ -422,7 +431,7 @@ function Tick({ status }: { status: InboxMessage["status"] }) {
   return (
     <CheckCheck
       aria-label={read ? "Read" : "Delivered"}
-      className={cn("size-3", read && "text-blue-soft")}
+      className={cn("size-3.5", read && "text-blue")}
     />
   );
 }
@@ -438,7 +447,7 @@ function NoteCard({ note }: { note: InboxNote }) {
             · {note.author.name ?? "A teammate"}
           </span>
         </p>
-        <p className="mt-1 text-[12.5px] break-words whitespace-pre-wrap text-foreground">
+        <p className="mt-1 text-[12px] break-words whitespace-pre-wrap text-foreground">
           {note.body}
         </p>
         <p className="mt-1 text-right text-[10px] text-warning/80">
@@ -452,6 +461,9 @@ function NoteCard({ note }: { note: InboxNote }) {
 /**
  * The 24-hour reply window as a clock: `24:00:00` when the customer writes,
  * ticking to zero, after which only a note can be saved.
+ *
+ * It sits on the green band, so it is a translucent pill rather than bare
+ * text: the lime the app uses for "healthy" is unreadable on #008069.
  *
  * The tick is a counter rather than a timestamp, so the digits are still
  * derived during render by `windowCountdown` and no state has to be written
@@ -476,8 +488,8 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
           : "The 24-hour reply window has closed"
       }
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 font-medium tabular-nums",
-        left ? "text-lime" : "text-muted-foreground",
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-brand-foreground",
+        left ? "bg-white/20" : "bg-black/20",
       )}
       role="timer"
       title={
@@ -486,8 +498,8 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
           : "WhatsApp only allows a reply after the customer writes again."
       }
     >
-      <Clock aria-hidden="true" className="size-3" />
-      {left ?? "Window closed"}
+      <Clock aria-hidden="true" className="size-2.5" />
+      {left ?? "Closed"}
     </span>
   );
 }
@@ -507,7 +519,7 @@ function Field({ children }: { children: React.ReactNode }) {
       {children}
       <ChevronDown
         aria-hidden="true"
-        className="pointer-events-none absolute right-2 size-3 opacity-60"
+        className="pointer-events-none absolute right-2.5 size-3 text-muted-foreground opacity-70"
       />
     </span>
   );
