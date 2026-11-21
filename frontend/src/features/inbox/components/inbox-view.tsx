@@ -284,7 +284,7 @@ export function InboxView() {
 
   if (!booted) {
     return (
-      <div className="grid h-64 place-items-center">
+      <div className="grid h-[70dvh] min-h-[30rem] place-items-center rounded-xl border border-border bg-card">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
     );
@@ -317,15 +317,18 @@ export function InboxView() {
 
   return (
     <div
-      // One card for the whole screen: the shell leaves this box the space
-      // below the title, and only the two panes scroll inside it.
+      // One card for the whole screen. The height is the card's own now, not
+      // the parent's: the page above is a normal flow column, so an inherited
+      // `flex-1` would resolve to the content height and the `min-h-0` panes
+      // below it would lose their scroller. 70dvh keeps the two-pane layout
+      // roomy on a laptop while leaving the page scrollable.
       //
       // `data-theme="inbox"` is what makes this card read as WhatsApp rather
       // than as the rest of the app: the scope in `globals.css` swaps the warm
       // roles for white, chat grey and green, and it stops at the card's edge,
       // so the sidebar behind it keeps the teal palette.
       data-theme="inbox"
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card"
+      className="flex h-[70dvh] min-h-[30rem] flex-col overflow-hidden rounded-xl border border-border bg-card"
       style={{ "--inbox-list": `${listWidth}px` } as React.CSSProperties}
     >
       {/* The channel and the counts used to float above the card as a loose

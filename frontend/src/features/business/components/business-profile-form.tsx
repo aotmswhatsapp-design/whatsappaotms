@@ -13,9 +13,17 @@ import {
   type BusinessProfileInput,
 } from "./api";
 
-/** The four stored fields, in the order the form shows them. */
+/**
+ * The four stored fields, in the order the form shows them.
+ *
+ * `kind` separates the timezone, which is not free text: a typo here shifts
+ * every scheduled send by a silent number of hours, and nothing downstream can
+ * tell that "Asia/Kolkatta" was meant. The select is built from the browser's
+ * own list of the zones it can actually resolve.
+ */
 const FIELDS = [
   {
+    kind: "text",
     name: "companyName",
     label: "Company name",
     placeholder: "Your company",
@@ -23,6 +31,7 @@ const FIELDS = [
     hint: "Printed on invoices and internal screens.",
   },
   {
+    kind: "text",
     name: "website",
     label: "Website",
     placeholder: "https://example.com",
@@ -30,13 +39,12 @@ const FIELDS = [
     hint: "Full address, including https://.",
   },
   {
+    kind: "timezone",
     name: "timezone",
     label: "Timezone",
-    placeholder: "Asia/Kolkata",
-    maxLength: 64,
-    hint: "IANA name, not an offset: scheduled sends follow it through daylight saving.",
   },
   {
+    kind: "text",
     name: "supportNumber",
     label: "Support number",
     placeholder: "+91 90000 12345",
@@ -149,26 +157,43 @@ export function BusinessProfileForm({ accountEmail }: { accountEmail: string }) 
           </span>
         </label>
 
-        {FIELDS.map((field) => (
-          <label key={field.name} className="block">
-            <span className="text-xs font-medium text-muted-foreground">
-              {field.label}
-            </span>
-            <input
-              className="mt-1.5 h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/30"
-              disabled={loading}
-              maxLength={field.maxLength}
-              name={field.name}
-              onChange={(event) => change(field.name, event.target.value)}
-              placeholder={field.placeholder}
-              type="text"
-              value={form[field.name]}
-            />
-            <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-              {field.hint}
-            </span>
-          </label>
-        ))}
+        {FIELDS.map((field) =>
+          field.kind === "timezone" ? (
+            <label key={field.name} className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                {field.label}
+              </span>
+              <TimezoneSelect
+                disabled={loading}
+                onChange={(next) => change(field.name, next)}
+                value={form.timezone}
+              />
+              <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                The IANA id, with the offset it is on right now. Scheduled
+                sends follow it through daylight saving.
+              </span>
+            </label>
+          ) : (
+            <label key={field.name} className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                {field.label}
+              </span>
+              <input
+                className="mt-1.5 h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                disabled={loading}
+                maxLength={field.maxLength}
+                name={field.name}
+                onChange={(event) => change(field.name, event.target.value)}
+                placeholder={field.placeholder}
+                type="text"
+                value={form[field.name]}
+              />
+              <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                {field.hint}
+              </span>
+            </label>
+          ),
+        )}
       </div>
 
       {loadError ? (
@@ -202,6 +227,182 @@ export function BusinessProfileForm({ accountEmail }: { accountEmail: string }) 
       </div>
     </form>
   );
+}
+
+/**
+ * Used only by engines that lack `Intl.supportedValuesOf`. Deliberately short:
+ * the point is that a customer on an old browser still gets a working select,
+ * not that this list is complete.
+ */
+const FALLBACK_ZONES = [
+  "Asia/Kolkata",
+  "Asia/Dubai",
+  "Asia/Riyadh",
+  "Asia/Karachi",
+  "Asia/Dhaka",
+  "Asia/Kathmandu",
+  "Asia/Colombo",
+  "Asia/Singapore",
+  "Asia/Hong_Kong",
+  "Asia/Shanghai",
+  "Asia/Taipei",
+  "Asia/Tokyo",
+  "Asia/Seoul",
+  "Asia/Jakarta",
+  "Asia/Manila",
+  "Asia/Bangkok",
+  "Asia/Ho_Chi_Minh",
+  "Asia/Jerusalem",
+  "Europe/Istanbul",
+  "Europe/London",
+  "Europe/Dublin",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Madrid",
+  "Europe/Rome",
+  "Europe/Amsterdam",
+  "Europe/Brussels",
+  "Europe/Zurich",
+  "Europe/Stockholm",
+  "Europe/Warsaw",
+  "Europe/Moscow",
+  "Africa/Cairo",
+  "Africa/Lagos",
+  "Africa/Nairobi",
+  "Africa/Johannesburg",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Toronto",
+  "America/Mexico_City",
+  "America/Bogota",
+  "America/Sao_Paulo",
+  "Australia/Sydney",
+  "Australia/Perth",
+  "Pacific/Auckland",
+];
+
+/** Built once per page: ~400 zones is not something to re-render per keystroke. */
+let cachedZoneRows: { value: string; label: string }[] | null = null;
+
+/**
+ * Every zone this browser can resolve, labelled `Asia/Kolkata — GMT+5:30` so
+ * the id and what it currently means are both on screen. A stored value the
+ * browser's list omits is kept at the top rather than dropped: a select whose
+ * value is not among its options renders blank and would silently post that.
+ */
+function zoneRows(stored: string): { value: string; label: string }[] {
+  const rows = (cachedZoneRows ??= buildZoneRows());
+
+  if (!stored || rows.some((row) => row.value === stored)) return rows;
+
+  // `supportedValuesOf` returns canonical ids only, so a perfectly valid alias
+  // like `Asia/Kolkata` (`Asia/Calcutta` is the canonical one) is missing from
+  // it. Resolving the stored value is what separates an alias, which just needs
+  // its offset, from a value no engine has ever heard of.
+  const offset = offsetOf(stored);
+
+  return [
+    {
+      value: stored,
+      label: offset
+        ? `${stored} — ${offset}`
+        : `${stored} — not a timezone this browser knows`,
+    },
+    ...rows,
+  ];
+}
+
+function buildZoneRows(): { value: string; label: string }[] {
+  const ids = readZoneIds();
+
+  return ids.map((zone) => {
+    const offset = offsetOf(zone);
+    return { value: zone, label: offset ? `${zone} — ${offset}` : zone };
+  });
+}
+
+/**
+ * The list is built after hydration, never during render.
+ *
+ * Two reasons, both observed: the offset labels come from the runtime's own
+ * ICU data (Node writes `GMT`, the browser writes `GMT+0`, so the option text
+ * hydrates mismatched), and reading `new Date()` in a client component that is
+ * also prerendered trips Next's unstable-value check under `cacheComponents`.
+ * Until the list exists the field holds just the stored value, so the control
+ * is never blank.
+ */
+function TimezoneSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (next: string) => void;
+}) {
+  const [rows, setRows] = React.useState<
+    { value: string; label: string }[] | null
+  >(null);
+
+  React.useEffect(() => {
+    let active = true;
+
+    // Deferred a turn so it is not a synchronous cascading update from an
+    // effect; `zoneRows` remembers its base list, so only the merge is redone.
+    Promise.resolve().then(() => {
+      if (active) setRows(zoneRows(value));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [value]);
+
+  const options = rows ?? [{ value, label: value }];
+
+  return (
+    <select
+      className="mt-1.5 h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/30"
+      disabled={disabled}
+      name="timezone"
+      onChange={(event) => onChange(event.target.value)}
+      value={value}
+    >
+      {options.map((row) => (
+        <option key={row.value} value={row.value}>
+          {row.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function readZoneIds(): string[] {
+  // Typed by hand because `Intl.supportedValuesOf` is newer than the lib this
+  // project compiles against; the optional call is what makes it safe anyway.
+  const supported = (
+    Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] }
+  ).supportedValuesOf?.("timeZone");
+
+  const zones = supported && supported.length > 0 ? supported : FALLBACK_ZONES;
+
+  // The spec leaves UTC out of that list even though every browser resolves it.
+  return zones.includes("UTC") ? zones : ["UTC", ...zones];
+}
+
+function offsetOf(zone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      timeZoneName: "shortOffset",
+    }).formatToParts(new Date());
+
+    return parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function toInput(profile: BusinessProfile): BusinessProfileInput {

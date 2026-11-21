@@ -4,6 +4,8 @@ import {
   Delete,
   Get,
   HttpCode,
+  Param,
+  Patch,
   Post,
   UseGuards,
 } from "@nestjs/common";
@@ -13,6 +15,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
+import { CreateQrCodeDto, UpdateQrCodeDto } from "./dto/qr-code.dto";
 import { WhatsAppService } from "./whatsapp.service";
 
 @Controller("v1/whatsapp")
@@ -63,6 +66,44 @@ export class WhatsAppController {
   @HttpCode(200)
   rotateVerifyToken(@CurrentUser() claims: AuthClaims) {
     return this.whatsapp.rotateVerifyToken(claims);
+  }
+
+  /**
+   * QR codes and short links, all four operations on Meta's `message_qrdls`
+   * edge. Throttled like `connect`: every one of these is a Graph request, and
+   * a scan or a poster is the only way to learn anything from them afterwards —
+   * Meta reports no scan statistics.
+   */
+  @Get("qr-codes")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  qrCodes(@CurrentUser() claims: AuthClaims) {
+    return this.whatsapp.qrCodes(claims);
+  }
+
+  @Post("qr-codes")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  createQrCode(
+    @CurrentUser() claims: AuthClaims,
+    @Body() dto: CreateQrCodeDto,
+  ) {
+    return this.whatsapp.createQrCode(claims, dto);
+  }
+
+  /** PATCH, not PUT: the prefilled message is the only field being replaced. */
+  @Patch("qr-codes/:code")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  updateQrCode(
+    @CurrentUser() claims: AuthClaims,
+    @Param("code") code: string,
+    @Body() dto: UpdateQrCodeDto,
+  ) {
+    return this.whatsapp.updateQrCode(claims, code, dto);
+  }
+
+  @Delete("qr-codes/:code")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  deleteQrCode(@CurrentUser() claims: AuthClaims, @Param("code") code: string) {
+    return this.whatsapp.removeQrCode(claims, code);
   }
 
   /**

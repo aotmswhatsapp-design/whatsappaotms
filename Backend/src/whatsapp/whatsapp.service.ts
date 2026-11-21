@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 
-import { Injectable } from "@nestjs/common";
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Prisma } from "@prisma/client";
 
@@ -9,6 +13,7 @@ import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
+import type { CreateQrCodeDto, UpdateQrCodeDto } from "./dto/qr-code.dto";
 import {
   MetaGraph,
   MetaRequestError,
@@ -16,6 +21,7 @@ import {
   type BusinessDetails,
   type BusinessProfileDetails,
   type PhoneNumberDetails,
+  type QrCodeDetails,
 } from "./meta-graph";
 
 export type CheckKey =
@@ -137,6 +143,30 @@ export interface BusinessProfilePayload {
   problem: string | null;
   profile: BusinessProfileFacts | null;
 }
+
+/** One QR code or short link, flattened to what a screen can render. */
+export interface QrCodeFacts {
+  code: string;
+  prefilledMessage: string;
+  /** `https://wa.me/message/{code}` — what goes on a poster or a bio. */
+  shortLink: string;
+  /** Meta's CDN rendering. Null on an update reply, which omits it. */
+  imageUrl: string | null;
+}
+
+export interface QrCodeListPayload {
+  /** False means no number is stored, so the page asks for a connection. */
+  connected: boolean;
+  /** Meta's ceiling per number, so the page can state a denominator. */
+  limit: number;
+  codes: QrCodeFacts[];
+}
+
+/**
+ * Meta's documented ceiling per business phone number. Repeated here so the
+ * page can say "3 of 2,000" instead of inventing its own limit.
+ */
+const QR_LIMIT = 2_000;
 
 /** The five inputs, in the order the form asks for them. */
 const FORM_ORDER: CheckKey[] = [
@@ -506,6 +536,151 @@ export class WhatsAppService {
     }
   }
 
+  /**
+   * The number's QR codes and short links. An unconnected workspace gets an
+   * empty list rather than an exception, because "connect a number" is a valid
+   * state for this screen; a Graph failure is thrown, because a list that
+   * silently reads empty would look like the codes were deleted.
+   */
+  async qrCodes(claims: AuthClaims): Promise<QrCodeListPayload> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.whatsAppAccount.findUnique({
+      where: { workspaceId },
+      select: PROFILE_SELECT,
+    });
+
+    if (!row) return { connected: false, limit: QR_LIMIT, codes: [] };
+
+    const token = this.openOrNull(row.accessTokenCipher);
+
+    if (!token) throw new BadRequestException(UNREADABLE_SECRET);
+
+    try {
+      const codes = await this.meta.listQrCodes(
+        row.graphVersion,
+        row.phoneNumberId,
+        token,
+      );
+
+      return { connected: true, limit: QR_LIMIT, codes: codes.map(qrFrom) };
+    } catch (error) {
+      throw this.graphFailure(error, row.graphVersion, row.phoneNumberId);
+    }
+  }
+
+  async createQrCode(
+    claims: AuthClaims,
+    input: CreateQrCodeDto,
+  ): Promise<{ code: QrCodeFacts }> {
+    const target = await this.graphTarget(claims);
+
+    try {
+      const created = await this.meta.createQrCode(
+        target.version,
+        target.phoneNumberId,
+        target.token,
+        { message: input.prefilledMessage, format: input.format ?? "SVG" },
+      );
+
+      return { code: qrFrom(created) };
+    } catch (error) {
+      throw this.graphFailure(error, target.version, target.phoneNumberId);
+    }
+  }
+
+  /**
+   * Changes the prefilled message only. Meta answers without `qr_image_url`, so
+   * the returned facts carry a null image and the client keeps the one it has;
+   * the printed code itself is unchanged by an edit.
+   */
+  async updateQrCode(
+    claims: AuthClaims,
+    code: string,
+    input: UpdateQrCodeDto,
+  ): Promise<{ code: QrCodeFacts }> {
+    const target = await this.graphTarget(claims);
+
+    try {
+      const updated = await this.meta.updateQrCode(
+        target.version,
+        target.phoneNumberId,
+        target.token,
+        code,
+        input.prefilledMessage,
+      );
+
+      return { code: qrFrom(updated) };
+    } catch (error) {
+      throw this.graphFailure(error, target.version, target.phoneNumberId);
+    }
+  }
+
+  /** Retires a code for good: anyone scanning it afterwards sees "expired". */
+  async removeQrCode(
+    claims: AuthClaims,
+    code: string,
+  ): Promise<{ removed: boolean }> {
+    const target = await this.graphTarget(claims);
+
+    try {
+      await this.meta.deleteQrCode(
+        target.version,
+        target.phoneNumberId,
+        target.token,
+        code,
+      );
+
+      return { removed: true };
+    } catch (error) {
+      throw this.graphFailure(error, target.version, target.phoneNumberId);
+    }
+  }
+
+  /**
+   * The three values a Graph call needs. Throwing here — rather than returning
+   * a verdict — is right for the write paths: a mutation that could not be
+   * attempted must not answer 200.
+   */
+  private async graphTarget(
+    claims: AuthClaims,
+  ): Promise<{ version: string; phoneNumberId: string; token: string }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.whatsAppAccount.findUnique({
+      where: { workspaceId },
+      select: PROFILE_SELECT,
+    });
+
+    if (!row) {
+      throw new BadRequestException(
+        "Connect a WhatsApp number before creating QR codes or short links.",
+      );
+    }
+
+    const token = this.openOrNull(row.accessTokenCipher);
+
+    if (!token) throw new BadRequestException(UNREADABLE_SECRET);
+
+    return {
+      version: row.graphVersion,
+      phoneNumberId: row.phoneNumberId,
+      token,
+    };
+  }
+
+  /**
+   * A Graph refusal becomes 502 with Meta's own sentence: the credentials are
+   * valid enough to have been routed, so the caller is not blamed for them.
+   */
+  private graphFailure(
+    error: unknown,
+    version: string,
+    node: string,
+  ): BadGatewayException {
+    return new BadGatewayException(blame(error, version, node).detail);
+  }
+
   async disconnect(claims: AuthClaims): Promise<{ removed: boolean }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
@@ -752,6 +927,22 @@ function profileFrom(
     websites: (live?.websites ?? []).map((site) => site.trim()).filter(Boolean),
     vertical: live?.vertical?.trim() || null,
     pictureUrl: live?.profile_picture_url?.trim() || null,
+  };
+}
+
+/**
+ * Meta's short link is `https://wa.me/message/{code}`. It is rebuilt from the
+ * code when the reply omits it, because the code is the one part every reply
+ * carries and the pattern is fixed rather than customer-specific.
+ */
+function qrFrom(details: QrCodeDetails): QrCodeFacts {
+  const code = details.code.trim();
+
+  return {
+    code,
+    prefilledMessage: details.prefilled_message?.trim() ?? "",
+    shortLink: details.deep_link_url?.trim() || `https://wa.me/message/${code}`,
+    imageUrl: details.qr_image_url?.trim() || null,
   };
 }
 

@@ -91,6 +91,22 @@ export interface BusinessProfileDetails {
   messaging_product?: string;
 }
 
+/** The two formats Meta renders. SVG is the one to put on printed matter. */
+export type QrImageFormat = "SVG" | "PNG";
+
+/**
+ * One entry on the phone number's `message_qrdls` edge. `code` is the short
+ * link's identifier, `deep_link_url` is what goes on a poster and
+ * `qr_image_url` is Meta's rendered image on their CDN — it is not ours, so it
+ * can move or expire and the list is the only place that knows the current one.
+ */
+export interface QrCodeDetails {
+  code: string;
+  prefilled_message?: string;
+  deep_link_url?: string;
+  qr_image_url?: string;
+}
+
 /**
  * The only place that knows Meta's wire format.
  *
@@ -160,6 +176,100 @@ export class MetaGraph {
     return payload.data?.[0] ?? {};
   }
 
+  /**
+   * Every QR code and short link on the number. Also answers `{ data: [] }` for
+   * a number that has none, which is an empty screen rather than an error.
+   *
+   * `qr_image_url` is asked for explicitly because without it the page can list
+   * links but cannot show the code. A version that does not expose it on this
+   * edge answers code 100; the retry without `fields` still returns a usable
+   * list, so one missing field never costs the whole screen.
+   */
+  async listQrCodes(
+    version: string,
+    phoneNumberId: string,
+    token: string,
+  ): Promise<QrCodeDetails[]> {
+    const url = this.urlOf(version, [phoneNumberId, "message_qrdls"]);
+    const asked = new URL(url);
+    asked.searchParams.set(
+      "fields",
+      "code,prefilled_message,deep_link_url,qr_image_url",
+    );
+
+    try {
+      const payload = await this.send<{ data?: QrCodeDetails[] }>(asked, {
+        method: "GET",
+        token,
+      });
+
+      return payload.data ?? [];
+    } catch (error) {
+      if (!(error instanceof MetaRequestError) || error.code !== 100) throw error;
+
+      const payload = await this.send<{ data?: QrCodeDetails[] }>(url, {
+        method: "GET",
+        token,
+      });
+
+      return payload.data ?? [];
+    }
+  }
+
+  /**
+   * Creating puts the message and the format in the body and answers with the
+   * new code plus, when the format was asked for, the rendered image.
+   */
+  createQrCode(
+    version: string,
+    phoneNumberId: string,
+    token: string,
+    input: { message: string; format: QrImageFormat },
+  ): Promise<QrCodeDetails> {
+    return this.send<QrCodeDetails>(
+      this.urlOf(version, [phoneNumberId, "message_qrdls"]),
+      {
+        method: "POST",
+        token,
+        body: {
+          prefilled_message: input.message,
+          generate_qr_image: input.format,
+        },
+      },
+    );
+  }
+
+  /**
+   * Updating is a POST to the same edge with the code in the body — Meta does
+   * not take a PATCH on the code's own path. `qr_image_url` is absent from the
+   * reply, so callers re-list rather than assuming the image changed.
+   */
+  updateQrCode(
+    version: string,
+    phoneNumberId: string,
+    token: string,
+    code: string,
+    message: string,
+  ): Promise<QrCodeDetails> {
+    return this.send<QrCodeDetails>(
+      this.urlOf(version, [phoneNumberId, "message_qrdls"]),
+      { method: "POST", token, body: { code, prefilled_message: message } },
+    );
+  }
+
+  /** Answers `{ success: true }`; the caller only cares that it did not throw. */
+  async deleteQrCode(
+    version: string,
+    phoneNumberId: string,
+    token: string,
+    code: string,
+  ): Promise<void> {
+    await this.send<{ success?: boolean }>(
+      this.urlOf(version, [phoneNumberId, "message_qrdls", code]),
+      { method: "DELETE", token },
+    );
+  }
+
   private get<T>(
     version: string,
     node: string,
@@ -180,20 +290,31 @@ export class MetaGraph {
     fields: string,
     token: string,
   ): Promise<T> {
-    const url = new URL(
-      [this.base, encodeURIComponent(version), ...path.map(encodeURIComponent)].join("/"),
-    );
+    const url = this.urlOf(version, path);
     url.searchParams.set("fields", fields);
 
     return this.send<T>(url, { method: "GET", token });
   }
 
+  private urlOf(version: string, path: string[]): URL {
+    return new URL(
+      [this.base, encodeURIComponent(version), ...path.map(encodeURIComponent)].join("/"),
+    );
+  }
+
   private async send<T>(
     url: URL,
-    init: { method: "GET" | "POST"; token?: string },
+    init: {
+      method: "GET" | "POST" | "DELETE";
+      token?: string;
+      body?: unknown;
+    },
   ): Promise<T> {
     const headers: Record<string, string> = { accept: "application/json" };
     if (init.token) headers.authorization = `Bearer ${init.token}`;
+    if (init.body !== undefined) {
+      headers["content-type"] = "application/json";
+    }
 
     let response: Response;
 
@@ -201,6 +322,7 @@ export class MetaGraph {
       response = await fetch(url, {
         method: init.method,
         headers,
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
         signal: AbortSignal.timeout(TIMEOUT_MS),
         // Node's fetch has no HTTP cache, so every verification reaches Meta.
       });

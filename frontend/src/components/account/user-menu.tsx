@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { CircleUserRound, LogOut } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -90,9 +90,9 @@ export function UserMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/workspace">
-            <LayoutDashboard />
-            Workspace
+          <Link href="/workspace/profile">
+            <CircleUserRound />
+            Profile
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
