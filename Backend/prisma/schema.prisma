@@ -214,6 +214,9 @@ enum MessageKind {
   CONTACTS
   BUTTON
   INTERACTIVE
+  /// A message sent from an approved template. `body` holds it as the customer
+  /// reads it, with Meta's variables already filled in.
+  TEMPLATE
   UNSUPPORTED
 }
 
@@ -302,6 +305,12 @@ model Message {
   mediaSize      Int?             @map("media_size")
   mediaSha256    String?          @map("media_sha256")
   mediaPath      String?          @map("media_path")
+  /// Set on a `TEMPLATE` row: which Meta template produced the bubble.
+  templateName     String?        @map("template_name")
+  templateLanguage String?        @map("template_language")
+  /// The `tap_target_configuration` override that was sent, kept verbatim so
+  /// the thread can say what a customer's link opened.
+  tapTarget      Json?            @map("tap_target")
   errorReason    String?          @map("error_reason")
   sentAt         DateTime?        @map("sent_at")
   deliveredAt    DateTime?        @map("delivered_at")

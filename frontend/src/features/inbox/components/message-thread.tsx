@@ -9,6 +9,7 @@ import {
   CircleAlert,
   Clock,
   Inbox,
+  LayoutTemplate,
   Loader2,
   MoreHorizontal,
   StickyNote,
@@ -459,6 +460,20 @@ function Bubble({ message }: { message: InboxMessage }) {
         {/* A location, a contact card or a button reply carries no file, so
             without this line those bubbles were rendered empty. */}
         <MessageLabel kind={message.kind} />
+
+        {/* A template send says which template produced it, and — when the
+            override was used — what the whole bubble opened. */}
+        {message.template ? (
+          <p className="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-medium text-muted-foreground">
+            <LayoutTemplate aria-hidden="true" className="size-3 shrink-0" />
+            <span>Template · {message.template.name}</span>
+            {message.template.tapTarget ? (
+              <span className="text-muted-foreground/80">
+                · tap opens “{message.template.tapTarget.title}”
+              </span>
+            ) : null}
+          </p>
+        ) : null}
 
         {message.body ? (
           <p className="mt-0.5 break-words whitespace-pre-wrap leading-relaxed">

@@ -15,6 +15,7 @@ export type MessageKind =
   | "CONTACTS"
   | "BUTTON"
   | "INTERACTIVE"
+  | "TEMPLATE"
   | "UNSUPPORTED";
 export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
 
@@ -64,6 +65,12 @@ export interface InboxMessage {
   deliveredAt: string | null;
   readAt: string | null;
   errorReason: string | null;
+  /** Set on a template send; null on everything else. */
+  template: {
+    name: string;
+    language: string;
+    tapTarget: { url: string; title: string } | null;
+  } | null;
   media: {
     mime: string | null;
     name: string | null;
@@ -160,6 +167,47 @@ export function sendMedia(
 export function fetchMedia(messageId: string): Promise<MediaLink> {
   return request<MediaLink>(`/v1/inbox/messages/${messageId}/media`, {
     method: "GET",
+  });
+}
+
+/**
+ * What the composer needs from a template. The templates screen owns the full
+ * row; this is the slice a send reads, declared here so the inbox does not
+ * reach into another feature's module.
+ */
+export interface SendableTemplate {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  parameterFormat: "NAMED" | "POSITIONAL";
+  status: string;
+  components: unknown;
+}
+
+export function fetchSendableTemplates(): Promise<{
+  connected: boolean;
+  templates: SendableTemplate[];
+}> {
+  return request("/v1/templates", { method: "GET" });
+}
+
+export interface TemplateSendInput {
+  templateId: string;
+  /** Token without braces (`1`, `first_name`) → the value to fill in. */
+  variables: Record<string, string>;
+  /** Button index → the full address that URL button opens. */
+  buttonUrls: Record<string, string>;
+  tapTarget?: { url: string; title: string };
+}
+
+export function sendTemplate(
+  conversationId: string,
+  input: TemplateSendInput,
+): Promise<{ message: InboxMessage }> {
+  return request(`/v1/inbox/conversations/${conversationId}/templates`, {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 

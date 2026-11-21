@@ -23,6 +23,7 @@ import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { CreateNoteDto } from "./dto/create-note.dto";
 import { ListConversationsDto } from "./dto/list-conversations.dto";
 import { SendMediaDto } from "./dto/send-media.dto";
+import { SendTemplateDto } from "./dto/send-template.dto";
 import { SendTextDto } from "./dto/send-text.dto";
 import { UpdateConversationDto } from "./dto/update-conversation.dto";
 import { MAX_MEDIA_BYTES, type UploadedMedia } from "./inbox.sender";
@@ -106,6 +107,24 @@ export class InboxController {
     }
 
     return this.inbox.sendMedia(claims, id, file, dto.caption ?? null);
+  }
+
+  /**
+   * POST /api/v1/inbox/conversations/:id/templates — an approved template.
+   *
+   * Deliberately not gated on the 24-hour window: a template is the message
+   * Meta lets a business use to reopen a conversation. The service refuses an
+   * unapproved template, and Meta answers with its own sentence when the
+   * payload is wrong.
+   */
+  @Post("conversations/:id/templates")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  sendTemplate(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SendTemplateDto,
+  ) {
+    return this.inbox.sendTemplate(claims, id, dto);
   }
 
   /** GET /api/v1/inbox/messages/:id/media — a 5-minute signed download URL. */

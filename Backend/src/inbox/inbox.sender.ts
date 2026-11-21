@@ -7,7 +7,7 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from "@nestjs/common";
-import type { MessageKind } from "@prisma/client";
+import type { MessageKind, Prisma } from "@prisma/client";
 
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
@@ -100,6 +100,71 @@ export class InboxSender {
       });
 
       await this.bump(input.conversationId, sentAt, previewOf(input.body, "Message"));
+
+      return messageView(saved);
+    } catch (error) {
+      await this.markFailed(row.id, error);
+      throw toHttp(error);
+    }
+  }
+
+  /**
+   * A template message. The row is written before Meta is called for the same
+   * reason as a text reply: a crash still leaves evidence of what was tried.
+   *
+   * `body` is the message as the customer reads it, so the bubble and the
+   * queue preview need no template rendering of their own.
+   */
+  async template(
+    input: SendTarget & {
+      name: string;
+      language: string;
+      components: unknown[];
+      body: string;
+      tapTarget: { url: string; title: string } | null;
+    },
+  ): Promise<MessageView> {
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: "TEMPLATE",
+        status: "QUEUED",
+        body: input.body,
+        templateName: input.name,
+        templateLanguage: input.language,
+        ...(input.tapTarget
+          ? { tapTarget: input.tapTarget as Prisma.InputJsonValue }
+          : {}),
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid = await this.graph.sendTemplate({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        to: input.waId,
+        name: input.name,
+        language: input.language,
+        components: input.components,
+      });
+
+      const sentAt = new Date();
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt },
+        select: MESSAGE_SELECT,
+      });
+
+      await this.bump(
+        input.conversationId,
+        sentAt,
+        previewOf(input.body, `Template · ${input.name}`),
+      );
 
       return messageView(saved);
     } catch (error) {

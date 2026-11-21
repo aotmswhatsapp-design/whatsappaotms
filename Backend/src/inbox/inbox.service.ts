@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateNoteDto } from "./dto/create-note.dto";
 import type { ListConversationsDto } from "./dto/list-conversations.dto";
+import type { SendTemplateDto } from "./dto/send-template.dto";
 import type { UpdateConversationDto } from "./dto/update-conversation.dto";
 import {
   InboxSender,
@@ -32,6 +33,7 @@ import {
   type NoteView,
 } from "./inbox.view";
 import { MediaStorage } from "./media.storage";
+import { buildMessage, problemsIn, shapeOf } from "./template-send";
 
 const SEND_ACCOUNT_SELECT = {
   phoneNumberId: true,
@@ -275,6 +277,81 @@ export class InboxService {
     return this.sender.attachment({ workspaceId, messageId });
   }
 
+  /**
+   * A template send.
+   *
+   * Two rules are enforced here and nowhere else: the template has to be
+   * approved by Meta, and the variables have to cover what the approved text
+   * asks for. The 24-hour window is deliberately absent — a template is the
+   * one message WhatsApp lets a business start with.
+   */
+  async sendTemplate(
+    claims: AuthClaims,
+    id: string,
+    dto: SendTemplateDto,
+  ): Promise<{ message: MessageView }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const template = await this.prisma.messageTemplate.findFirst({
+      where: { id: dto.templateId, workspaceId },
+      select: {
+        name: true,
+        language: true,
+        status: true,
+        parameterFormat: true,
+        components: true,
+      },
+    });
+
+    if (!template) {
+      throw new NotFoundException("That template does not exist.");
+    }
+
+    if (template.status !== "APPROVED") {
+      throw new ConflictException({
+        code: "TEMPLATE_NOT_APPROVED",
+        message: `“${template.name}” is ${statusWords(template.status)}. Meta has to approve a template before it can be sent.`,
+      });
+    }
+
+    const input = {
+      shape: shapeOf(template.components),
+      format: template.parameterFormat,
+      values: dto.variables ?? {},
+      buttonUrls: dto.buttonUrls ?? {},
+      tapTarget: dto.tapTarget ?? null,
+    };
+
+    const problems = problemsIn(input);
+
+    if (problems.length > 0) {
+      throw new BadRequestException({
+        code: "TEMPLATE_VARIABLES_INVALID",
+        message: problems,
+      });
+    }
+
+    const built = buildMessage(input);
+    const { conversationId, waId, account } = await this.forTemplateSending(
+      workspaceId,
+      id,
+    );
+
+    return {
+      message: await this.sender.template({
+        workspaceId,
+        conversationId,
+        waId,
+        account,
+        name: template.name,
+        language: template.language,
+        components: built.components,
+        body: built.body,
+        tapTarget: built.tapTarget,
+      }),
+    };
+  }
+
   async update(
     claims: AuthClaims,
     id: string,
@@ -397,6 +474,43 @@ export class InboxService {
     waId: string;
     account: AccountCredentials;
   }> {
+    const target = await this.sendTarget(workspaceId, id);
+
+    if (!target.windowOpen) {
+      throw new ConflictException({
+        code: "WINDOW_CLOSED",
+        message: WINDOW_CLOSED_MESSAGE,
+      });
+    }
+
+    return target;
+  }
+
+  /**
+   * The same target, minus the window. A template is exactly the message a
+   * business is allowed to send after 24 quiet hours, so checking the window
+   * here would refuse the feature's only purpose.
+   */
+  private async forTemplateSending(
+    workspaceId: string,
+    id: string,
+  ): Promise<{
+    conversationId: string;
+    waId: string;
+    account: AccountCredentials;
+  }> {
+    return this.sendTarget(workspaceId, id);
+  }
+
+  private async sendTarget(
+    workspaceId: string,
+    id: string,
+  ): Promise<{
+    conversationId: string;
+    waId: string;
+    account: AccountCredentials;
+    windowOpen: boolean;
+  }> {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id, workspaceId },
       select: {
@@ -408,13 +522,6 @@ export class InboxService {
 
     if (!conversation) {
       throw new NotFoundException("That conversation does not exist.");
-    }
-
-    if (!windowOpen(conversation.lastInboundAt)) {
-      throw new ConflictException({
-        code: "WINDOW_CLOSED",
-        message: WINDOW_CLOSED_MESSAGE,
-      });
     }
 
     const account = await this.prisma.whatsAppAccount.findUnique({
@@ -433,6 +540,7 @@ export class InboxService {
       conversationId: conversation.id,
       waId: conversation.contact.waId,
       account,
+      windowOpen: windowOpen(conversation.lastInboundAt),
     };
   }
 
@@ -457,4 +565,20 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value,
   );
+}
+
+/** Meta's review states in the sentence a sender can act on. */
+const STATUS_WORDS: Record<string, string> = {
+  PENDING: "still in review",
+  REJECTED: "rejected",
+  PAUSED: "paused",
+  DISABLED: "disabled",
+  FLAGGED: "flagged",
+  PENDING_DELETION: "pending deletion",
+  DELETED: "deleted",
+  IN_APPEAL: "in appeal",
+};
+
+function statusWords(status: string): string {
+  return STATUS_WORDS[status] ?? status.toLowerCase().replace(/_/g, " ");
 }

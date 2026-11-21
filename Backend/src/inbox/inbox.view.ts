@@ -47,6 +47,9 @@ export const MESSAGE_SELECT = {
   kind: true,
   status: true,
   body: true,
+  templateName: true,
+  templateLanguage: true,
+  tapTarget: true,
   mediaId: true,
   mediaMime: true,
   mediaName: true,
@@ -107,6 +110,16 @@ export interface MessageView {
   deliveredAt: string | null;
   readAt: string | null;
   errorReason: string | null;
+  /**
+   * Set on a template send. `name` is the approved template, and `tapTarget`
+   * is the override that was sent, if any — the thread says what a customer's
+   * link opened.
+   */
+  template: {
+    name: string;
+    language: string;
+    tapTarget: { url: string; title: string } | null;
+  } | null;
   /** Null unless the message carries a file. `available` is false when Meta gave no file. */
   media: {
     mime: string | null;
@@ -160,6 +173,7 @@ export function messageView(row: MessageSource): MessageView {
     deliveredAt: iso(row.deliveredAt),
     readAt: iso(row.readAt),
     errorReason: row.errorReason,
+    template: templateOf(row),
     // A location, a contact card or a tapped button is not an attachment;
     // describing it as one makes the bubble claim the file is gone.
     media: MEDIA_KINDS.has(row.kind)
@@ -202,4 +216,32 @@ export function previewOf(body: string | null, fallback: string): string {
 
 function iso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
+}
+
+/** A template row keeps Meta's name even when Meta has since deleted it. */
+function templateOf(
+  row: MessageSource,
+): MessageView["template"] {
+  if (row.kind !== "TEMPLATE" || !row.templateName) return null;
+
+  return {
+    name: row.templateName,
+    language: row.templateLanguage ?? "",
+    tapTarget: tapTargetOf(row.tapTarget),
+  };
+}
+
+/** `tap_target` is JSON, so its shape is only as trustworthy as the writer. */
+function tapTargetOf(
+  value: Prisma.JsonValue,
+): { url: string; title: string } | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const { url, title } = value as Record<string, unknown>;
+
+  return typeof url === "string" && typeof title === "string"
+    ? { url, title }
+    : null;
 }

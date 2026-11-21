@@ -72,6 +72,42 @@ export class InboxGraph {
     return wamidOf(payload);
   }
 
+  /**
+   * A template message. The components are already in Meta's send shape, so
+   * this only wraps them: the same rules that built them at creation decide
+   * what a customer sees.
+   */
+  async sendTemplate(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    name: string;
+    language: string;
+    components: unknown[];
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "template",
+          template: {
+            name: input.name,
+            language: { code: input.language },
+            components: input.components,
+          },
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
   /** Media must exist at Meta before a message can reference it. */
   async uploadMedia(input: {
     version: string;
