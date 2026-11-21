@@ -76,8 +76,30 @@ model Workspace {
   conversations Conversation[]
   messages      Message[]
 
+  /// The workspace's own identity. Customers never see these fields: the
+  /// profile they see on WhatsApp lives in Meta and is read through Graph.
+  businessProfile BusinessProfile?
+
   @@index([ownerId])
   @@map("workspaces")
+}
+
+/// One row per workspace, created on the first successful save rather than on
+/// read: a page load is not a reason to write.
+model BusinessProfile {
+  workspaceId   String   @id @map("workspace_id") @db.Uuid
+  companyName   String?  @map("company_name")
+  website       String?
+  /// IANA name, e.g. Asia/Kolkata. Drives scheduled sends, so it has a default
+  /// rather than being nullable.
+  timezone      String   @default("Asia/Kolkata")
+  supportNumber String?  @map("support_number")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("business_profiles")
 }
 
 model WorkspaceMember {

@@ -75,6 +75,23 @@ export interface BusinessDetails {
 }
 
 /**
+ * The profile a customer sees when they open the chat. These fields live on
+ * the phone number's `whatsapp_business_profile` edge, not on the phone node:
+ * `verified_name` is NOT in this payload, which is why the service merges the
+ * stored phone facts with this read instead of expecting them here.
+ */
+export interface BusinessProfileDetails {
+  about?: string;
+  address?: string;
+  description?: string;
+  email?: string;
+  profile_picture_url?: string;
+  websites?: string[];
+  vertical?: string;
+  messaging_product?: string;
+}
+
+/**
  * The only place that knows Meta's wire format.
  *
  * The access token travels in the Authorization header rather than a query
@@ -121,13 +138,51 @@ export class MetaGraph {
     );
   }
 
+  /**
+   * The profile customers see. `whatsapp_business_profile` is a collection
+   * node — it answers `{ data: [ … ] }` with at most one entry — so the
+   * unwrapping belongs here rather than in every caller.
+   */
+  async getBusinessProfile(
+    version: string,
+    phoneNumberId: string,
+    token: string,
+  ): Promise<BusinessProfileDetails> {
+    const payload = await this.getEdge<{ data?: BusinessProfileDetails[] }>(
+      version,
+      [phoneNumberId, "whatsapp_business_profile"],
+      "about,address,description,email,profile_picture_url,websites,vertical",
+      token,
+    );
+
+    // A number with nothing filled in can answer `{ data: [] }`. That is not a
+    // failure — it means Meta holds no facts, which the card states plainly.
+    return payload.data?.[0] ?? {};
+  }
+
   private get<T>(
     version: string,
     node: string,
     fields: string,
     token: string,
   ): Promise<T> {
-    const url = new URL(`${this.base}/${encodeURIComponent(version)}/${encodeURIComponent(node)}`);
+    return this.getEdge<T>(version, [node], fields, token);
+  }
+
+  /**
+   * A node plus a sub-path (`{id}/whatsapp_business_profile`). Each segment is
+   * encoded on its own: encoding the whole path would turn the separator into
+   * `%2F` and Meta would answer 404.
+   */
+  private getEdge<T>(
+    version: string,
+    path: string[],
+    fields: string,
+    token: string,
+  ): Promise<T> {
+    const url = new URL(
+      [this.base, encodeURIComponent(version), ...path.map(encodeURIComponent)].join("/"),
+    );
     url.searchParams.set("fields", fields);
 
     return this.send<T>(url, { method: "GET", token });

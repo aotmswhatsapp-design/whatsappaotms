@@ -71,6 +71,34 @@ export interface ConnectInput {
   businessAccountId: string;
 }
 
+/**
+ * What a customer sees when they open the chat. The first three come from the
+ * stored phone row; the rest are read live from the profile edge, because Meta
+ * keeps no column for them here.
+ */
+export interface BusinessProfileFacts {
+  verifiedName: string | null;
+  displayPhoneNumber: string | null;
+  qualityRating: string | null;
+  about: string | null;
+  address: string | null;
+  description: string | null;
+  email: string | null;
+  websites: string[];
+  /** Meta's category, e.g. `RETAIL`. */
+  vertical: string | null;
+  pictureUrl: string | null;
+}
+
+export interface BusinessProfilePayload {
+  connected: boolean;
+  /** True only when these facts came from Meta on this request. */
+  live: boolean;
+  /** Why the live half is missing; the stored facts are still present. */
+  problem: string | null;
+  profile: BusinessProfileFacts | null;
+}
+
 /** 200 with `ok: false` is a verdict, not an error — only transport fails throw. */
 export function connectWhatsApp(input: ConnectInput): Promise<ConnectResult> {
   return request<ConnectResult>("/v1/whatsapp/connect", {
@@ -81,6 +109,13 @@ export function connectWhatsApp(input: ConnectInput): Promise<ConnectResult> {
 
 export function fetchConnection(): Promise<ConnectionPayload> {
   return request<ConnectionPayload>("/v1/whatsapp/connection", { method: "GET" });
+}
+
+/** One Graph read per call: the profile edge, for the stored number. */
+export function fetchBusinessProfile(): Promise<BusinessProfilePayload> {
+  return request<BusinessProfilePayload>("/v1/whatsapp/profile", {
+    method: "GET",
+  });
 }
 
 export function disconnectWhatsApp(): Promise<{ removed: boolean }> {

@@ -4,6 +4,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
 import { AuthModule } from "./auth/auth.module";
+import { BusinessModule } from "./business/business.module";
 import { validateEnv } from "./config/env";
 import { HealthModule } from "./health/health.module";
 import { InboxModule } from "./inbox/inbox.module";
@@ -33,6 +34,7 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module";
     PrismaModule,
     AuthModule,
     WhatsAppModule,
+    BusinessModule,
     InboxModule,
     HealthModule,
   ],

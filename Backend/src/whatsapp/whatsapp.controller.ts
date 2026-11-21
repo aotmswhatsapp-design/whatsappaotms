@@ -47,6 +47,17 @@ export class WhatsAppController {
     return this.whatsapp.connection(claims);
   }
 
+  /**
+   * GET /api/v1/whatsapp/profile — the business profile customers see, read
+   * from Meta for the stored number. Throttled like `connect` because every
+   * call is a Graph request rather than a database read.
+   */
+  @Get("profile")
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  profile(@CurrentUser() claims: AuthClaims) {
+    return this.whatsapp.profileFor(claims);
+  }
+
   /** POST /api/v1/whatsapp/verify-token/rotate — new token, handshake reset. */
   @Post("verify-token/rotate")
   @HttpCode(200)

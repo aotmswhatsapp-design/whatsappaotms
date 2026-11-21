@@ -14,6 +14,7 @@ import {
   MetaRequestError,
   MetaTransportError,
   type BusinessDetails,
+  type BusinessProfileDetails,
   type PhoneNumberDetails,
 } from "./meta-graph";
 
@@ -108,6 +109,35 @@ export interface StatusPayload {
   number: StatusNumber | null;
 }
 
+/**
+ * What a customer sees when they open the chat. Three of these live on the
+ * phone node and are therefore already stored; the rest exist only on the
+ * profile edge and are read live, because there is no column for them.
+ */
+export interface BusinessProfileFacts {
+  verifiedName: string | null;
+  displayPhoneNumber: string | null;
+  qualityRating: string | null;
+  about: string | null;
+  address: string | null;
+  description: string | null;
+  email: string | null;
+  websites: string[];
+  /** Meta's category, e.g. `RETAIL`. */
+  vertical: string | null;
+  pictureUrl: string | null;
+}
+
+export interface BusinessProfilePayload {
+  /** False means no number is stored, so there is nothing to show. */
+  connected: boolean;
+  /** True only when the facts came from Meta on this request. */
+  live: boolean;
+  /** Why the live read is missing. The stored facts are still returned. */
+  problem: string | null;
+  profile: BusinessProfileFacts | null;
+}
+
 /** The five inputs, in the order the form asks for them. */
 const FORM_ORDER: CheckKey[] = [
   "accessToken",
@@ -178,6 +208,18 @@ const STATUS_SELECT = {
 } satisfies Prisma.WhatsAppAccountSelect;
 
 type StatusRow = Prisma.WhatsAppAccountGetPayload<{ select: typeof STATUS_SELECT }>;
+
+/** Only what the profile card needs; the cipher column never leaves the API. */
+const PROFILE_SELECT = {
+  phoneNumberId: true,
+  graphVersion: true,
+  displayPhoneNumber: true,
+  verifiedName: true,
+  qualityRating: true,
+  accessTokenCipher: true,
+} satisfies Prisma.WhatsAppAccountSelect;
+
+type ProfileRow = Prisma.WhatsAppAccountGetPayload<{ select: typeof PROFILE_SELECT }>;
 
 /**
  * Which input a Meta rejection actually indicts. Separating these is the whole
@@ -411,6 +453,59 @@ export class WhatsAppService {
     };
   }
 
+  /**
+   * The read-only half of the business profile: what Meta says customers see.
+   *
+   * Deliberately never throws for a bad read. The three phone facts are stored
+   * and stay true even when Graph is unreachable, so a failure is reported as
+   * `problem` beside them rather than replacing the whole card with an error.
+   */
+  async profileFor(claims: AuthClaims): Promise<BusinessProfilePayload> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.whatsAppAccount.findUnique({
+      where: { workspaceId },
+      select: PROFILE_SELECT,
+    });
+
+    if (!row) {
+      return { connected: false, live: false, problem: null, profile: null };
+    }
+
+    const token = this.openOrNull(row.accessTokenCipher);
+
+    if (!token) {
+      return {
+        connected: true,
+        live: false,
+        problem: UNREADABLE_SECRET,
+        profile: profileFrom(row, null),
+      };
+    }
+
+    try {
+      const live = await this.meta.getBusinessProfile(
+        row.graphVersion,
+        row.phoneNumberId,
+        token,
+      );
+
+      return {
+        connected: true,
+        live: true,
+        problem: null,
+        profile: profileFrom(row, live),
+      };
+    } catch (error) {
+      return {
+        connected: true,
+        live: false,
+        problem: blame(error, row.graphVersion, row.phoneNumberId).detail,
+        profile: profileFrom(row, null),
+      };
+    }
+  }
+
   async disconnect(claims: AuthClaims): Promise<{ removed: boolean }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
@@ -636,6 +731,28 @@ function describeBusiness(business: BusinessDetails): string {
     : "";
 
   return `${name}${status}`;
+}
+
+/**
+ * Stored phone facts plus whatever the live read returned. Blank strings become
+ * null so the card can decide between "nothing set" and "nothing fetched".
+ */
+function profileFrom(
+  row: ProfileRow,
+  live: BusinessProfileDetails | null,
+): BusinessProfileFacts {
+  return {
+    verifiedName: row.verifiedName,
+    displayPhoneNumber: row.displayPhoneNumber,
+    qualityRating: row.qualityRating,
+    about: live?.about?.trim() || null,
+    address: live?.address?.trim() || null,
+    description: live?.description?.trim() || null,
+    email: live?.email?.trim() || null,
+    websites: (live?.websites ?? []).map((site) => site.trim()).filter(Boolean),
+    vertical: live?.vertical?.trim() || null,
+    pictureUrl: live?.profile_picture_url?.trim() || null,
+  };
 }
 
 /**
