@@ -57,16 +57,27 @@ export function dayLabel(iso: string): string {
   });
 }
 
-/** How long the reply window has left, or null once it has closed. */
-export function windowLeft(lastInboundAt: string | null, now = Date.now()): string | null {
+/**
+ * `23:59:58` — the reply window as a countdown, or null once it has closed.
+ *
+ * The window opens with the customer's last message, so the digits run from
+ * 24:00:00 down to zero and then the conversation can only be noted. Capped at
+ * a day so a clock-skewed timestamp cannot print 25 hours.
+ */
+export function windowCountdown(
+  lastInboundAt: string | null,
+  now = Date.now(),
+): string | null {
   if (!lastInboundAt) return null;
 
-  const remaining = new Date(lastInboundAt).getTime() + DAY - now;
+  const remaining = Math.min(DAY, new Date(lastInboundAt).getTime() + DAY - now);
 
   if (remaining <= 0) return null;
-  if (remaining < HOUR) return `${Math.max(1, Math.round(remaining / MINUTE))} min left`;
 
-  return `${Math.floor(remaining / HOUR)}h left`;
+  const total = Math.floor(remaining / 1000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
 export function formatBytes(size: number | null): string {

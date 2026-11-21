@@ -15,10 +15,10 @@ export default function InboxPage() {
   return (
     <div className="flex h-[calc(100dvh-7rem)] min-h-[26rem] flex-col gap-3 lg:h-[calc(100dvh-8rem)] lg:min-h-0 lg:gap-4">
       <div className="shrink-0">
-        <p className="text-[10.5px] leading-3 font-semibold tracking-[0.14em] text-brand uppercase">
+        <p className="text-[10px] leading-3 font-semibold tracking-[0.14em] text-brand uppercase">
           {nav.group}
         </p>
-        <h1 className="mt-1.5 text-[20px] leading-6 font-semibold tracking-tight text-foreground">
+        <h1 className="mt-1 text-[17px] leading-5 font-semibold tracking-tight text-foreground">
           {nav.title}
         </h1>
       </div>

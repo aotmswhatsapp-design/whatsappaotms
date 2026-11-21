@@ -44,7 +44,7 @@ import {
   dayLabel,
   displayPhone,
   initials,
-  windowLeft,
+  windowCountdown,
 } from "../format";
 import { MessageMedia } from "./message-media";
 
@@ -127,7 +127,6 @@ export function MessageThread({
   }
 
   const conversation = thread.conversation;
-  const left = windowLeft(conversation.lastInboundAt);
 
   async function patch(next: {
     status?: ConversationStatus;
@@ -178,29 +177,29 @@ export function MessageThread({
       {/* Two fixed rows: who you are talking to, then the two assignment
           controls. Pinned rather than wrapped — a header that re-flows as the
           resizer moves is what made this pane feel unstable — and sized to
-          the queue's 110px block so the hairline runs straight across the
+          the queue's 96px block so the hairline runs straight across the
           divider. */}
       <header className="shrink-0 border-b border-border bg-card">
-        <div className="flex h-16 min-w-0 items-center gap-3 pr-2 pl-3 sm:pl-4">
+        <div className="flex h-14 min-w-0 items-center gap-2.5 pr-2 pl-3 sm:pl-4">
           <button
             type="button"
             aria-label="Back to conversations"
-            className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground xl:hidden"
+            className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground xl:hidden"
             onClick={onBack}
           >
-            <ArrowLeft aria-hidden="true" className="size-[18px]" />
+            <ArrowLeft aria-hidden="true" className="size-4" />
           </button>
 
-          <span className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand">
             {initials(conversation.contact.name, conversation.contact.waId)}
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] leading-tight font-semibold text-foreground">
+            <p className="truncate text-[13.5px] leading-tight font-semibold text-foreground">
               {conversation.contact.name ??
                 displayPhone(conversation.contact.waId)}
             </p>
-            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground">
+            <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
               {/* An unnamed contact already uses the number as the title, so
                   repeating it here would just say the same thing twice. */}
               {conversation.contact.name ? (
@@ -215,20 +214,7 @@ export function MessageThread({
                   </span>
                 </>
               ) : null}
-              <span
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1 font-medium",
-                  conversation.windowOpen ? "text-lime" : "text-muted-foreground",
-                )}
-                title={
-                  conversation.windowOpen
-                    ? "You can reply until the 24-hour window closes."
-                    : "WhatsApp only allows a reply after the customer writes again."
-                }
-              >
-                <Clock aria-hidden="true" className="size-3" />
-                {conversation.windowOpen ? (left ?? "Open") : "Window closed"}
-              </span>
+              <WindowCountdown lastInboundAt={conversation.lastInboundAt} />
             </p>
           </div>
 
@@ -237,13 +223,13 @@ export function MessageThread({
               <button
                 type="button"
                 aria-label="Conversation actions"
-                className="grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-40"
+                className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-40"
                 disabled={deleting}
               >
                 {deleting ? (
                   <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                 ) : (
-                  <MoreHorizontal aria-hidden="true" className="size-[18px]" />
+                  <MoreHorizontal aria-hidden="true" className="size-4" />
                 )}
               </button>
             </DropdownMenuTrigger>
@@ -263,12 +249,12 @@ export function MessageThread({
           </DropdownMenu>
         </div>
 
-        <div className="flex min-w-0 items-center gap-1.5 px-3 pb-2.5 sm:px-4">
+        <div className="flex min-w-0 items-center gap-1.5 px-3 pb-2 sm:px-4">
           <Field>
             <select
               aria-label="Conversation status"
               className={cn(
-                "h-9 min-w-0 appearance-none rounded-full border pr-8 pl-3 text-[12.5px] font-medium outline-none transition-colors",
+                "h-8 min-w-0 appearance-none rounded-full border pr-7 pl-2.5 text-[11.5px] font-medium outline-none transition-colors",
                 "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-brand/10",
                 conversation.status === "PENDING"
                   ? "border-transparent bg-warning-soft text-warning"
@@ -291,7 +277,7 @@ export function MessageThread({
             <select
               aria-label="Assigned agent"
               className={cn(
-                "h-9 max-w-40 min-w-0 appearance-none truncate rounded-full border pr-8 pl-3 text-[12.5px] font-medium outline-none transition-colors sm:max-w-52",
+                "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border pr-7 pl-2.5 text-[11.5px] font-medium outline-none transition-colors sm:max-w-52",
                 "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-brand/10",
                 conversation.assignedTo
                   ? "border-border bg-card text-foreground"
@@ -323,14 +309,14 @@ export function MessageThread({
 
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-5 sm:px-6"
+        className="min-h-0 flex-1 overflow-y-auto bg-background px-3 py-4 sm:px-4"
       >
         {/* A readable column inside the pane: at 1400px the thread is wider
             than any comfortable line length, and bubbles hugging opposite
             edges turn into a tennis match. */}
-        <div className="mx-auto w-full max-w-[46rem] space-y-2.5">
+        <div className="mx-auto w-full max-w-[46rem] space-y-2">
           {entries.length === 0 ? (
-            <p className="py-10 text-center text-[14px] text-muted-foreground">
+            <p className="py-10 text-center text-[13px] text-muted-foreground">
               Nothing in this thread yet.
             </p>
           ) : null}
@@ -345,8 +331,8 @@ export function MessageThread({
                 key={`${entry.kind}-${entry.kind === "message" ? entry.message.id : entry.note.id}`}
               >
                 {newDay ? (
-                  <div className="flex justify-center py-2.5">
-                    <span className="rounded-full border border-border bg-card px-3 py-1 text-[11.5px] font-medium text-muted-foreground shadow-xs">
+                  <div className="flex justify-center py-2">
+                    <span className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[10.5px] font-medium text-muted-foreground shadow-xs">
                       {dayLabel(entry.at)}
                     </span>
                   </div>
@@ -375,7 +361,7 @@ function Bubble({ message }: { message: InboxMessage }) {
     <div className={cn("flex", outbound ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] shadow-xs sm:max-w-[75%]",
+          "max-w-[85%] rounded-xl px-3 py-2 text-[14px] shadow-xs sm:max-w-[75%]",
           outbound
             ? "rounded-br-md bg-brand text-brand-foreground"
             : "rounded-bl-md border border-border bg-card text-foreground",
@@ -396,7 +382,7 @@ function Bubble({ message }: { message: InboxMessage }) {
         {message.errorReason ? (
           <p
             className={cn(
-              "mt-1.5 text-[12.5px]",
+              "mt-1 text-[12px]",
               outbound ? "text-brand-foreground/90" : "text-destructive",
             )}
           >
@@ -406,7 +392,7 @@ function Bubble({ message }: { message: InboxMessage }) {
 
         <div
           className={cn(
-            "mt-1.5 flex items-center justify-end gap-1 text-[11px]",
+            "mt-1 flex items-center justify-end gap-1 text-[10px]",
             outbound ? "text-brand-foreground/70" : "text-muted-foreground",
           )}
         >
@@ -420,15 +406,15 @@ function Bubble({ message }: { message: InboxMessage }) {
 
 function Tick({ status }: { status: InboxMessage["status"] }) {
   if (status === "FAILED") {
-    return <CircleAlert aria-label="Not delivered" className="size-3.5" />;
+    return <CircleAlert aria-label="Not delivered" className="size-3" />;
   }
 
   if (status === "QUEUED") {
-    return <Clock aria-label="Sending" className="size-3.5" />;
+    return <Clock aria-label="Sending" className="size-3" />;
   }
 
   if (status === "SENT") {
-    return <Check aria-label="Sent" className="size-3.5" />;
+    return <Check aria-label="Sent" className="size-3" />;
   }
 
   const read = status === "READ";
@@ -436,7 +422,7 @@ function Tick({ status }: { status: InboxMessage["status"] }) {
   return (
     <CheckCheck
       aria-label={read ? "Read" : "Delivered"}
-      className={cn("size-3.5", read && "text-blue-soft")}
+      className={cn("size-3", read && "text-blue-soft")}
     />
   );
 }
@@ -444,22 +430,65 @@ function Tick({ status }: { status: InboxMessage["status"] }) {
 function NoteCard({ note }: { note: InboxNote }) {
   return (
     <div className="flex justify-center">
-      <div className="max-w-[85%] rounded-xl border border-warning/30 bg-warning-soft px-4 py-2.5 sm:max-w-[75%]">
-        <p className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-warning uppercase">
-          <StickyNote aria-hidden="true" className="size-3.5" />
+      <div className="max-w-[85%] rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 sm:max-w-[75%]">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-warning uppercase">
+          <StickyNote aria-hidden="true" className="size-3" />
           Internal note
           <span className="font-medium tracking-normal normal-case">
             · {note.author.name ?? "A teammate"}
           </span>
         </p>
-        <p className="mt-1.5 text-[14px] break-words whitespace-pre-wrap text-foreground">
+        <p className="mt-1 text-[12.5px] break-words whitespace-pre-wrap text-foreground">
           {note.body}
         </p>
-        <p className="mt-1 text-right text-[11px] text-warning/80">
+        <p className="mt-1 text-right text-[10px] text-warning/80">
           {clockTime(note.createdAt)}
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * The 24-hour reply window as a clock: `24:00:00` when the customer writes,
+ * ticking to zero, after which only a note can be saved.
+ *
+ * The tick is a counter rather than a timestamp, so the digits are still
+ * derived during render by `windowCountdown` and no state has to be written
+ * from an effect body. Only this span re-renders once a second.
+ */
+function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
+  const [, tick] = React.useState(0);
+
+  React.useEffect(() => {
+    const id = window.setInterval(() => tick((count) => count + 1), 1_000);
+
+    return () => window.clearInterval(id);
+  }, []);
+
+  const left = windowCountdown(lastInboundAt);
+
+  return (
+    <span
+      aria-label={
+        left
+          ? "Time left in the 24-hour reply window"
+          : "The 24-hour reply window has closed"
+      }
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 font-medium tabular-nums",
+        left ? "text-lime" : "text-muted-foreground",
+      )}
+      role="timer"
+      title={
+        left
+          ? "Replies stay open until this reaches zero."
+          : "WhatsApp only allows a reply after the customer writes again."
+      }
+    >
+      <Clock aria-hidden="true" className="size-3" />
+      {left ?? "Window closed"}
+    </span>
   );
 }
 
@@ -478,7 +507,7 @@ function Field({ children }: { children: React.ReactNode }) {
       {children}
       <ChevronDown
         aria-hidden="true"
-        className="pointer-events-none absolute right-2.5 size-3.5 opacity-60"
+        className="pointer-events-none absolute right-2 size-3 opacity-60"
       />
     </span>
   );

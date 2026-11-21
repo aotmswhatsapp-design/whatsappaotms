@@ -326,7 +326,7 @@ export function InboxView() {
           line, which cost a whole band of height and left the panel reading as
           a widget on a page. As the card's own top bar they are the window's
           title strip instead. */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 text-[12.5px] text-muted-foreground sm:px-4">
+      <div className="flex shrink-0 items-center justify-between gap-2.5 border-b border-border px-3 py-1.5 text-[11.5px] text-muted-foreground sm:px-4">
         <span className="inline-flex min-w-0 items-center gap-2">
           <StatusDot
             label={summary.channel.live ? "Receiving" : "Waiting for Meta"}
@@ -352,7 +352,7 @@ export function InboxView() {
       </div>
 
       {error ? (
-        <p className="shrink-0 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-[13px] leading-relaxed text-destructive sm:px-4">
+        <p className="shrink-0 border-b border-destructive/20 bg-destructive/10 px-3 py-1.5 text-[12px] leading-relaxed text-destructive sm:px-4">
           {error}
         </p>
       ) : null}

@@ -98,9 +98,9 @@ export function ConversationList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-16 shrink-0 items-center gap-2 pr-2 pl-4">
-        <p className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">Chats</p>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
+      <div className="flex h-14 shrink-0 items-center gap-2 pr-2 pl-3">
+        <p className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">Chats</p>
+        <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground tabular-nums">
           {conversations.length}
         </span>
 
@@ -111,14 +111,14 @@ export function ConversationList({
                 type="button"
                 aria-label={`Filter conversations — ${summary}`}
                 className={cn(
-                  "inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-medium outline-none transition-colors",
+                  "inline-flex h-7 items-center gap-1 rounded-full px-2 text-[11.5px] font-medium outline-none transition-colors",
                   "hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
                   filtered ? "bg-brand-soft text-brand" : "text-muted-foreground",
                 )}
               >
-                <ListFilter aria-hidden="true" className="size-4" />
+                <ListFilter aria-hidden="true" className="size-3.5" />
                 <span className="hidden min-w-0 truncate sm:inline">{summary}</span>
-                <ChevronDown aria-hidden="true" className="size-4 opacity-60" />
+                <ChevronDown aria-hidden="true" className="size-3.5 opacity-60" />
               </button>
             </DropdownMenuTrigger>
 
@@ -175,19 +175,19 @@ export function ConversationList({
         </div>
       </div>
 
-      {/* The header and the search pill are one 110px block, the same height
+      {/* The header and the search pill are one 96px block, the same height
           as the thread's header, so the hairline between the panes runs
           straight across instead of stepping down at the divider. */}
-      <div className="shrink-0 px-3 pb-2.5">
+      <div className="shrink-0 px-3 pb-2">
         <div className="relative">
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
           />
           <input
             ref={field}
             aria-label="Search conversations"
-            className="h-9 w-full rounded-full border border-transparent bg-secondary/70 pr-9 pl-9 text-[13.5px] outline-none placeholder:text-muted-foreground focus-visible:border-brand/40 focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-brand/10"
+            className="h-8 w-full rounded-full border border-transparent bg-secondary/70 pr-8 pl-8 text-[12.5px] outline-none placeholder:text-muted-foreground focus-visible:border-brand/40 focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-brand/10"
             placeholder="Search name, number or message"
             type="text"
             value={search}
@@ -197,13 +197,13 @@ export function ConversationList({
             <button
               type="button"
               aria-label="Clear search"
-              className="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={() => {
                 onSearchChange("");
                 field.current?.focus();
               }}
             >
-              <X aria-hidden="true" className="size-3.5" />
+              <X aria-hidden="true" className="size-3" />
             </button>
           ) : null}
         </div>
@@ -217,7 +217,7 @@ export function ConversationList({
         ) : null}
 
         {!loading && conversations.length === 0 ? (
-          <p className="px-4 py-10 text-center text-[14px] leading-relaxed text-muted-foreground">
+          <p className="px-4 py-8 text-center text-[13px] leading-relaxed text-muted-foreground">
             {filters.search || filters.status || filters.assignee
               ? "No conversation matches these filters."
               : "No conversations yet. A customer's first message opens one."}
@@ -227,7 +227,7 @@ export function ConversationList({
         <ul className="pb-2">
           {groups.map((group) => (
             <li key={group.key}>
-              <p className="px-4 pt-4 pb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+              <p className="px-3.5 pt-3 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
                 {group.label}
               </p>
 
@@ -242,7 +242,7 @@ export function ConversationList({
                         type="button"
                         aria-current={selected ? "true" : undefined}
                         className={cn(
-                          "relative flex w-full items-center gap-3 py-3 pr-4 pl-5 text-left transition-colors",
+                          "relative flex w-full items-center gap-2.5 py-2 pr-3 pl-3.5 text-left transition-colors",
                           selected ? "bg-brand-soft/60" : "hover:bg-accent/50",
                         )}
                         onClick={() => onSelect(conversation.id)}
@@ -250,13 +250,13 @@ export function ConversationList({
                         {selected ? (
                           <span
                             aria-hidden="true"
-                            className="absolute top-3 bottom-3 left-1.5 w-[3px] rounded-full bg-brand"
+                            className="absolute top-2 bottom-2 left-1 w-[3px] rounded-full bg-brand"
                           />
                         ) : null}
 
                         <span
                           className={cn(
-                            "grid size-12 shrink-0 place-items-center rounded-full text-[13px] font-semibold",
+                            "grid size-9 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
                             unread
                               ? "bg-brand text-brand-foreground"
                               : "bg-secondary text-muted-foreground",
@@ -272,7 +272,7 @@ export function ConversationList({
                           <span className="flex items-baseline gap-2">
                             <span
                               className={cn(
-                                "truncate text-[15px] leading-tight text-foreground",
+                                "truncate text-[13.5px] leading-tight text-foreground",
                                 unread ? "font-semibold" : "font-medium",
                               )}
                             >
@@ -281,7 +281,7 @@ export function ConversationList({
                             </span>
                             <span
                               className={cn(
-                                "ml-auto shrink-0 text-[11.5px] tabular-nums",
+                                "ml-auto shrink-0 text-[10.5px] tabular-nums",
                                 unread
                                   ? "font-semibold text-brand"
                                   : "text-muted-foreground",
@@ -291,10 +291,10 @@ export function ConversationList({
                             </span>
                           </span>
 
-                          <span className="mt-1 flex items-center gap-2">
+                          <span className="mt-0.5 flex items-center gap-1.5">
                             <span
                               className={cn(
-                                "truncate text-[13.5px]",
+                                "truncate text-[12px]",
                                 unread
                                   ? "text-foreground/80"
                                   : "text-muted-foreground",
@@ -305,7 +305,7 @@ export function ConversationList({
                             </span>
 
                             {unread ? (
-                              <span className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-brand-foreground tabular-nums">
+                              <span className="ml-auto grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold text-brand-foreground tabular-nums">
                                 {conversation.unreadCount > 99
                                   ? "99+"
                                   : conversation.unreadCount}
@@ -313,7 +313,7 @@ export function ConversationList({
                             ) : conversation.status !== "OPEN" ? (
                               <span
                                 className={cn(
-                                  "ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium",
+                                  "ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
                                   conversation.status === "PENDING"
                                     ? "bg-warning-soft text-warning"
                                     : "bg-secondary text-muted-foreground",
