@@ -14,6 +14,13 @@ const buttonVariants = cva(
         brand:
           "bg-brand text-brand-foreground shadow-xs hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none",
         /**
+         * WhatsApp's send green in `brand`'s shape. It is a role
+         * (`--whatsapp`), not a second brand colour: an action that submits to
+         * Meta wears Meta's own green.
+         */
+        green:
+          "bg-whatsapp text-whatsapp-foreground shadow-xs hover:-translate-y-0.5 hover:bg-whatsapp/90 hover:shadow-lg hover:shadow-whatsapp/25 disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none",
+        /**
          * The marketing hero's pressable treatment, carried into the app: a
          * hairline, and a slab of its own fill sitting 4px down and right.
          * Hovering steps the plate into the slab, so the shadow collapses
@@ -22,6 +29,9 @@ const buttonVariants = cva(
          * theme instead of a hard-coded hex.
          */
         pop: "border border-soft-black bg-brand text-brand-foreground shadow-[4px_4px_0_0_var(--brand)] hover:translate-x-1 hover:translate-y-1 hover:bg-brand hover:shadow-none focus-visible:ring-brand",
+        /** The same slab, filled with `--whatsapp` so the press reads identically. */
+        "green-pop":
+          "border border-soft-black bg-whatsapp text-whatsapp-foreground shadow-[4px_4px_0_0_var(--whatsapp)] hover:translate-x-1 hover:translate-y-1 hover:bg-whatsapp hover:shadow-none focus-visible:ring-whatsapp",
         /**
          * Inverted pill: teal plate, white label. The highest-contrast action
          * available on the app's light sheet.

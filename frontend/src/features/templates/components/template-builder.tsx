@@ -66,7 +66,9 @@ const FORMATS: { value: ParameterFormat; label: string; hint: string; sample: st
 
 const INITIAL: DraftValues = {
   name: "",
-  category: "MARKETING",
+  // No category: Meta files, prices and reviews each one differently, so a
+  // pre-checked tile would be this screen deciding that for the customer.
+  category: "",
   language: "en_US",
   parameterFormat: "POSITIONAL",
   header: "",
@@ -130,7 +132,9 @@ export function TemplateBuilder() {
 
     const found = problemsIn(values, buttons);
 
-    if (found.length > 0) {
+    // The empty-category arm duplicates `problemsIn` for the type only: it lets
+    // `payloadOf` see a chosen category, which is what Meta requires.
+    if (found.length > 0 || !values.category) {
       setProblems(found);
       setRefusal(null);
 
@@ -142,7 +146,11 @@ export function TemplateBuilder() {
     setPending(true);
 
     try {
-      const created = await createTemplate(payloadOf(values, buttons));
+      // The guard above narrowed `values.category`; rebuilding the object is
+      // what carries that narrowing into `payloadOf`, which requires one.
+      const created = await createTemplate(
+        payloadOf({ ...values, category: values.category }, buttons),
+      );
 
       toast.push({
         title: "Sent to Meta",
@@ -293,6 +301,10 @@ export function TemplateBuilder() {
                   );
                 })}
               </div>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+                Nothing is preselected: Meta prices and reviews by category, so
+                the choice is yours to make.
+              </p>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -387,14 +399,14 @@ export function TemplateBuilder() {
                     title={
                       kind === "Text"
                         ? undefined
-                        : "A media header needs the file uploaded to Meta first, which this build does not do yet."
+                        : "Media headers need the file uploaded to Meta first. This build submits text headers only."
                     }
                   >
                     {kind}
                   </span>
                 ))}
                 <span className="text-[11.5px] text-muted-foreground">
-                  Media headers need an upload this build does not do yet.
+                  Text headers only — media needs the file uploaded to Meta first.
                 </span>
               </div>
               <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">
@@ -485,7 +497,7 @@ export function TemplateBuilder() {
             </Link>
           </Button>
 
-          <Button disabled={pending} size="lg" type="submit" variant="brand">
+          <Button disabled={pending} size="lg" type="submit" variant="green">
             {pending ? (
               <>
                 <LoaderCircle aria-hidden="true" className="animate-spin" />
@@ -514,8 +526,17 @@ export function TemplateBuilder() {
   );
 }
 
-/** Strips what Meta should not receive: blank fields, and this screen's keys. */
-function payloadOf(values: DraftValues, buttons: DraftButton[]): TemplateDraft {
+/**
+ * Strips what Meta should not receive: blank fields, and this screen's keys.
+ *
+ * The category is intersected with its chosen type because `submit` only calls
+ * this once `problemsIn` has accepted the form, and an empty category never
+ * survives that check.
+ */
+function payloadOf(
+  values: DraftValues & { category: TemplateCategory },
+  buttons: DraftButton[],
+): TemplateDraft {
   const examples: Record<string, string> = {};
 
   for (const token of variablesOf(values.header, values.body)) {

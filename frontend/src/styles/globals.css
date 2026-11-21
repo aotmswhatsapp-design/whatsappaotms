@@ -77,6 +77,13 @@
 
   --destructive: #a11f05;
 
+  /* WhatsApp's send green, as a role rather than a private hex. The actions
+     that reach Meta — submitting a template — wear it, and so does the inbox,
+     so one value serves both and a repaint is a change here. White on it is
+     4.9:1. */
+  --whatsapp: #008069;
+  --whatsapp-foreground: #ffffff;
+
   /* Status hues are semantic, not decorative, so they keep their identity and
      only get deepened for a light field. */
   --blue: #1d4ed8;
@@ -420,6 +427,8 @@
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-soft: var(--brand-soft);
+  --color-whatsapp: var(--whatsapp);
+  --color-whatsapp-foreground: var(--whatsapp-foreground);
   --color-mint: var(--mint);
   --color-blue: var(--blue);
   --color-blue-soft: var(--blue-soft);

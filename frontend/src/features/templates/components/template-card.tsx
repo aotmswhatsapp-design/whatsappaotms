@@ -49,8 +49,11 @@ const TOKEN = /(\{\{\s*[A-Za-z0-9_]+\s*\}\})/g;
  * The top half is the message at roughly the size it arrives: the same
  * WhatsApp chrome the builder uses, shrunk to a card. Tokens stay visible as
  * pills — a card is a catalogue entry, not a send — so the shape of the
- * personalisation is visible at a glance. The bottom half is the facts a card
- * is judged by: name, review status, category, language, last change.
+ * personalisation is visible at a glance. The body and footer are shown whole
+ * rather than clamped: the message is what a template is judged by, and a
+ * four-line preview hid the part someone had written for. The bottom half is
+ * the facts a card is judged by: name, review status, category, language,
+ * last change.
  */
 export function TemplateCard({ row }: { row: TemplateFacts }) {
   const parts = templateParts(row.components);
@@ -68,9 +71,9 @@ export function TemplateCard({ row }: { row: TemplateFacts }) {
   return (
     <li className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
       <div
-        aria-label={`Message preview: ${parts.body || "no body text"}`}
+        aria-label="Message preview"
         className="flex flex-1 flex-col justify-start gap-1.5 bg-[#efeae2] px-3 pt-4 pb-3"
-        role="img"
+        role="group"
       >
         <div className="ml-auto w-full max-w-[19rem] space-y-1.5">
           <div className="rounded-lg rounded-tr-none bg-white shadow-sm">
@@ -92,7 +95,7 @@ export function TemplateCard({ row }: { row: TemplateFacts }) {
               {parts.body ? (
                 <p
                   className={cn(
-                    "line-clamp-4 text-[12.5px] leading-[1.45] whitespace-pre-wrap text-[#111b21]",
+                    "text-[12.5px] leading-[1.45] whitespace-pre-wrap text-[#111b21]",
                     (parts.header || mediaIcon) && "mt-1",
                   )}
                 >
@@ -105,7 +108,7 @@ export function TemplateCard({ row }: { row: TemplateFacts }) {
               )}
 
               {parts.footer ? (
-                <p className="mt-1.5 line-clamp-2 text-[10.5px] leading-snug whitespace-pre-wrap text-[#667781]">
+                <p className="mt-1.5 text-[10.5px] leading-snug whitespace-pre-wrap text-[#667781]">
                   {parts.footer}
                 </p>
               ) : null}

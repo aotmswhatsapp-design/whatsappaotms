@@ -237,7 +237,7 @@ export function TemplatesView() {
           <EmptyState
             action={
               templates.length === 0 ? (
-                <Button asChild variant="pop">
+                <Button asChild variant="green-pop">
                   <Link href="/workspace/templates/new">
                     <Plus />
                     Create the first template

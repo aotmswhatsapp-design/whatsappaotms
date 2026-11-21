@@ -23,7 +23,7 @@ export function NewTemplateAction() {
   if (status.number === null) return null;
 
   return (
-    <Button asChild size="lg" variant="pop">
+    <Button asChild size="lg" variant="green-pop">
       <Link href="/workspace/templates/new">
         <Plus />
         New template

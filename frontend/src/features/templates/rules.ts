@@ -34,7 +34,11 @@ const POSITIONAL = /^\d+$/;
 /** The form's state, flat, so validation has one object to read. */
 export interface DraftValues {
   name: string;
-  category: TemplateCategory;
+  /**
+   * Empty until the builder picks one. Meta files a template by category and
+   * prices and reviews each differently, so the form never chooses for you.
+   */
+  category: TemplateCategory | "";
   language: string;
   parameterFormat: ParameterFormat;
   header: string;
@@ -60,6 +64,12 @@ export function problemsIn(values: DraftValues, buttons: TemplateButton[]): stri
     );
   } else if (name.length > LIMITS.nameMax) {
     problems.push(`The name is ${name.length} characters; Meta allows ${LIMITS.nameMax}.`);
+  }
+
+  if (!values.category) {
+    problems.push(
+      "Choose a category — Meta prices and reviews Marketing, Utility and Authentication differently.",
+    );
   }
 
   if (!body) {
