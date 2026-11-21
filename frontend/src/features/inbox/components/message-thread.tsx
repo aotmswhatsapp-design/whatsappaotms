@@ -20,6 +20,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -51,6 +52,14 @@ import { MessageLabel, MessageMedia } from "./message-media";
 type Entry =
   | { kind: "message"; at: string; message: InboxMessage }
   | { kind: "note"; at: string; note: InboxNote };
+
+/** The status rows for the phone menu. On wider screens the select itself is
+    the control, so this list is only read below `sm`. */
+const STATUS_ROWS: { value: ConversationStatus; label: string }[] = [
+  { value: "OPEN", label: "Open" },
+  { value: "PENDING", label: "Pending" },
+  { value: "CLOSED", label: "Closed" },
+];
 
 /**
  * The open conversation: header controls, the interleaved message/note
@@ -174,14 +183,15 @@ export function MessageThread({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Two fixed rows: who you are talking to, then the two assignment
-          controls. Pinned rather than wrapped — a header that re-flows as the
-          resizer moves is what made this pane feel unstable — and sized to
-          the queue's 100px block so the hairline runs straight across the
-          divider.
+      {/* One row, the shape of the phone app: who you are talking to, the
+          number and the reply window on the subline, then the assignment
+          controls and the actions pinned right. The queue keeps its taller
+          header, so the green band ends above the queue's band — WhatsApp Web
+          does exactly the same, and a stepped divider reads as two panes
+          rather than as one broken one.
 
           The band is the one place the green fills a surface. White labels on
-          #008069 are 4.9:1, so the name, the countdown and the two chip menus
+          #008069 are 4.9:1, so the name, the subline and the two chip menus
           all sit on it directly; the chips themselves stay white so their ink
           never depends on what is behind them. */}
       <header className="shrink-0 bg-brand text-brand-foreground">
@@ -223,6 +233,67 @@ export function MessageThread({
             </p>
           </div>
 
+          {/* Assignment shares this row from 640px up, immediately before the
+              menu — this is the only line the header has now. Below that they
+              leave: two native selects carry a min-content width equal to
+              their longest option, so at 390px keeping them would squeeze the
+              name to a couple of characters. On a phone the same two controls
+              are menu items instead. */}
+          <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
+            <Field>
+              <select
+                aria-label="Conversation status"
+                className={cn(
+                  "h-8 min-w-0 appearance-none rounded-full border border-transparent bg-card pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
+                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
+                  conversation.status === "PENDING"
+                    ? "text-warning"
+                    : conversation.status === "CLOSED"
+                      ? "text-muted-foreground"
+                      : "text-foreground",
+                )}
+                value={conversation.status}
+                onChange={(event) =>
+                  void patch({ status: event.target.value as ConversationStatus })
+                }
+              >
+                <option value="OPEN">Open</option>
+                <option value="PENDING">Pending</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+            </Field>
+
+            <Field>
+              <select
+                aria-label="Assigned agent"
+                className={cn(
+                  "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border border-transparent bg-card pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
+                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
+                  conversation.assignedTo ? "text-foreground" : "text-muted-foreground",
+                )}
+                value={conversation.assignedTo?.id ?? ""}
+                onChange={(event) =>
+                  void patch({ assignedToUserId: event.target.value || null })
+                }
+              >
+                <option value="">Unassigned</option>
+                {agents.map((agent) => (
+                  <option key={agent.userId} value={agent.userId}>
+                    {agent.name ?? agent.email}
+                  </option>
+                ))}
+                {conversation.assignedTo &&
+                !agents.some(
+                  (agent) => agent.userId === conversation.assignedTo?.id,
+                ) ? (
+                  <option value={conversation.assignedTo.id}>
+                    {conversation.assignedTo.name ?? conversation.assignedTo.email}
+                  </option>
+                ) : null}
+              </select>
+            </Field>
+          </div>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -239,6 +310,61 @@ export function MessageThread({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64" data-theme="inbox">
+              {/* The phone header has no room for the two chips, so the same
+                  controls are menu items here. Items rather than a native
+                  select placed inside the menu: choosing an option opens an OS
+                  popup outside the content, which reads as an outside click
+                  and closes the menu mid-choice. */}
+              <div className="sm:hidden">
+                <DropdownMenuLabel>Status</DropdownMenuLabel>
+                {STATUS_ROWS.map((row) => (
+                  <DropdownMenuItem
+                    key={row.value}
+                    onSelect={() => void patch({ status: row.value })}
+                  >
+                    <Check
+                      aria-hidden="true"
+                      className={
+                        conversation.status === row.value
+                          ? "opacity-100"
+                          : "opacity-0"
+                      }
+                    />
+                    {row.label}
+                  </DropdownMenuItem>
+                ))}
+
+                <DropdownMenuLabel>Assigned to</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={() => void patch({ assignedToUserId: null })}
+                >
+                  <Check
+                    aria-hidden="true"
+                    className={conversation.assignedTo ? "opacity-0" : "opacity-100"}
+                  />
+                  Unassigned
+                </DropdownMenuItem>
+                {agents.map((agent) => (
+                  <DropdownMenuItem
+                    key={agent.userId}
+                    onSelect={() => void patch({ assignedToUserId: agent.userId })}
+                  >
+                    <Check
+                      aria-hidden="true"
+                      className={
+                        conversation.assignedTo?.id === agent.userId
+                          ? "opacity-100"
+                          : "opacity-0"
+                      }
+                    />
+                    <span className="min-w-0 truncate">
+                      {agent.name ?? agent.email}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+              </div>
+
               <DropdownMenuItem
                 className="text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg]:text-destructive"
                 onSelect={() => void remove()}
@@ -253,66 +379,15 @@ export function MessageThread({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-2 sm:px-3">
-          <Field>
-            <select
-              aria-label="Conversation status"
-              className={cn(
-                "h-9 min-w-0 appearance-none rounded-full border border-transparent bg-card pr-7 pl-3 text-[11px] font-medium outline-none transition-colors",
-                "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
-                conversation.status === "PENDING"
-                  ? "text-warning"
-                  : conversation.status === "CLOSED"
-                    ? "text-muted-foreground"
-                    : "text-foreground",
-              )}
-              value={conversation.status}
-              onChange={(event) =>
-                void patch({ status: event.target.value as ConversationStatus })
-              }
-            >
-              <option value="OPEN">Open</option>
-              <option value="PENDING">Pending</option>
-              <option value="CLOSED">Closed</option>
-            </select>
-          </Field>
-
-          <Field>
-            <select
-              aria-label="Assigned agent"
-              className={cn(
-                "h-9 max-w-40 min-w-0 appearance-none truncate rounded-full border border-transparent bg-card pr-7 pl-3 text-[11px] font-medium outline-none transition-colors sm:max-w-52",
-                "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-white/30",
-                conversation.assignedTo ? "text-foreground" : "text-muted-foreground",
-              )}
-              value={conversation.assignedTo?.id ?? ""}
-              onChange={(event) =>
-                void patch({ assignedToUserId: event.target.value || null })
-              }
-            >
-              <option value="">Unassigned</option>
-              {agents.map((agent) => (
-                <option key={agent.userId} value={agent.userId}>
-                  {agent.name ?? agent.email}
-                </option>
-              ))}
-              {conversation.assignedTo &&
-              !agents.some(
-                (agent) => agent.userId === conversation.assignedTo?.id,
-              ) ? (
-                <option value={conversation.assignedTo.id}>
-                  {conversation.assignedTo.name ?? conversation.assignedTo.email}
-                </option>
-              ) : null}
-            </select>
-          </Field>
-        </div>
       </header>
 
+      {/* The wallpaper is the picture now, not a colour: a grey field behind
+          white bubbles read as a mail client. `inbox-wallpaper` sits next to
+          the inbox palette in `globals.css` because it needs both the image
+          and the flat green sampled from it. */}
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto bg-background px-3 py-4 sm:px-4"
+        className="inbox-wallpaper min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
       >
         {/* A readable column inside the pane: at 1400px the thread is wider
             than any comfortable line length, and bubbles hugging opposite
@@ -320,7 +395,7 @@ export function MessageThread({
             so a 1920 window does not leave a gutter on both sides. */}
         <div className="mx-auto w-full max-w-[46rem] space-y-2 2xl:max-w-[60rem]">
           {entries.length === 0 ? (
-            <p className="py-10 text-center text-[13px] text-muted-foreground">
+            <p className="py-10 text-center text-[13px] text-white/80">
               Nothing in this thread yet.
             </p>
           ) : null}
@@ -336,7 +411,7 @@ export function MessageThread({
               >
                 {newDay ? (
                   <div className="flex justify-center py-2">
-                    <span className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-xs">
+                    <span className="rounded-full border border-border bg-card/95 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur-sm">
                       {dayLabel(entry.at)}
                     </span>
                   </div>
@@ -462,8 +537,10 @@ function NoteCard({ note }: { note: InboxNote }) {
  * The 24-hour reply window as a clock: `24:00:00` when the customer writes,
  * ticking to zero, after which only a note can be saved.
  *
- * It sits on the green band, so it is a translucent pill rather than bare
- * text: the lime the app uses for "healthy" is unreadable on #008069.
+ * It is the third item on the subline — `+91 … · 21:04:33` — rather than a
+ * badge of its own. The pill it used to live in cost about 60px of a row that
+ * now has to hold two assignment controls, and set behind the phone number it
+ * reads as the same sentence: who, and how long is left.
  *
  * The tick is a counter rather than a timestamp, so the digits are still
  * derived during render by `windowCountdown` and no state has to be written
@@ -488,8 +565,8 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
           : "The 24-hour reply window has closed"
       }
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-brand-foreground",
-        left ? "bg-white/20" : "bg-black/20",
+        "shrink-0 tabular-nums",
+        left ? "text-brand-foreground/75" : "text-brand-foreground/60",
       )}
       role="timer"
       title={
@@ -498,8 +575,7 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
           : "WhatsApp only allows a reply after the customer writes again."
       }
     >
-      <Clock aria-hidden="true" className="size-2.5" />
-      {left ?? "Closed"}
+      {left ?? "window closed"}
     </span>
   );
 }

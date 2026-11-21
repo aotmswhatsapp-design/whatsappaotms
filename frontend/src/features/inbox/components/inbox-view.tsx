@@ -284,7 +284,7 @@ export function InboxView() {
 
   if (!booted) {
     return (
-      <div className="grid h-[70dvh] min-h-[30rem] place-items-center rounded-xl border border-border bg-card">
+      <div className="grid h-full place-items-center bg-card">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
     );
@@ -292,43 +292,52 @@ export function InboxView() {
 
   if (error && !summary) {
     return (
-      <EmptyState
-        description={error}
-        icon={Inbox}
-        title="The inbox could not be loaded"
-      />
+      <div className="grid h-full place-items-center p-6">
+        <EmptyState
+          className="w-full max-w-md"
+          description={error}
+          icon={Inbox}
+          title="The inbox could not be loaded"
+        />
+      </div>
     );
   }
 
   if (!summary?.channel) {
     return (
-      <EmptyState
-        description="The inbox reads and replies from the number you connect on the WhatsApp page. Connect it once and every customer message lands here."
-        icon={Inbox}
-        title="Connect a WhatsApp number"
-        action={
-          <Button asChild variant="brand">
-            <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
-          </Button>
-        }
-      />
+      <div className="grid h-full place-items-center p-6">
+        <EmptyState
+          className="w-full max-w-md"
+          description="The inbox reads and replies from the number you connect on the WhatsApp page. Connect it once and every customer message lands here."
+          icon={Inbox}
+          title="Connect a WhatsApp number"
+          action={
+            <Button asChild variant="brand">
+              <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
   return (
     <div
-      // One card for the whole screen. The height is the card's own now, not
-      // the parent's: the page above is a normal flow column, so an inherited
-      // `flex-1` would resolve to the content height and the `min-h-0` panes
-      // below it would lose their scroller. 70dvh keeps the two-pane layout
-      // roomy on a laptop while leaving the page scrollable.
+      // One card for the whole screen, filling the height the route hands it.
+      // `h-full` rather than a viewport sum of its own: the route already owns
+      // the geometry, and two places computing the same height is how a card
+      // ends up a few pixels short of its frame.
+      //
+      // No border and no radius. Flush against the top bar and the sidebar, the
+      // shell's own hairlines are the only edges on screen; a rounded corner
+      // here would read as a widget floating on the page instead.
       //
       // `data-theme="inbox"` is what makes this card read as WhatsApp rather
       // than as the rest of the app: the scope in `globals.css` swaps the warm
       // roles for white, chat grey and green, and it stops at the card's edge,
       // so the sidebar behind it keeps the teal palette.
       data-theme="inbox"
-      className="flex h-[70dvh] min-h-[30rem] flex-col overflow-hidden rounded-xl border border-border bg-card"
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-card"
       style={{ "--inbox-list": `${listWidth}px` } as React.CSSProperties}
     >
       {/* The channel and the counts used to float above the card as a loose
