@@ -2,26 +2,15 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CircleAlert, FileText, Loader2, Plus, RefreshCw, Search } from "lucide-react";
+import { FileText, Loader2, Plus, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { cn } from "@/lib/utils";
 
-import {
-  ApiError,
-  fetchTemplates,
-  type TemplateFacts,
-  type TemplateListPayload,
-} from "../api";
-import {
-  categoryLabel,
-  statusLabel,
-  statusTone,
-  updatedLabel,
-  type StatusTone,
-} from "../format";
+import { ApiError, fetchTemplates, type TemplateListPayload } from "../api";
 import { languageLabel } from "../languages";
+import { TemplateCard } from "./template-card";
 
 type StatusFilter = "ALL" | "APPROVED" | "PENDING" | "REJECTED";
 
@@ -32,31 +21,11 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "REJECTED", label: "Rejected" },
 ];
 
-const TONES: Record<StatusTone, string> = {
-  ok: "border-lime/45 bg-lime/10 text-foreground",
-  waiting: "border-warning/45 bg-warning/10 text-foreground",
-  bad: "border-destructive/35 bg-destructive/10 text-foreground",
-  muted: "border-border bg-secondary text-muted-foreground",
-};
-
-const DOTS: Record<StatusTone, string> = {
-  ok: "bg-lime",
-  waiting: "bg-warning",
-  bad: "bg-destructive",
-  muted: "bg-muted-foreground/60",
-};
-
-const QUALITY: Record<string, { label: string; className: string }> = {
-  GREEN: { label: "High quality", className: "bg-lime" },
-  YELLOW: { label: "Medium quality", className: "bg-warning" },
-  RED: { label: "Low quality", className: "bg-destructive" },
-};
-
 /**
- * The template list.
+ * The template catalogue.
  *
  * It is Meta's list, cached for a minute: refresh forces the round trip, and a
- * failed sync keeps the rows on screen with the reason attached. Templates
+ * failed sync keeps the cards on screen with the reason attached. Templates
  * deleted at Meta are hidden rather than listed as tombstones — nothing can be
  * done with them here.
  */
@@ -183,6 +152,7 @@ export function TemplatesView() {
             <input
               aria-label="Search templates"
               className="h-10 w-full rounded-lg border border-input bg-background pr-3 pl-9 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]"
+              name="templates-search"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search a name or a language"
               spellCheck={false}
@@ -226,15 +196,6 @@ export function TemplatesView() {
             <RefreshCw className={cn(refreshing && "animate-spin")} />
             {refreshing ? "Syncing…" : "Refresh"}
           </Button>
-
-          {list?.connected ? (
-            <Button asChild size="sm" variant="brand">
-              <Link href="/workspace/templates/new">
-                <Plus />
-                New template
-              </Link>
-            </Button>
-          ) : null}
         </div>
       </div>
 
@@ -262,8 +223,8 @@ export function TemplatesView() {
         </p>
       ) : null}
 
-      <section className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3 sm:px-5">
+      <section>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
           <h2 className="text-sm font-semibold text-foreground">
             {filter === "ALL" ? "All templates" : FILTERS.find((entry) => entry.value === filter)?.label}
           </h2>
@@ -276,7 +237,7 @@ export function TemplatesView() {
           <EmptyState
             action={
               templates.length === 0 ? (
-                <Button asChild variant="brand">
+                <Button asChild variant="pop">
                   <Link href="/workspace/templates/new">
                     <Plus />
                     Create the first template
@@ -305,14 +266,14 @@ export function TemplatesView() {
             title={templates.length === 0 ? "No templates yet" : "Nothing matches"}
           />
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {shown.map((row) => (
-              <TemplateRow key={row.id} row={row} />
+              <TemplateCard key={row.id} row={row} />
             ))}
           </ul>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2.5 text-[11.5px] text-muted-foreground sm:px-5">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-[11.5px] text-muted-foreground">
           <span>
             {list?.syncedAt
               ? `Synced from Meta at ${clockOf(list.syncedAt)}`
@@ -325,78 +286,6 @@ export function TemplatesView() {
       </section>
     </div>
   );
-}
-
-function TemplateRow({ row }: { row: TemplateFacts }) {
-  const tone = statusTone(row.status);
-  const quality = row.qualityScore ? QUALITY[row.qualityScore.toUpperCase()] : undefined;
-
-  return (
-    <li className="px-4 py-3.5 sm:px-5">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-mono text-[13.5px] font-medium text-foreground">
-              {row.name}
-            </span>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium",
-                TONES[tone],
-              )}
-            >
-              <span aria-hidden="true" className={cn("size-1.5 rounded-full", DOTS[tone])} />
-              {statusLabel(row.status)}
-            </span>
-            {quality ? (
-              <span className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-                <span aria-hidden="true" className={cn("size-1.5 rounded-full", quality.className)} />
-                {quality.label}
-              </span>
-            ) : null}
-          </p>
-
-          <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
-            {bodyOf(row.components) ?? "No body text stored for this template."}
-          </p>
-
-          {row.rejectedReason ? (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-destructive">
-              <CircleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-              {row.rejectedReason}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-[11.5px] text-muted-foreground">
-          <span className="rounded-full border border-border bg-secondary px-2 py-0.5">
-            {categoryLabel(row.category)}
-          </span>
-          <span className="rounded-full border border-border bg-secondary px-2 py-0.5">
-            {languageLabel(row.language)}
-          </span>
-          <span className="tabular-nums">{updatedLabel(row.updatedAt)}</span>
-        </div>
-      </div>
-    </li>
-  );
-}
-
-/** BODY text out of Meta's components array, for the row's one-line summary. */
-function bodyOf(components: unknown): string | null {
-  if (!Array.isArray(components)) return null;
-
-  for (const component of components) {
-    if (typeof component !== "object" || component === null) continue;
-
-    const { type, text } = component as { type?: unknown; text?: unknown };
-
-    if (type === "BODY" && typeof text === "string" && text.trim()) {
-      return text.trim();
-    }
-  }
-
-  return null;
 }
 
 function clockOf(iso: string): string {

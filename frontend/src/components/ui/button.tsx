@@ -14,6 +14,15 @@ const buttonVariants = cva(
         brand:
           "bg-brand text-brand-foreground shadow-xs hover:-translate-y-0.5 hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none",
         /**
+         * The marketing hero's pressable treatment, carried into the app: a
+         * hairline, and a slab of its own fill sitting 4px down and right.
+         * Hovering steps the plate into the slab, so the shadow collapses
+         * instead of deepening — the button presses rather than floats. The
+         * slab is `--brand` too, which is what makes the colour follow the
+         * theme instead of a hard-coded hex.
+         */
+        pop: "border border-soft-black bg-brand text-brand-foreground shadow-[4px_4px_0_0_var(--brand)] hover:translate-x-1 hover:translate-y-1 hover:bg-brand hover:shadow-none focus-visible:ring-brand",
+        /**
          * Inverted pill: teal plate, white label. The highest-contrast action
          * available on the app's light sheet.
          */

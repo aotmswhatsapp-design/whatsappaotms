@@ -239,14 +239,6 @@ export function ChartCard({
   );
 }
 
-function PreviewPill() {
-  return (
-    <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-      Preview
-    </span>
-  );
-}
-
 function Arrow() {
   return (
     <svg viewBox="0 0 12 12" className="size-[11px]" aria-hidden="true">
@@ -281,16 +273,15 @@ export function TrendCard({
   caption,
   series,
   color = CHART_COLORS.brand,
-  preview = false,
 }: {
   label: string;
   value: number;
-  delta: string;
+  /** Omitted when Meta gave no comparable previous window. */
+  delta?: string;
   note?: string;
   caption?: string;
   series: Point[];
   color?: string;
-  preview?: boolean;
 }) {
   const [ref, { w: W, h: H }] = useSize();
   const reduced = useReducedMotion();
@@ -362,7 +353,6 @@ export function TrendCard({
   return (
     <ChartCard
       title={label}
-      meta={preview ? <PreviewPill /> : null}
       className="gap-2"
     >
       <div className="shrink-0">
@@ -373,7 +363,7 @@ export function TrendCard({
           >
             <CountUp value={value} />
           </span>
-          <Delta>{delta}</Delta>
+          {delta ? <Delta>{delta}</Delta> : null}
         </div>
         {note ? (
           <p className="mt-1 text-xs text-muted-foreground">{note}</p>
@@ -502,7 +492,6 @@ export function FlowCard({
   priorInbound,
   priorOutbound,
   labels = { inbound: "Inbound", outbound: "Outbound", prior: "Prior week" },
-  preview = false,
 }: {
   title: string;
   total: number;
@@ -512,7 +501,6 @@ export function FlowCard({
   priorInbound?: number[];
   priorOutbound?: number[];
   labels?: { inbound: string; outbound: string; prior: string };
-  preview?: boolean;
 }) {
   const [ref, { w: W, h: H }] = useSize();
   const reduced = useReducedMotion();
@@ -591,7 +579,7 @@ export function FlowCard({
   const width = (key: string) => (key === "i" || key === "o" ? 2.4 : 1.4);
 
   return (
-    <ChartCard title={title} meta={preview ? <PreviewPill /> : null} className="gap-2">
+    <ChartCard title={title} className="gap-2">
       <div className="shrink-0">
         <span
           className="text-2xl leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums"
@@ -676,194 +664,6 @@ export function FlowCard({
   );
 }
 
-/* ---------------- C: template categories (treemap) ---------------- */
-
-type Rect = { name: string; group: string; v: number; x: number; y: number; w: number; h: number };
-
-function squarify(
-  items: { name: string; group: string; v: number }[],
-  width: number,
-  height: number,
-): Rect[] {
-  const total = items.reduce((a, b) => a + b.v, 0) || 1;
-  const scale = (width * height) / total;
-  let x = 0;
-  let y = 0;
-  let w = width;
-  let h = height;
-  const out: Rect[] = [];
-  let rest = items.map((item) => ({ ...item, a: item.v * scale }));
-
-  const worst = (row: typeof rest, len: number) => {
-    const s = row.reduce((a, b) => a + b.a, 0);
-    const mx = Math.max(...row.map((r) => r.a));
-    const mn = Math.min(...row.map((r) => r.a));
-    return Math.max((len * len * mx) / (s * s), (s * s) / (len * len * mn));
-  };
-
-  while (rest.length) {
-    const len = Math.min(w, h);
-    const row = [rest[0]];
-    let i = 1;
-    while (i < rest.length && worst([...row, rest[i]], len) <= worst(row, len))
-      row.push(rest[i++]);
-    rest = rest.slice(i);
-    const s = row.reduce((a, b) => a + b.a, 0);
-    if (w >= h) {
-      const cw = s / h;
-      let cy = y;
-      for (const r of row) {
-        const rh = r.a / cw;
-        out.push({ ...r, x, y: cy, w: cw, h: rh });
-        cy += rh;
-      }
-      x += cw;
-      w -= cw;
-    } else {
-      const rh = s / w;
-      let cx = x;
-      for (const r of row) {
-        const rw = r.a / rh;
-        out.push({ ...r, x: cx, y, w: rw, h: rh });
-        cx += rw;
-      }
-      y += rh;
-      h -= rh;
-    }
-  }
-  return out;
-}
-
-export function CategoryCard({
-  title,
-  groups,
-  items,
-  preview = false,
-}: {
-  title: string;
-  groups: { id: string; name: string; color: string; ink?: "dark" | "light" }[];
-  items: { name: string; group: string; value: number }[];
-  preview?: boolean;
-}) {
-  const [ref, { w: W, h: H }] = useSize();
-  const [placed, setPlaced] = useState(false);
-  const { api, node } = useTip();
-
-  useEffect(() => {
-    if (!W || !H) return;
-    const raf = requestAnimationFrame(() =>
-      requestAnimationFrame(() => setPlaced(true)),
-    );
-    return () => cancelAnimationFrame(raf);
-  }, [W, H]);
-
-  const gap = 4;
-  const sorted = [...items].sort((a, b) => b.value - a.value);
-  const total = sorted.reduce((a, b) => a + b.value, 0) || 1;
-  const rects =
-    W && H
-      ? squarify(
-          sorted.map((item) => ({ name: item.name, group: item.group, v: item.value })),
-          W + gap,
-          H + gap,
-        )
-      : [];
-
-  return (
-    <ChartCard
-      title={title}
-      meta={
-        <div className="flex flex-col items-end gap-1">
-          {preview ? <PreviewPill /> : null}
-          <div className="flex flex-wrap justify-end gap-x-2.5 gap-y-1">
-            {groups.map((group) => (
-              <span
-                key={group.id}
-                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
-              >
-                <i className="size-1.5 rounded-[2px]" style={{ background: group.color }} />
-                {group.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      }
-      className="gap-2"
-    >
-      <div
-        ref={ref}
-        className="relative min-h-0 flex-1"
-        role="img"
-        aria-label={title}
-      >
-        {rects.map((rect) => {
-          const group = groups.find((candidate) => candidate.id === rect.group);
-          const w = rect.w - gap;
-          const h = rect.h - gap;
-          const share = ((rect.v / total) * 100).toFixed(0) + "%";
-          const chars = fmt(rect.v).length;
-          let fontSize = Math.min(26, Math.max(11, (w - 16) / (chars * 0.62)));
-          const showName = h >= 46 && w >= 74;
-          const showValue = h >= 34 && w >= 52;
-          if (!showValue) fontSize = 0;
-          // Series fills are deep tones on white cards, so labels are white too.
-          const ink =
-            group?.ink === "light"
-              ? "text-card"
-              : group?.ink === "dark"
-                ? "text-soft-black"
-                : "text-foreground";
-          return (
-            <div
-              key={rect.name}
-              className={cn(
-                "absolute flex flex-col justify-between overflow-hidden rounded-lg p-2 transition-[left,top,width,height] duration-700 [transition-timing-function:cubic-bezier(.2,.9,.25,1)] hover:brightness-[1.07] motion-reduce:transition-none",
-                ink,
-              )}
-              style={{
-                left: placed ? rect.x : W / 2,
-                top: placed ? rect.y : H / 2,
-                width: placed ? w : 0,
-                height: placed ? h : 0,
-                background: group?.color ?? "var(--muted)",
-              }}
-              onPointerMove={(event) =>
-                api.current?.show(event.clientX, event.clientY, {
-                  title: group?.name ?? rect.group,
-                  rows: [
-                    { label: rect.name, value: fmt(rect.v), color: group?.color },
-                    { label: "Share", value: share },
-                  ],
-                })
-              }
-              onPointerLeave={() => api.current?.hide()}
-            >
-              {showName ? (
-                <span className="truncate text-[10px] font-semibold tracking-[0.04em] uppercase opacity-90">
-                  {rect.name}
-                </span>
-              ) : null}
-              {showValue ? (
-                <span
-                  className="leading-none font-semibold tracking-[-0.03em]"
-                  style={{
-                    fontFamily: FONT_MONO,
-                    fontSize,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  <CountUp value={rect.v} duration={900} />
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-      {node}
-    </ChartCard>
-  );
-}
-
 /* ---------------- D: monthly volume (radar) ---------------- */
 
 export function SeasonalityCard({
@@ -872,14 +672,12 @@ export function SeasonalityCard({
   current,
   previous,
   previousLabel,
-  preview = false,
 }: {
   title: string;
   months: string[];
   current: number[];
   previous?: number[];
   previousLabel?: string;
-  preview?: boolean;
 }) {
   const [ref, { w: W, h: H }] = useSize();
   const reduced = useReducedMotion();
@@ -983,7 +781,7 @@ export function SeasonalityCard({
   const hovered = hover !== null ? point(current, hover) : null;
 
   return (
-    <ChartCard title={title} meta={preview ? <PreviewPill /> : null} className="gap-2">
+    <ChartCard title={title} className="gap-2">
       <div ref={ref} className="relative min-h-0 flex-1">
         {R > 0 ? (
           <svg
@@ -1111,14 +909,12 @@ export function KpiTile({
   hint,
   icon: Icon,
   accent = "brand",
-  preview = false,
 }: {
   label: string;
   value: string;
   hint: string;
   icon: LucideIcon;
   accent?: "brand" | "blue" | "lime" | "muted";
-  preview?: boolean;
 }) {
   const tints: CSSProperties =
     accent === "brand"
@@ -1152,9 +948,6 @@ export function KpiTile({
         <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
           {hint}
         </p>
-        <span className="mt-3 inline-flex rounded-full bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-          {preview ? "Preview" : "Live"}
-        </span>
       </div>
     </div>
   );

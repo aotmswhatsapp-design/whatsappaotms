@@ -91,8 +91,8 @@ export function SetupWidget() {
       <p className="flex shrink-0 items-start gap-2 border-t border-border px-4 py-3 text-[11px] leading-snug text-muted-foreground">
         <ShieldCheck className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         {done > 0
-          ? "The charts stay marked Preview until live traffic replaces the samples."
-          : "Until a number is connected this dashboard shows sample numbers, marked Preview."}
+          ? "The charts read live from Meta; a reading Meta refuses stays blank rather than becoming a zero."
+          : "Connect a number and every chart reads live from your Meta account."}
       </p>
     </div>
   );

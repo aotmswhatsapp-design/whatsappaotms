@@ -11,8 +11,8 @@ export const metadata: Metadata = { title: "Overview" };
 
 /**
  * The single dashboard: identity from the session, then one draggable grid of
- * WhatsApp telemetry (see `DashboardBoard`). Every reading on the grid is
- * marked Preview until a Business number is connected.
+ * live WhatsApp analytics (see `DashboardBoard`). Every reading is a Graph
+ * read of the connected Meta account; no figures are sample data.
  */
 async function Overview() {
   const user = await getSessionUser();
@@ -26,7 +26,7 @@ async function Overview() {
       <PageHeader
         eyebrow="Operations"
         title={`Welcome, ${firstName}`}
-        description={`You are signed in as ${user.email}. This dashboard tracks the WhatsApp channel — delivery, conversations, templates and opt-outs in one place.`}
+        description={`You are signed in as ${user.email}. This dashboard reads your WhatsApp Business account directly — messages sent and delivered, who wrote in, and what Meta billed.`}
         actions={<ConnectCta />}
       />
 

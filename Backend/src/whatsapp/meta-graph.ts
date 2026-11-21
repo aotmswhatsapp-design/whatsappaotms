@@ -141,6 +141,44 @@ export interface QrCodeDetails {
 }
 
 /**
+ * The buckets `analytics` on a WABA answers with.
+ *
+ * `start` and `end` are Unix seconds, exactly as `start(…).end(…)` asked for
+ * them; the caller decides how to render a window. Volume arrives as `sent`
+ * and `delivered` for every product type, incoming included — there is no
+ * separate inbound metric to read.
+ */
+export interface WabaAnalyticsPoint {
+  start: number | null;
+  end: number | null;
+  sent: number | null;
+  delivered: number | null;
+}
+
+export interface WabaAnalyticsRead {
+  points: WabaAnalyticsPoint[];
+  currency: string | null;
+}
+
+/**
+ * One pricing category's volume and cost over a window. `cost` is null when
+ * Meta withheld it — Solution-Partner billing reports volume without a
+ * figure, and a `0` would read as "this was free".
+ */
+export interface PricingPoint {
+  category: string;
+  volume: number | null;
+  cost: number | null;
+}
+
+export interface PricingRead {
+  points: PricingPoint[];
+  currency: string | null;
+}
+
+export type AnalyticsGranularity = "DAY" | "HALF_HOUR" | "MONTHLY";
+
+/**
  * The only place that knows Meta's wire format.
  *
  * The access token travels in the Authorization header rather than a query
@@ -387,6 +425,120 @@ export class MetaGraph {
     );
   }
 
+  /**
+   * Messaging volume on the WABA, bucketed by granularity.
+   *
+   * `productTypes` narrows the read to Meta's product classes (0 template,
+   * 2 non-template, 100 incoming), which is the only way the API splits
+   * inbound from outbound. The whole `analytics.…` expression travels in
+   * `fields` because it is a field argument, not a query parameter.
+   */
+  async getWabaAnalytics(
+    version: string,
+    businessAccountId: string,
+    token: string,
+    query: {
+      start: number;
+      end: number;
+      granularity: AnalyticsGranularity;
+      productTypes?: number[];
+    },
+  ): Promise<WabaAnalyticsRead> {
+    const expression = [
+      `analytics.start(${query.start}).end(${query.end}).granularity(${query.granularity})`,
+      query.productTypes?.length
+        ? `.product_types(${query.productTypes.join(",")})`
+        : "",
+    ].join("");
+
+    const payload = await this.send<Record<string, unknown>>(
+      this.fieldUrl(version, businessAccountId, expression),
+      { method: "GET", token },
+    );
+
+    const analytics = isRecord(payload.analytics) ? payload.analytics : payload;
+    const raw = Array.isArray(analytics.data_points)
+      ? analytics.data_points
+      : Array.isArray(analytics.data)
+        ? analytics.data
+        : [];
+
+    return {
+      points: raw.filter(isRecord).map((point) => ({
+        start: secondsOf(point.start),
+        end: secondsOf(point.end),
+        sent: numberOf(point.sent) ?? numberOf(point.messages),
+        delivered: numberOf(point.delivered),
+      })),
+      currency: textOf(payload.currency) ?? textOf(analytics.currency),
+    };
+  }
+
+  /**
+   * What the window cost, per pricing category.
+   *
+   * The answer is a group per dimension value, each with its own data points;
+   * the groups are flattened here so callers sum one list. A point that names
+   * its metric carries the figure in `value`; one that carries `volume` and
+   * `cost` directly is read as-is.
+   */
+  async getPricingAnalytics(
+    version: string,
+    businessAccountId: string,
+    token: string,
+    start: number,
+    end: number,
+  ): Promise<PricingRead> {
+    const expression = [
+      `pricing_analytics.start(${start}).end(${end}).granularity(DAILY)`,
+      ".metric_types(VOLUME,COST)",
+      ".dimensions(PRICING_CATEGORY)",
+    ].join("");
+
+    const payload = await this.send<Record<string, unknown>>(
+      this.fieldUrl(version, businessAccountId, expression),
+      { method: "GET", token },
+    );
+
+    const root = payload.pricing_analytics;
+    const groups = isRecord(root)
+      ? Array.isArray(root.data)
+        ? root.data
+        : [root]
+      : Array.isArray(root)
+        ? root
+        : [];
+
+    const points: PricingPoint[] = [];
+
+    for (const group of groups) {
+      if (!isRecord(group)) continue;
+
+      const raw = Array.isArray(group.data_points) ? group.data_points : [];
+
+      for (const point of raw) {
+        if (!isRecord(point)) continue;
+
+        const category = textOf(point.pricing_category) ?? textOf(point.category);
+        if (!category) continue;
+
+        const metric = (textOf(point.metric_type) ?? "").toUpperCase();
+        const value = numberOf(point.value);
+        const volume = numberOf(point.volume) ?? (metric === "VOLUME" ? value : null);
+        const cost = numberOf(point.cost) ?? (metric === "COST" ? value : null);
+
+        points.push({ category, volume, cost });
+      }
+    }
+
+    return {
+      points,
+      currency:
+        textOf(payload.currency) ??
+        (isRecord(root) ? textOf(root.currency) : null),
+    };
+  }
+
   private get<T>(
     version: string,
     node: string,
@@ -417,6 +569,13 @@ export class MetaGraph {
     return new URL(
       [this.base, encodeURIComponent(version), ...path.map(encodeURIComponent)].join("/"),
     );
+  }
+
+  /** A node read whose field list is an argument expression, not a list. */
+  private fieldUrl(version: string, node: string, fields: string): URL {
+    const url = this.urlOf(version, [node]);
+    url.searchParams.set("fields", fields);
+    return url;
   }
 
   private async send<T>(
@@ -478,4 +637,31 @@ function parseJson(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function textOf(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Meta sends counts as numbers, and occasionally as numeric strings. */
+function numberOf(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+/** Analytics windows are Unix seconds; a string is parsed back to one. */
+function secondsOf(value: unknown): number | null {
+  const parsed = numberOf(value);
+
+  return parsed === null ? null : Math.round(parsed);
 }
