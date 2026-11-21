@@ -148,37 +148,48 @@ export function Composer({
   const rows = Math.min(6, Math.max(1, text.split("\n").length));
 
   return (
-    <div className="border-t border-border p-4">
-      <div className="mb-2 flex items-center gap-1">
-        <ModeButton
-          active={mode === "reply"}
-          disabled={locked}
-          onClick={() => switchMode("reply")}
-          icon={<SendHorizontal aria-hidden="true" className="size-4" />}
-          label="Reply"
-          title={locked ? "The customer has not written for 24 hours." : undefined}
-        />
-        <ModeButton
-          active={mode === "note"}
-          onClick={() => switchMode("note")}
-          icon={<StickyNote aria-hidden="true" className="size-4" />}
-          label="Internal note"
-        />
-      </div>
-
+    <div className="shrink-0 border-t border-border bg-card px-3 pt-2.5 pb-2 sm:px-4">
       {error ? (
-        <p className="mb-2 rounded-md bg-destructive/10 px-3 py-2 text-[14px] text-destructive">
+        <p className="mb-2 rounded-lg bg-destructive/10 px-3 py-1.5 text-[13px] leading-relaxed text-destructive">
           {error}
         </p>
       ) : null}
 
+      {/* One bar. The reply/note switch used to sit above the field as its own
+          row, which cost 34px of thread height to say something two small
+          buttons can say from inside the bar. */}
       <div
         className={cn(
-          "flex items-end gap-1.5 rounded-xl border bg-card p-2",
+          "flex items-end gap-1 rounded-2xl border bg-card p-1 transition-colors",
           mode === "note" ? "border-warning/40" : "border-border",
-          active ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10" : "opacity-70",
+          active
+            ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10"
+            : "opacity-75",
         )}
       >
+        <div
+          role="group"
+          aria-label="Message type"
+          className="mb-0.5 flex shrink-0 items-center gap-0.5 rounded-full bg-secondary/80 p-0.5"
+        >
+          <ModeButton
+            active={mode === "reply"}
+            disabled={locked}
+            onClick={() => switchMode("reply")}
+            icon={<SendHorizontal aria-hidden="true" className="size-3.5" />}
+            label="Reply"
+            title={
+              locked ? "The customer has not written for 24 hours." : undefined
+            }
+          />
+          <ModeButton
+            active={mode === "note"}
+            onClick={() => switchMode("note")}
+            icon={<StickyNote aria-hidden="true" className="size-3.5" />}
+            label="Note"
+          />
+        </div>
+
         {mode === "reply" ? (
           <>
             <DropdownMenu>
@@ -186,13 +197,13 @@ export function Composer({
                 <button
                   type="button"
                   aria-label="Attach a file"
-                  className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  className="mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
                   disabled={locked || sending}
                 >
-                  <Paperclip aria-hidden="true" className="size-[18px]" />
+                  <Paperclip aria-hidden="true" className="size-[17px]" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuContent align="start" className="w-52" side="top">
                 <DropdownMenuItem onSelect={() => pick(PHOTOS)}>
                   <ImageIcon aria-hidden="true" />
                   Photo or video
@@ -214,17 +225,12 @@ export function Composer({
               }}
             />
           </>
-        ) : (
-          <StickyNote
-            aria-hidden="true"
-            className="mb-3 ml-2 size-[18px] shrink-0 text-warning"
-          />
-        )}
+        ) : null}
 
         <textarea
           ref={area}
           aria-label={mode === "note" ? "Internal note" : "Reply"}
-          className="max-h-40 min-h-10 flex-1 resize-none bg-transparent py-2 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
+          className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-1.5 py-2 text-[14.5px] leading-relaxed outline-none placeholder:text-muted-foreground"
           disabled={!active || sending}
           placeholder={
             mode === "note"
@@ -248,22 +254,21 @@ export function Composer({
           type="button"
           aria-label={mode === "note" ? "Save note" : "Send reply"}
           className={cn(
-            "grid size-10 shrink-0 place-items-center rounded-lg text-brand-foreground transition-colors",
+            "mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-brand-foreground transition-[background-color,opacity] hover:opacity-90 disabled:opacity-40",
             mode === "note" ? "bg-warning" : "bg-brand",
-            "hover:opacity-90 disabled:opacity-40",
           )}
           disabled={!active || sending || text.trim().length === 0}
           onClick={() => void submit()}
         >
           {sending ? (
-            <Loader2 aria-hidden="true" className="size-[18px] animate-spin" />
+            <Loader2 aria-hidden="true" className="size-[17px] animate-spin" />
           ) : (
-            <SendHorizontal aria-hidden="true" className="size-[18px]" />
+            <SendHorizontal aria-hidden="true" className="size-[17px]" />
           )}
         </button>
       </div>
 
-      <p className="mt-2 px-1 text-[12px] text-muted-foreground">
+      <p className="mt-1.5 px-1 text-[11.5px] text-muted-foreground">
         {locked && mode === "reply"
           ? "Replies reopen when the customer writes again."
           : mode === "note"
@@ -294,10 +299,10 @@ function ModeButton({
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors",
+        "inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-2 text-[12.5px] font-medium transition-colors sm:px-2.5",
         active
-          ? "bg-secondary text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          ? "bg-card text-foreground shadow-xs"
+          : "text-muted-foreground hover:text-foreground",
         "disabled:cursor-not-allowed disabled:opacity-40",
       )}
       disabled={disabled}
@@ -305,7 +310,9 @@ function ModeButton({
       title={title}
     >
       {icon}
-      {label}
+      {/* The icon alone carries the control below `sm`; the label stays in the
+          tree so the button keeps a real name for screen readers. */}
+      <span className="sr-only sm:not-sr-only">{label}</span>
     </button>
   );
 }

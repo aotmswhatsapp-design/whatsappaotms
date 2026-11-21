@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, ListFilter, Loader2, Search } from "lucide-react";
+import { Check, ChevronDown, ListFilter, Loader2, Search, X } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import {
   type ConversationFilters,
   type ConversationStatus,
 } from "../api";
-import { displayPhone, initials, relativeTime } from "../format";
+import { dayKey, dayLabel, displayPhone, initials, relativeTime } from "../format";
 
 const STATUSES: { value: ConversationStatus | ""; label: string }[] = [
   { value: "", label: "All statuses" },
@@ -66,13 +66,40 @@ export function ConversationList({
   const assigneeLabel =
     ASSIGNEES.find((row) => row.value === (filters.assignee ?? ""))?.label ?? "Anyone";
 
+  // Clearing unmounts the button that had focus, so focus is handed back to
+  // the field rather than dropped on the body.
+  const field = React.useRef<HTMLInputElement>(null);
+
   const filtered = Boolean(filters.status || filters.assignee);
   const summary = filtered ? `${statusLabel} · ${assigneeLabel}` : "All chats";
 
+  // One label per calendar day, in the order the rows arrive (newest first).
+  // A queue that is a day old reads as two stacks instead of an undated list.
+  const groups = React.useMemo(() => {
+    const buckets: { key: string; label: string; rows: Conversation[] }[] = [];
+
+    for (const conversation of conversations) {
+      const key = dayKey(conversation.lastMessageAt);
+      const last = buckets[buckets.length - 1];
+
+      if (last && last.key === key) {
+        last.rows.push(conversation);
+      } else {
+        buckets.push({
+          key,
+          label: dayLabel(conversation.lastMessageAt),
+          rows: [conversation],
+        });
+      }
+    }
+
+    return buckets;
+  }, [conversations]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-border px-4">
-        <p className="text-[15px] font-semibold text-foreground">Chats</p>
+      <div className="flex h-16 shrink-0 items-center gap-2 pr-2 pl-4">
+        <p className="text-[16px] font-semibold tracking-[-0.01em] text-foreground">Chats</p>
         <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
           {conversations.length}
         </span>
@@ -84,7 +111,7 @@ export function ConversationList({
                 type="button"
                 aria-label={`Filter conversations — ${summary}`}
                 className={cn(
-                  "inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors outline-none",
+                  "inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-medium outline-none transition-colors",
                   "hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
                   filtered ? "bg-brand-soft text-brand" : "text-muted-foreground",
                 )}
@@ -148,22 +175,41 @@ export function ConversationList({
         </div>
       </div>
 
-      <div className="relative shrink-0 px-4 py-3">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-6 size-[18px] -translate-y-1/2 text-muted-foreground"
-        />
-        <input
-          aria-label="Search conversations"
-          className="h-10 w-full rounded-lg border border-border bg-secondary/40 pr-3 pl-11 text-[14px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
-          placeholder="Search name, number or message"
-          type="search"
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-        />
+      {/* The header and the search pill are one 110px block, the same height
+          as the thread's header, so the hairline between the panes runs
+          straight across instead of stepping down at the divider. */}
+      <div className="shrink-0 px-3 pb-2.5">
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            ref={field}
+            aria-label="Search conversations"
+            className="h-9 w-full rounded-full border border-transparent bg-secondary/70 pr-9 pl-9 text-[13.5px] outline-none placeholder:text-muted-foreground focus-visible:border-brand/40 focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-brand/10"
+            placeholder="Search name, number or message"
+            type="text"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+          {search ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              className="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={() => {
+                onSearchChange("");
+                field.current?.focus();
+              }}
+            >
+              <X aria-hidden="true" className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/60">
+      <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
         {loading && conversations.length === 0 ? (
           <p className="grid place-items-center py-12">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -178,82 +224,115 @@ export function ConversationList({
           </p>
         ) : null}
 
-        <ul>
-          {conversations.map((conversation) => {
-            const selected = conversation.id === selectedId;
+        <ul className="pb-2">
+          {groups.map((group) => (
+            <li key={group.key}>
+              <p className="px-4 pt-4 pb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                {group.label}
+              </p>
 
-            return (
-              <li key={conversation.id}>
-                <button
-                  type="button"
-                  aria-current={selected ? "true" : undefined}
-                  className={cn(
-                    "flex w-full gap-3.5 px-4 py-3.5 text-left transition-colors",
-                    "border-b border-border/50 last:border-b-0",
-                    selected ? "bg-brand-soft/60" : "hover:bg-accent/60",
-                  )}
-                  onClick={() => onSelect(conversation.id)}
-                >
-                  <span className="relative grid size-12 shrink-0 place-items-center rounded-full bg-secondary text-[13px] font-semibold text-foreground">
-                    {initials(
-                      conversation.contact.name,
-                      conversation.contact.waId,
-                    )}
-                    {conversation.unreadCount > 0 ? (
-                      <span
-                        aria-hidden="true"
-                        className="absolute -top-0.5 -right-0.5 size-3.5 rounded-full bg-brand ring-2 ring-card"
-                      />
-                    ) : null}
-                  </span>
+              <ul>
+                {group.rows.map((conversation) => {
+                  const selected = conversation.id === selectedId;
+                  const unread = conversation.unreadCount > 0;
 
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-[15px] font-semibold text-foreground">
-                        {conversation.contact.name ??
-                          displayPhone(conversation.contact.waId)}
-                      </span>
-                      <span
+                  return (
+                    <li key={conversation.id}>
+                      <button
+                        type="button"
+                        aria-current={selected ? "true" : undefined}
                         className={cn(
-                          "shrink-0 text-[12px] tabular-nums",
-                          conversation.unreadCount > 0
-                            ? "font-semibold text-brand"
-                            : "text-muted-foreground",
+                          "relative flex w-full items-center gap-3 py-2.5 pr-4 pl-5 text-left transition-colors",
+                          selected ? "bg-brand-soft/60" : "hover:bg-accent/50",
                         )}
+                        onClick={() => onSelect(conversation.id)}
                       >
-                        {relativeTime(conversation.lastMessageAt)}
-                      </span>
-                    </span>
+                        {selected ? (
+                          <span
+                            aria-hidden="true"
+                            className="absolute top-2.5 bottom-2.5 left-1.5 w-[3px] rounded-full bg-brand"
+                          />
+                        ) : null}
 
-                    <span className="mt-1 flex items-center justify-between gap-2">
-                      <span className="truncate text-[13.5px] text-muted-foreground">
-                        {conversation.lastMessagePreview ?? "No messages yet"}
-                      </span>
-
-                      {conversation.unreadCount > 0 ? (
-                        <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-brand px-1 text-[11px] font-semibold text-brand-foreground tabular-nums">
-                          {conversation.unreadCount > 99
-                            ? "99+"
-                            : conversation.unreadCount}
-                        </span>
-                      ) : conversation.status !== "OPEN" ? (
                         <span
                           className={cn(
-                            "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                            conversation.status === "PENDING"
-                              ? "bg-warning-soft text-warning"
+                            "grid size-12 shrink-0 place-items-center rounded-full text-[13px] font-semibold",
+                            unread
+                              ? "bg-brand text-brand-foreground"
                               : "bg-secondary text-muted-foreground",
                           )}
                         >
-                          {conversation.status === "PENDING" ? "Pending" : "Closed"}
+                          {initials(
+                            conversation.contact.name,
+                            conversation.contact.waId,
+                          )}
                         </span>
-                      ) : null}
-                    </span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
+
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline gap-2">
+                            <span
+                              className={cn(
+                                "truncate text-[14.5px] leading-tight text-foreground",
+                                unread ? "font-semibold" : "font-medium",
+                              )}
+                            >
+                              {conversation.contact.name ??
+                                displayPhone(conversation.contact.waId)}
+                            </span>
+                            <span
+                              className={cn(
+                                "ml-auto shrink-0 text-[11.5px] tabular-nums",
+                                unread
+                                  ? "font-semibold text-brand"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {relativeTime(conversation.lastMessageAt)}
+                            </span>
+                          </span>
+
+                          <span className="mt-1 flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "truncate text-[13px]",
+                                unread
+                                  ? "text-foreground/80"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {conversation.lastMessagePreview ??
+                                "No messages yet"}
+                            </span>
+
+                            {unread ? (
+                              <span className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-brand-foreground tabular-nums">
+                                {conversation.unreadCount > 99
+                                  ? "99+"
+                                  : conversation.unreadCount}
+                              </span>
+                            ) : conversation.status !== "OPEN" ? (
+                              <span
+                                className={cn(
+                                  "ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium",
+                                  conversation.status === "PENDING"
+                                    ? "bg-warning-soft text-warning"
+                                    : "bg-secondary text-muted-foreground",
+                                )}
+                              >
+                                {conversation.status === "PENDING"
+                                  ? "Pending"
+                                  : "Closed"}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
         </ul>
       </div>
     </div>
