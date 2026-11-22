@@ -19,6 +19,7 @@ import {
   ApiError,
   createCampaign,
   fetchAudience,
+  updateCampaign,
   type Audience,
   type Campaign,
   type CampaignOptions,
@@ -30,29 +31,41 @@ import { CampaignPreview } from "./campaign-preview";
 const AUDIENCE_DELAY_MS = 350;
 
 /**
- * The create panel.
+ * The create and edit panel.
  *
  * A campaign is one approved template sent once to a segment, so the form
  * collects exactly that: which template, who, how each `{{token}}` is filled,
  * and when. Every rule it enforces is the server's rule, restated so the
  * button explains itself before the request is made.
+ *
+ * Editing keeps the template: a campaign is one template sent once, and
+ * changing it would be a new campaign wearing the old one's counts.
  */
 export function CampaignForm({
   options,
+  editing,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   options: CampaignOptions;
+  /** Present when a draft is being changed rather than created. */
+  editing?: Campaign;
   onClose: () => void;
-  onCreated: (campaign: Campaign) => void;
+  onSaved: (campaign: Campaign) => void;
 }) {
-  const [name, setName] = React.useState("");
-  const [templateId, setTemplateId] = React.useState("");
-  const [tags, setTags] = React.useState<string[]>([]);
-  const [bindings, setBindings] = React.useState<Record<string, TokenBinding>>({});
-  const [buttonUrls, setButtonUrls] = React.useState<Record<string, string>>({});
-  const [schedule, setSchedule] = React.useState("");
-  const [optIn, setOptIn] = React.useState(false);
+  const [name, setName] = React.useState(editing?.name ?? "");
+  const [templateId, setTemplateId] = React.useState(editing?.template.id ?? "");
+  const [tags, setTags] = React.useState<string[]>(editing?.audienceTags ?? []);
+  const [bindings, setBindings] = React.useState<Record<string, TokenBinding>>(
+    editing?.variables ?? {},
+  );
+  const [buttonUrls, setButtonUrls] = React.useState<Record<string, string>>(
+    editing?.buttonUrls ?? {},
+  );
+  const [schedule, setSchedule] = React.useState(
+    editing?.scheduledAt ? scheduleValue(editing.scheduledAt) : "",
+  );
+  const [optIn, setOptIn] = React.useState(editing?.optInConfirmed ?? false);
   const [query, setQuery] = React.useState("");
   const [audience, setAudience] = React.useState<Audience | null>(null);
   const [audienceLoading, setAudienceLoading] = React.useState(true);
@@ -146,17 +159,19 @@ export function CampaignForm({
     setError(null);
 
     try {
-      const { campaign } = await createCampaign({
+      const draft = {
         name: name.trim(),
-        templateId: template.id,
         audienceTags: tags,
         variables: bindings,
         buttonUrls,
         optInConfirmed: optIn,
         scheduledAt: schedule ? new Date(schedule).toISOString() : null,
-      });
+      };
+      const saved = editing
+        ? await updateCampaign(editing.id, draft)
+        : await createCampaign({ ...draft, templateId: template.id });
 
-      onCreated(campaign);
+      onSaved(saved.campaign);
     } catch (caught) {
       setError(
         caught instanceof ApiError
@@ -177,10 +192,11 @@ export function CampaignForm({
     >
       <SheetContent className="w-full sm:max-w-xl" side="right">
         <SheetHeader className="border-b border-border">
-          <SheetTitle>New campaign</SheetTitle>
+          <SheetTitle>{editing ? "Edit campaign" : "New campaign"}</SheetTitle>
           <SheetDescription>
-            One approved template, sent to a segment through the connected
-            number.
+            {editing
+              ? "Only a draft or a scheduled campaign can change. The template stays the one Meta approved for this send."
+              : "One approved template, sent to a segment through the connected number."}
           </SheetDescription>
         </SheetHeader>
 
@@ -206,6 +222,13 @@ export function CampaignForm({
               <h3 className="text-[13px] font-semibold text-foreground">
                 Template
               </h3>
+
+              {editing ? (
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                  The template cannot change once the campaign exists: these
+                  counts belong to the message Meta approved for this send.
+                </p>
+              ) : null}
 
               {options.templates.length > 6 ? (
                 <div className="relative">
@@ -242,11 +265,12 @@ export function CampaignForm({
                       <button
                         aria-pressed={chosen}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none",
+                          "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60",
                           chosen
                             ? "bg-secondary text-foreground"
                             : "text-foreground hover:bg-secondary/60",
                         )}
+                        disabled={Boolean(editing)}
                         key={entry.id}
                         onClick={() => chooseTemplate(entry.id)}
                         type="button"
@@ -459,7 +483,11 @@ export function CampaignForm({
                 variant="brand"
               >
                 {submitting ? <Loader2 className="animate-spin" /> : null}
-                {schedule ? "Schedule campaign" : "Save draft"}
+                {editing
+                  ? "Save changes"
+                  : schedule
+                    ? "Schedule campaign"
+                    : "Save draft"}
               </Button>
             </div>
 
@@ -613,6 +641,16 @@ function ModeButton({
 
 const FIELD =
   "h-10 w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
+
+/** An ISO instant as `datetime-local` wants it: local, to the minute. */
+function scheduleValue(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 /**
  * The server's rules, restated. The list is also the button's explanation: the

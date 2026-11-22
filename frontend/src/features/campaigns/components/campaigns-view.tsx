@@ -21,6 +21,7 @@ import {
   type CampaignStatus,
 } from "../api";
 import { CampaignForm } from "./campaign-form";
+import { STATUS_LABEL, StatusPill } from "./status-pill";
 
 const nav = getNavItem("/workspace/campaigns");
 
@@ -48,26 +49,6 @@ const COLUMNS = [
   { key: "read", label: "Read", className: "text-right" },
   { key: "schedule", label: "Schedule" },
 ];
-
-const STATUS_LABEL: Record<CampaignStatus, string> = {
-  DRAFT: "Draft",
-  SCHEDULED: "Scheduled",
-  RUNNING: "Running",
-  PAUSED: "Paused",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
-  FAILED: "Failed",
-};
-
-const STATUS_STYLE: Record<CampaignStatus, string> = {
-  DRAFT: "border-border bg-secondary text-foreground",
-  SCHEDULED: "border-brand/40 bg-brand-soft text-foreground",
-  RUNNING: "border-whatsapp/40 bg-whatsapp/10 text-foreground",
-  PAUSED: "border-warning/45 bg-warning/10 text-foreground",
-  COMPLETED: "border-border bg-secondary text-muted-foreground",
-  CANCELLED: "border-border bg-secondary text-muted-foreground",
-  FAILED: "border-destructive/40 bg-destructive/5 text-foreground",
-};
 
 /**
  * The campaign list.
@@ -293,15 +274,7 @@ export function CampaignsView() {
                 ? campaign.audienceTags.join(", ")
                 : "Everyone"}
             </span>,
-            <span
-              className={cn(
-                "inline-flex rounded-full border px-2 py-0.5 text-[11.5px] font-medium",
-                STATUS_STYLE[campaign.status],
-              )}
-              key="status"
-            >
-              {STATUS_LABEL[campaign.status]}
-            </span>,
+            <StatusPill key="status" status={campaign.status} />,
             <span className="block text-right text-[13px] tabular-nums" key="sent">
               {campaign.insights.SENT}
             </span>,
@@ -327,7 +300,7 @@ export function CampaignsView() {
       {creating && options ? (
         <CampaignForm
           onClose={() => setCreating(false)}
-          onCreated={(campaign) => {
+          onSaved={(campaign) => {
             setCreating(false);
             toast.push({
               title:
