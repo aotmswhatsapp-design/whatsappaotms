@@ -4,11 +4,9 @@ import { ChevronRight, CircleAlert } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import type { TemplateFacts, TemplatePerformanceRow } from "../api";
+import type { TemplateFacts } from "../api";
 import {
   categoryLabel,
-  countLabel,
-  moneyLabel,
   STATUS_TONE_CLASS,
   STATUS_TONE_DOT,
   statusLabel,
@@ -23,43 +21,27 @@ const QUALITY: Record<string, { label: string; className: string }> = {
   RED: { label: "Low quality", className: "bg-destructive" },
 };
 
-/** The two money columns, wide enough that figures line up down the list. */
-const DELIVERED_WIDTH = "w-24";
-const SPEND_WIDTH = "w-28";
-
 /**
  * One template, as one row of the catalogue.
  *
- * Left is the template — its name, review state and the facts that identify it.
- * Right is what it did: how many messages Meta delivered and what Meta charged
- * for them. The whole row is the link, because a list row has nothing else to
- * offer once the figures are shown; there is no button inside it to swallow a
- * click.
- *
- * Absent figures are em dashes. `metrics` is undefined while the numbers are
- * still in flight, and its fields are null when Meta would not answer, so a
- * quiet template and an unmeasured one never look the same.
+ * The row carries what identifies the template — its name, review state and the
+ * facts that place it — and nothing else. Its numbers live on its own page,
+ * because a list of figures that Meta withholds half the time reads as a list
+ * of dashes. The whole row is the link; there is no button inside it to swallow
+ * a click.
  */
 export function TemplateRow({
   row,
   href,
-  metrics,
-  currency,
 }: {
   row: TemplateFacts;
   /** Where the row leads: the template's own page. */
   href: string;
-  metrics?: TemplatePerformanceRow;
-  /** Meta's billing currency for the account; null when it never named one. */
-  currency: string | null;
 }) {
   const tone = statusTone(row.status);
   const quality = row.qualityScore
     ? QUALITY[row.qualityScore.toUpperCase()]
     : undefined;
-
-  const delivered = countLabel(metrics?.delivered);
-  const spend = moneyLabel(metrics?.spent, currency);
 
   return (
     <li className="border-b border-border last:border-b-0">
@@ -113,22 +95,6 @@ export function TemplateRow({
               {row.rejectedReason}
             </p>
           ) : null}
-
-          {/* Narrow screens: the same two figures, under the name, left-aligned. */}
-          <div className="mt-2 flex gap-5 sm:hidden">
-            <Figure label="Delivered" value={delivered} />
-            <Figure label="Spend" value={spend} />
-          </div>
-        </div>
-
-        <div className="hidden shrink-0 items-center gap-5 sm:flex">
-          <Figure
-            align="right"
-            className={DELIVERED_WIDTH}
-            label="Delivered"
-            value={delivered}
-          />
-          <Figure align="right" className={SPEND_WIDTH} label="Spend" value={spend} />
         </div>
 
         <ChevronRight
@@ -137,52 +103,6 @@ export function TemplateRow({
         />
       </Link>
     </li>
-  );
-}
-
-/**
- * Column labels for the wide layout. Rendered once above the list so the two
- * figures do not need a caption on every row.
- */
-export function TemplateRowHead() {
-  return (
-    <div className="hidden items-center gap-3 border-b border-border bg-secondary/40 px-4 py-2 text-[10.5px] font-medium tracking-wide text-muted-foreground uppercase sm:flex">
-      <span className="flex-1">Template</span>
-      <span className="flex shrink-0 items-center gap-5">
-        <span className={cn(DELIVERED_WIDTH, "text-right")}>Delivered</span>
-        <span className={cn(SPEND_WIDTH, "text-right")}>Spend</span>
-      </span>
-      <span aria-hidden="true" className="w-4 shrink-0" />
-    </div>
-  );
-}
-
-function Figure({
-  label,
-  value,
-  align,
-  className,
-}: {
-  label: string;
-  value: string;
-  align?: "right";
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "shrink-0",
-        align === "right" && "text-right",
-        className,
-      )}
-    >
-      <p className="text-[10.5px] font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
-      </p>
-      <p className="mt-0.5 text-[13px] font-medium tabular-nums text-foreground">
-        {value}
-      </p>
-    </div>
   );
 }
 

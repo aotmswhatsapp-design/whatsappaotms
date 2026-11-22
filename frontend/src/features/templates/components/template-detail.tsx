@@ -166,6 +166,11 @@ export function TemplateDetail({ id }: { id: string }) {
   const money = (value: number | null) => moneyLabel(value, stats?.currency ?? null);
   const performance = stats?.performance;
   const watched = new Set(stats?.unavailable ?? []);
+  // The window the figures were actually taken over. Meta answers with the
+  // window it applied, so the captions follow the payload rather than the
+  // button that was pressed — a label can never promise a period the numbers
+  // do not cover.
+  const windowDays = stats?.window.days ?? days;
 
   const lines = [
     {
@@ -365,13 +370,13 @@ export function TemplateDetail({ id }: { id: string }) {
               id="cost-heading"
               className="mb-2 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase"
             >
-              Cost · last {days} days
+              Cost · last {windowDays} days
             </h2>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-border bg-card">
                 <KpiTile
                   accent="brand"
-                  hint={`Meta's charge for this template over ${days} days${stats?.currency ? `, in ${stats.currency}` : ""}.`}
+                  hint={`Meta's charge for this template over ${windowDays} days${stats?.currency ? `, in ${stats.currency}` : ""}.`}
                   icon={Wallet}
                   label="Amount spent"
                   value={money(stats?.cost.amountSpent ?? null)}
@@ -403,7 +408,7 @@ export function TemplateDetail({ id }: { id: string }) {
               id="performance-heading"
               className="mb-2 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase"
             >
-              Performance · last {days} days
+              Performance · last {windowDays} days
             </h2>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Stat
@@ -425,7 +430,7 @@ export function TemplateDetail({ id }: { id: string }) {
                 value={performance?.read}
               />
               <Stat
-                hint="Conversations that answered. Counted here, because Meta publishes no replies metric."
+                hint="Conversations that wrote back after this template was sent. Counted here, because Meta publishes no replies metric."
                 icon={MessageCircle}
                 label="Unique replies"
                 value={performance?.uniqueReplies}
@@ -435,8 +440,8 @@ export function TemplateDetail({ id }: { id: string }) {
               {performance?.clicked
                 ? `${performance.clicked.toLocaleString()} URL-button ${
                     performance.clicked === 1 ? "click" : "clicks"
-                  } in this window.`
-                : "Meta reports reads and clicks for 7 days after a message is sent, and clicks only for a URL button."}
+                  } in these ${windowDays} days.`
+                : `No URL-button clicks in these ${windowDays} days. Meta counts a click only for a URL button, and stops counting reads and clicks seven days after each send.`}
             </p>
           </section>
 

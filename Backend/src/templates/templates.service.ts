@@ -654,6 +654,10 @@ export class TemplatesService {
    * `Message` records the template's name and language, not its id, so the
    * join is by name — and a row written before the language was stored counts
    * too, because a missed reply is a worse error than a stray one.
+   *
+   * The reply has to come *after* the send. Counting every inbound message in
+   * the window also counted answers to an earlier conversation, which is how
+   * this figure grew larger than the number of people who actually answered.
    */
   private async uniqueReplies(
     workspaceId: string,
@@ -670,21 +674,49 @@ export class TemplatesService {
         OR: [{ templateLanguage: language }, { templateLanguage: null }],
         createdAt: { gte: since },
       },
+      _min: { createdAt: true },
     });
 
-    if (sentTo.length === 0) return 0;
+    // The first send in each conversation, which is the moment a reply could
+    // start being an answer to this template.
+    const firstSend = new Map<string, number>();
+    let earliest = Number.POSITIVE_INFINITY;
 
-    const replied = await this.prisma.message.groupBy({
-      by: ["conversationId"],
+    for (const row of sentTo) {
+      const at = row._min.createdAt?.getTime();
+
+      if (at === undefined) continue;
+
+      firstSend.set(row.conversationId, at);
+
+      if (at < earliest) earliest = at;
+    }
+
+    if (firstSend.size === 0) return 0;
+
+    // Nothing written before the earliest send can be a reply to it, so the
+    // read starts there and the per-conversation comparison finishes the job.
+    const answers = await this.prisma.message.findMany({
       where: {
         workspaceId,
         direction: "INBOUND",
-        conversationId: { in: sentTo.map((row) => row.conversationId) },
-        createdAt: { gte: since },
+        conversationId: { in: [...firstSend.keys()] },
+        createdAt: { gte: new Date(earliest) },
       },
+      select: { conversationId: true, createdAt: true },
     });
 
-    return replied.length;
+    const answered = new Set<string>();
+
+    for (const row of answers) {
+      const sentAt = firstSend.get(row.conversationId);
+
+      if (sentAt !== undefined && row.createdAt.getTime() >= sentAt) {
+        answered.add(row.conversationId);
+      }
+    }
+
+    return answered.size;
   }
 
   /**

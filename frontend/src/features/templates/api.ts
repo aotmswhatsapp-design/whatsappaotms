@@ -137,39 +137,6 @@ export function fetchTemplateAnalytics(
 }
 
 /**
- * Delivered and spend for one template, for the catalogue list. Both are null
- * when Meta would not answer — a dash on screen, never an assumed zero.
- */
-export interface TemplatePerformanceRow {
-  templateId: string;
-  delivered: number | null;
-  spent: number | null;
-}
-
-/**
- * The whole catalogue's figures, from one Graph read. Fetched beside the list
- * rather than inside it, so a Meta refusal costs the two columns, not the page.
- */
-export interface TemplatePerformance {
-  window: { days: number; start: string; end: string };
-  currency: string | null;
-  insightsEnabled: boolean;
-  rows: TemplatePerformanceRow[];
-  totals: { delivered: number | null; spent: number | null };
-  unavailable: string[];
-  warning?: string;
-}
-
-export function fetchTemplatePerformance(
-  days = 30,
-): Promise<TemplatePerformance> {
-  return request<TemplatePerformance>(
-    `/v1/templates/performance?days=${days}`,
-    { method: "GET" },
-  );
-}
-
-/**
  * Turns Meta's per-template insights on for the whole account. Irreversible on
  * Meta's side, so the screen asks before calling it.
  */

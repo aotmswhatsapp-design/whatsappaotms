@@ -229,9 +229,10 @@ export type AnalyticsGranularity = "DAY" | "HALF_HOUR" | "MONTHLY";
 /**
  * One day of one template's numbers.
  *
- * `clicked` counts taps on a URL button; `cost` arrives as a list of named
- * figures rather than a single number, because the same read can answer for
- * spend, cost per delivery and cost per click at once.
+ * `clicked` is the number of URL-button taps — the total, never the total plus
+ * the unique count; `cost` arrives as a list of named figures rather than a
+ * single number, because the same read can answer for spend, cost per delivery
+ * and cost per click at once.
  */
 export interface TemplateAnalyticsPoint {
   templateId: string | null;
@@ -672,7 +673,7 @@ export class MetaGraph {
           sent: numberOf(point.sent),
           delivered: numberOf(point.delivered),
           read: numberOf(point.read),
-          clicked: countOf(point.clicked),
+          clicked: clicksOf(point.clicked),
           amountSpent: cost.spent,
           costPerDelivered: cost.perDelivered,
           costPerClicked: cost.perClicked,
@@ -1051,22 +1052,40 @@ function secondsOf(value: unknown): number | null {
 }
 
 /**
- * A count that may arrive as a number or as a list of per-button rows.
- * `clicked` is documented as a total but observed as rows of `{count}` on
- * some versions, so both read as the same number.
+ * URL-button clicks for one day.
+ *
+ * `clicked` arrives as a list of named rows: `url_button` counts every tap and
+ * `unique_url_button` counts distinct people who tapped. The unique row is a
+ * subset of the total, so adding the rows together nearly doubles the count and
+ * halves every cost per click derived from it. Only the total is read.
+ *
+ * A bare number, or rows with no `type`, still read as a single figure — those
+ * shapes carry one row and nothing to confuse it with.
  */
-function countOf(value: unknown): number | null {
+function clicksOf(value: unknown): number | null {
   const direct = numberOf(value);
 
   if (direct !== null) return direct;
 
   if (!Array.isArray(value)) return null;
 
-  return value.reduce<number>((total, entry) => {
-    if (!isRecord(entry)) return total;
+  let total: number | null = null;
+  let untyped: number | null = null;
 
-    return total + (numberOf(entry.count) ?? numberOf(entry.value) ?? 0);
-  }, 0);
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+
+    const count = numberOf(entry.count) ?? numberOf(entry.value);
+
+    if (count === null) continue;
+
+    const type = textOf(entry.type);
+
+    if (type === null) untyped = (untyped ?? 0) + count;
+    else if (type.toLowerCase() === "url_button") total = count;
+  }
+
+  return total ?? untyped;
 }
 
 /**

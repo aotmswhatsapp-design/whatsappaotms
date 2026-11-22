@@ -75,11 +75,6 @@ export const STATUS_TONE_DOT: Record<StatusTone, string> = {
   muted: "bg-muted-foreground/60",
 };
 
-/** `1,284` — a count, or an em dash when nobody measured it. */
-export function countLabel(value: number | null | undefined): string {
-  return value === null || value === undefined ? "—" : value.toLocaleString();
-}
-
 /**
  * Money in Meta's own currency. A null is an em dash: Meta withholds cost under
  * some billing arrangements, and "0.00" would read as "this was free". When the

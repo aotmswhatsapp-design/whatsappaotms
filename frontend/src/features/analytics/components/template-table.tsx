@@ -96,7 +96,7 @@ export function TemplateTable({
                   <tr className="border-b border-border/70 bg-secondary/30">
                     <td className="px-3 py-3" colSpan={7}>
                       <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
-                        <Fact label="Unique URL clicks" value={row.clicked.toLocaleString()} />
+                        <Fact label="URL button clicks" value={row.clicked.toLocaleString()} />
                         <Fact
                           label="Cost per URL click"
                           value={<Amount value={row.costPerUrlClick} currency={currency} />}
