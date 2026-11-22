@@ -76,6 +76,7 @@ model Workspace {
   conversations Conversation[]
   messages      Message[]
   templates     MessageTemplate[]
+  campaigns     Campaign[]
 
   /// The workspace's own identity. Customers never see these fields: the
   /// profile they see on WhatsApp lives in Meta and is read through Graph.
@@ -282,8 +283,9 @@ model Contact {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations Conversation[]
+  campaigns     CampaignRecipient[]
 
   @@unique([workspaceId, waId])
   @@index([workspaceId, lastSeenAt])
@@ -357,6 +359,9 @@ model Message {
   /// Contents of a kind that is neither text nor a file: a location's
   /// coordinates, a contact card's fields. Typed by `kind`, never guessed.
   payload        Json?
+  /// Set by the campaign runner. Null for every other send, which is what
+  /// keeps campaign insights a single indexed groupBy.
+  campaignId     String?          @map("campaign_id") @db.Uuid
   sentAt         DateTime?        @map("sent_at")
   deliveredAt    DateTime?        @map("delivered_at")
   readAt         DateTime?        @map("read_at")
@@ -364,10 +369,13 @@ model Message {
 
   workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// Back-relation for the campaign that sent it, if any.
+  recipient    CampaignRecipient?
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
   @@index([contextWamid])
+  @@index([campaignId])
   @@map("messages")
 }
 
@@ -440,6 +448,7 @@ model MessageTemplate {
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
 
   /// One row per Meta template. Two workspaces can never share an id, but the
   /// pair is the real key: a sync upserts on it.
@@ -449,4 +458,104 @@ model MessageTemplate {
   @@unique([workspaceId, name, language])
   @@index([workspaceId, status])
   @@map("message_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Campaigns (PRD MODULE 4).
+//
+// A campaign is an approved template sent to a tag-defined audience. This is
+// NOT Meta's "Messaging campaigns in Meta Business Suite": that tool has no
+// API, so a row here can never mirror one. Sends go through the Cloud API and
+// land in the recipient's own Inbox conversation, which is why the message
+// rows, not this table, carry delivery and read.
+// ---------------------------------------------------------------------------
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  /// The run stopped for a reason the workspace has to fix, such as a
+  /// disconnected number. Recipients that never sent are SKIPPED.
+  FAILED
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// One broadcast: an approved template, a tag audience, and a schedule.
+/// Counters are written only by the campaign runner, so they cannot disagree
+/// with the recipient rows.
+model Campaign {
+  id               String           @id @default(uuid()) @db.Uuid
+  workspaceId      String           @map("workspace_id") @db.Uuid
+  name             String
+  status           CampaignStatus   @default(DRAFT)
+  templateId       String           @map("template_id") @db.Uuid
+  /// Snapshot at create: the template row may be renamed or re-categorised.
+  templateName     String           @map("template_name")
+  templateLanguage String           @map("template_language")
+  templateCategory TemplateCategory @map("template_category")
+  audienceTags     String[]         @default([]) @map("audience_tags")
+  /// Token without braces -> how it is filled. Typed by `campaign.values.ts`.
+  variables        Json             @default("{}")
+  /// Button index -> the address a URL button opens, when it ends in a token.
+  buttonUrls       Json             @default("{}") @map("button_urls")
+  /// Meta requires opt-in for marketing; this records that the agent said so.
+  optInConfirmed   Boolean          @default(false) @map("opt_in_confirmed")
+  scheduledAt      DateTime?        @map("scheduled_at")
+  startedAt        DateTime?        @map("started_at")
+  completedAt      DateTime?        @map("completed_at")
+  pausedAt         DateTime?        @map("paused_at")
+  totalCount       Int              @default(0) @map("total_count")
+  sentCount        Int              @default(0) @map("sent_count")
+  failedCount      Int              @default(0) @map("failed_count")
+  skippedCount     Int              @default(0) @map("skipped_count")
+  createdByUserId  String?          @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  template   MessageTemplate     @relation(fields: [templateId], references: [id])
+  recipients CampaignRecipient[]
+
+  @@index([workspaceId, createdAt])
+  @@index([status, scheduledAt])
+  @@map("campaigns")
+}
+
+/// One contact in one campaign. Delivery and read are NOT stored here: they
+/// live on the `Message` row the webhook already advances, so there is exactly
+/// one writer for them.
+model CampaignRecipient {
+  id          String          @id @default(uuid()) @db.Uuid
+  campaignId  String          @map("campaign_id") @db.Uuid
+  contactId   String          @map("contact_id") @db.Uuid
+  /// Digits only, copied at materialisation so the row still reads correctly
+  /// after a contact edit.
+  waId        String          @map("wa_id")
+  status      RecipientStatus @default(PENDING)
+  messageId   String?         @unique @map("message_id") @db.Uuid
+  errorReason String?         @map("error_reason")
+  /// Capped by the runner; a row that keeps failing is left FAILED, not looped.
+  attempts    Int             @default(0)
+  /// Set while a batch holds the row. A claim older than a minute is stale and
+  /// is offered again, which is how a restart resumes.
+  claimedAt   DateTime?       @map("claimed_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  message  Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+  @@map("campaign_recipients")
 }
