@@ -13,7 +13,7 @@ import {
   type InboxMessage,
   type SendableTemplate,
 } from "../api";
-import { readable, shapeOf } from "../template-shape";
+import { readable, shapeOf } from "@/lib/templates/shape";
 import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
 
 /** Meta's rule: only an approved template can be sent to a customer. */

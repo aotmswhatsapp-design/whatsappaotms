@@ -77,6 +77,40 @@ export async function upload<T>(path: string, form: FormData): Promise<T> {
   return send<T>(path, { method: "POST", body: form }, headers);
 }
 
+/**
+ * A request whose body is not JSON — the campaign report is CSV.
+ *
+ * Same session and same error handling as `request`; the difference is that
+ * the body is taken as bytes instead of being run through `JSON.parse`.
+ */
+export async function download(path: string): Promise<Blob> {
+  const headers = await sessionHeaders(false);
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(0, `Could not reach the API at ${BASE_URL}.`);
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as unknown;
+
+    throw new ApiError(
+      response.status,
+      describe(payload, response.status),
+      codeOf(payload),
+    );
+  }
+
+  return response.blob();
+}
+
 async function sessionHeaders(json = true): Promise<Headers> {
   try {
     return await authorise(json);
