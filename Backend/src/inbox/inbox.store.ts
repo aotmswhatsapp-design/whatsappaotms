@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { MessageKind, MessageStatus } from "@prisma/client";
+import type { MessageKind, MessageStatus, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
 import type {
@@ -133,6 +133,21 @@ export class InboxStore {
     // Meta retries a delivery whenever it is unsure we received it.
     if (seen) return;
 
+    // An empty emoji is a removal of the customer's own reaction, not a new
+    // message: keep the thread truthful by dropping the one it cancels.
+    if (message.kind === "REACTION" && !message.body) {
+      await this.prisma.message.deleteMany({
+        where: {
+          conversationId: conversation.id,
+          direction: "INBOUND",
+          kind: "REACTION",
+          contextWamid: message.contextWamid,
+        },
+      });
+
+      return;
+    }
+
     await this.prisma.message.create({
       data: {
         workspaceId: account.workspaceId,
@@ -147,6 +162,10 @@ export class InboxStore {
         mediaMime: message.mediaMime,
         mediaName: message.mediaName,
         mediaSha256: message.mediaSha256,
+        contextWamid: message.contextWamid,
+        ...(message.payload
+          ? { payload: message.payload as unknown as Prisma.InputJsonValue }
+          : {}),
         createdAt: message.timestamp,
       },
     });
@@ -154,12 +173,18 @@ export class InboxStore {
     // An old retry must not drag the thread back to the top of the list.
     const isNewest = message.timestamp >= conversation.lastMessageAt;
 
+    // A reaction refreshes the customer-service window like any other message
+    // from them, but it is not something an agent has to answer: counting it
+    // as unread would put a red badge on a thread with nothing left to do, and
+    // letting it rewrite the preview would hide the sentence it reacted to.
+    const reacts = message.kind === "REACTION";
+
     await this.prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         lastInboundAt: message.timestamp,
-        unreadCount: { increment: 1 },
-        ...(isNewest
+        ...(reacts ? {} : { unreadCount: { increment: 1 } }),
+        ...(isNewest && !reacts
           ? { lastMessageAt: message.timestamp, lastMessagePreview: preview(message) }
           : {}),
       },
@@ -234,6 +259,8 @@ function kindLabel(kind: MessageKind): string {
       return "[location]";
     case "CONTACTS":
       return "[contact card]";
+    case "REACTION":
+      return "[reaction]";
     default:
       return "[message]";
   }

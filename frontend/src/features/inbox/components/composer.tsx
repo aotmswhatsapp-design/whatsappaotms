@@ -5,8 +5,11 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  MapPin,
   Paperclip,
   SendHorizontal,
+  UserRound,
+  X,
 } from "lucide-react";
 
 import {
@@ -27,7 +30,9 @@ import {
   type InboxMessage,
   type InboxNote,
 } from "../api";
+import { messageSnippet } from "../format";
 import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
+import { ContactPanel, LocationPanel } from "./share-panels";
 import { TemplatePanel } from "./template-panel";
 
 /** Mirrors the API's cap, so an oversized file fails before it is uploaded. */
@@ -55,10 +60,15 @@ type Mode = ComposerMode;
  */
 export function Composer({
   conversation,
+  quoted,
+  onClearQuote,
   onSent,
   onNoted,
 }: {
   conversation: Conversation;
+  /** The message the next reply answers, if the agent picked one. */
+  quoted: InboxMessage | null;
+  onClearQuote: () => void;
   onSent: (message: InboxMessage) => void;
   onNoted: (note: InboxNote) => void;
 }) {
@@ -69,6 +79,7 @@ export function Composer({
   const announced = React.useRef<{ id: string; at: number }>({ id: "", at: 0 });
 
   const [mode, setMode] = React.useState<Mode>("reply");
+  const [panel, setPanel] = React.useState<"location" | "contact" | null>(null);
   const [text, setText] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -125,8 +136,9 @@ export function Composer({
         const { note } = await addNote(conversation.id, body);
         onNoted(note);
       } else {
-        const { message } = await sendText(conversation.id, body);
+        const { message } = await sendText(conversation.id, body, quoted?.id);
         onSent(message);
+        onClearQuote();
         forgetTyping();
       }
 
@@ -152,8 +164,9 @@ export function Composer({
 
     try {
       // The typed text becomes the caption, which is what WhatsApp shows.
-      const { message } = await sendMedia(conversation.id, file, text);
+      const { message } = await sendMedia(conversation.id, file, text, quoted?.id);
       onSent(message);
+      onClearQuote();
       forgetTyping();
       setText("");
     } catch (cause) {
@@ -166,11 +179,22 @@ export function Composer({
 
   function switchMode(next: Mode): void {
     setMode(next);
+    setPanel(null);
     setError(null);
 
     // The template panel owns its own inputs; focusing the reply box here would
     // pull the caret into a field the agent cannot see.
     if (next !== "template") area.current?.focus();
+  }
+
+  /**
+   * The two service messages that need more than a sentence. They replace the
+   * typing bar rather than stacking above it, the way the template panel does:
+   * a second composer over the first is a form, not a chat.
+   */
+  function openPanel(next: "location" | "contact"): void {
+    setPanel(next);
+    setError(null);
   }
 
   /**
@@ -198,8 +222,48 @@ export function Composer({
           onModeChange={switchMode}
           onSent={onSent}
         />
+      ) : panel === "location" ? (
+        <LocationPanel
+          conversationId={conversation.id}
+          locked={locked}
+          onClose={() => setPanel(null)}
+          onSent={onSent}
+        />
+      ) : panel === "contact" ? (
+        <ContactPanel
+          conversationId={conversation.id}
+          locked={locked}
+          onClose={() => setPanel(null)}
+          onSent={onSent}
+        />
       ) : (
         <>
+          {/* The message a reply will be attached to. It sits over the bar
+              rather than inside it, so a long quote cannot squeeze the field
+              the agent is typing in. */}
+          {mode === "reply" && quoted ? (
+            <div className="mb-1.5 flex items-start gap-2 rounded-lg border-l-2 border-brand/60 bg-secondary/60 px-2 py-1">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-semibold text-brand">
+                  {quoted.direction === "OUTBOUND"
+                    ? "Replying to your message"
+                    : "Replying to the customer"}
+                </p>
+                <p className="line-clamp-1 text-[11px] text-muted-foreground">
+                  {messageSnippet(quoted)}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Cancel the quote"
+                className="grid size-5 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                onClick={onClearQuote}
+              >
+                <X aria-hidden="true" className="size-3" />
+              </button>
+            </div>
+          ) : null}
+
           {error ? (
             <p className="mb-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-[11.5px] leading-relaxed text-destructive">
               {error}
@@ -251,6 +315,14 @@ export function Composer({
                     <DropdownMenuItem onSelect={() => pick(DOCUMENTS)}>
                       <FileText aria-hidden="true" />
                       Document
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openPanel("location")}>
+                      <MapPin aria-hidden="true" />
+                      Location
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openPanel("contact")}>
+                      <UserRound aria-hidden="true" />
+                      Contact card
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

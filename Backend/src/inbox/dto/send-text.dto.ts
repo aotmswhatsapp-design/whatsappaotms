@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsString, MaxLength, MinLength } from "class-validator";
+import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
 
 /** A pasted body arrives with stray whitespace; WhatsApp would send it. */
 const trimmed = ({ value }: { value: unknown }) =>
@@ -12,4 +12,12 @@ export class SendTextDto {
   @MinLength(1, { message: "Type a message before sending." })
   @MaxLength(4096, { message: "WhatsApp messages are at most 4096 characters." })
   body!: string;
+
+  /**
+   * The message this reply quotes. A row id, not a wamid: the server decides
+   * which wamid that is, and refuses one from another conversation.
+   */
+  @IsOptional()
+  @IsUUID(undefined, { message: "That message cannot be quoted." })
+  quotedMessageId?: string;
 }

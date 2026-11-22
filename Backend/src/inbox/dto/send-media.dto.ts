@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsOptional, IsString, MaxLength } from "class-validator";
+import { IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
 const trimmed = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
@@ -11,4 +11,9 @@ export class SendMediaDto {
   @IsString()
   @MaxLength(1024, { message: "A media caption is at most 1024 characters." })
   caption?: string;
+
+  /** The message this attachment quotes, when it answers one. */
+  @IsOptional()
+  @IsUUID(undefined, { message: "That message cannot be quoted." })
+  quotedMessageId?: string;
 }

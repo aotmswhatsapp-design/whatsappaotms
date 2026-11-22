@@ -12,6 +12,29 @@ export interface ParsedContact {
   profileName: string | null;
 }
 
+/** A location the customer shared; the same shape we send back. */
+export interface LocationContents {
+  latitude: number;
+  longitude: number;
+  name: string | null;
+  address: string | null;
+}
+
+/** One card out of a contact message, reduced to what a bubble can show. */
+export interface ContactCard {
+  name: string;
+  phones: string[];
+  emails: string[];
+  organization: string | null;
+}
+
+export interface ContactCardsContents {
+  contacts: ContactCard[];
+}
+
+/** `payload` on a message: the contents of a kind that is not text or a file. */
+export type ParsedContents = LocationContents | ContactCardsContents | null;
+
 export interface ParsedMessage {
   wamid: string;
   /** The customer's number, digits only. */
@@ -23,6 +46,9 @@ export interface ParsedMessage {
   mediaMime: string | null;
   mediaName: string | null;
   mediaSha256: string | null;
+  /** The message this one quotes or reacts to, when Meta named one. */
+  contextWamid: string | null;
+  payload: ParsedContents;
 }
 
 export type ParsedDeliveryStatus = "sent" | "delivered" | "read" | "failed";
@@ -61,6 +87,8 @@ function kindOf(type: string): MessageKind {
       return "BUTTON";
     case "interactive":
       return "INTERACTIVE";
+    case "reaction":
+      return "REACTION";
     default:
       return MEDIA[type] ?? "UNSUPPORTED";
   }
@@ -157,6 +185,7 @@ function parseMessage(input: unknown): ParsedMessage | null {
 
   // The type names the payload key: `image` carries `message.image`.
   const content = MEDIA[type] ? objectAt(message[type]) : null;
+  const reaction = objectAt(message.reaction);
 
   const seconds = Number(message.timestamp);
 
@@ -168,15 +197,90 @@ function parseMessage(input: unknown): ParsedMessage | null {
       : new Date(),
     kind,
     body:
+      (kind === "REACTION" ? stringAt(reaction?.emoji) : null) ??
       stringAt(objectAt(message.text)?.body) ??
       stringAt(content?.caption) ??
       tapText(message) ??
+      systemText(message) ??
       (kind === "UNSUPPORTED" ? `[${type}]` : null),
     mediaId: stringAt(content?.id),
     mediaMime: stringAt(content?.mime_type),
     mediaName: stringAt(content?.filename),
     mediaSha256: stringAt(content?.sha256),
+    // A reaction names its target inside the reaction object; everything else
+    // that quotes names it in `context.id`.
+    contextWamid:
+      stringAt(reaction?.message_id) ?? stringAt(objectAt(message.context)?.id),
+    payload: locationOf(message.location) ?? contactCardsOf(message.contacts),
   };
+}
+
+/**
+ * A `system` message is a note from WhatsApp itself — the customer changed
+ * their number, and similar. It has no body of its own, so before this it was
+ * stored as the literal `[system]`.
+ */
+function systemText(message: Json): string | null {
+  const system = objectAt(message.system);
+
+  return stringAt(system?.body) ?? null;
+}
+
+function numberAt(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function locationOf(value: unknown): LocationContents | null {
+  const location = objectAt(value);
+  const latitude = numberAt(location?.latitude);
+  const longitude = numberAt(location?.longitude);
+
+  if (latitude === null || longitude === null) return null;
+
+  return {
+    latitude,
+    longitude,
+    name: stringAt(location?.name),
+    address: stringAt(location?.address),
+  };
+}
+
+function contactCardsOf(value: unknown): ContactCardsContents | null {
+  if (!Array.isArray(value)) return null;
+
+  const contacts = value.map(contactCardOf).filter((card) => card !== null);
+
+  return contacts.length > 0 ? { contacts } : null;
+}
+
+function contactCardOf(value: unknown): ContactCard | null {
+  const card = objectAt(value);
+  const name = objectAt(card?.name);
+  const formatted =
+    stringAt(name?.formatted_name) ??
+    ([stringAt(name?.first_name), stringAt(name?.last_name)]
+      .filter(Boolean)
+      .join(" ") ||
+      null);
+
+  if (!formatted) return null;
+
+  return {
+    name: formatted,
+    phones: valuesOf(card?.phones, "phone"),
+    emails: valuesOf(card?.emails, "email"),
+    organization: stringAt(objectAt(card?.org)?.company),
+  };
+}
+
+function valuesOf(value: unknown, key: string): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => stringAt(objectAt(entry)?.[key]))
+    .filter((row): row is string => row !== null);
 }
 
 /**

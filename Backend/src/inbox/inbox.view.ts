@@ -43,6 +43,7 @@ export const CONVERSATION_SELECT = {
 
 export const MESSAGE_SELECT = {
   id: true,
+  wamid: true,
   direction: true,
   kind: true,
   status: true,
@@ -56,6 +57,8 @@ export const MESSAGE_SELECT = {
   mediaSize: true,
   mediaPath: true,
   errorReason: true,
+  contextWamid: true,
+  payload: true,
   sentAt: true,
   deliveredAt: true,
   readAt: true,
@@ -99,6 +102,26 @@ export interface ConversationView {
   windowOpen: boolean;
 }
 
+/** One card from a contact message, as the bubble draws it. */
+export interface ContactCardEntry {
+  name: string;
+  phones: string[];
+  emails: string[];
+  organization: string | null;
+}
+
+/** The contents of a kind that is neither text nor a file. */
+export type MessagePayload =
+  | {
+      kind: "location";
+      latitude: number;
+      longitude: number;
+      name: string | null;
+      address: string | null;
+    }
+  | { kind: "contacts"; contacts: ContactCardEntry[] }
+  | null;
+
 export interface MessageView {
   id: string;
   direction: MessageDirection;
@@ -127,6 +150,14 @@ export interface MessageView {
     size: number | null;
     available: boolean;
   } | null;
+  /**
+   * The message this one quotes or reacts to, resolved to a row id in this
+   * thread. Null when it quotes nothing, or quotes something older than the
+   * page of messages the thread loaded.
+   */
+  quotedMessageId: string | null;
+  /** Contents of a location or a contact card; null for every other kind. */
+  payload: MessagePayload;
 }
 
 export interface NoteView {
@@ -161,7 +192,11 @@ export function conversationView(row: ConversationSource): ConversationView {
   };
 }
 
-export function messageView(row: MessageSource): MessageView {
+export function messageView(
+  row: MessageSource,
+  /** wamid → row id, so a quote resolves to a message the thread holds. */
+  byWamid?: Map<string, string>,
+): MessageView {
   return {
     id: row.id,
     direction: row.direction,
@@ -185,7 +220,60 @@ export function messageView(row: MessageSource): MessageView {
           available: Boolean(row.mediaId || row.mediaPath),
         }
       : null,
+    quotedMessageId: row.contextWamid
+      ? (byWamid?.get(row.contextWamid) ?? null)
+      : null,
+    payload: payloadView(row.kind, row.payload),
   };
+}
+
+/** A location and a contact card are read back as the shape the bubble draws. */
+function payloadView(
+  kind: MessageKind,
+  raw: Prisma.JsonValue,
+): MessagePayload {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const value = raw as Record<string, unknown>;
+
+  if (kind === "LOCATION") {
+    const latitude = typeof value.latitude === "number" ? value.latitude : null;
+    const longitude = typeof value.longitude === "number" ? value.longitude : null;
+
+    if (latitude === null || longitude === null) return null;
+
+    return {
+      kind: "location",
+      latitude,
+      longitude,
+      name: typeof value.name === "string" ? value.name : null,
+      address: typeof value.address === "string" ? value.address : null,
+    };
+  }
+
+  if (kind === "CONTACTS" && Array.isArray(value.contacts)) {
+    const contacts = value.contacts
+      .filter((row): row is Record<string, unknown> =>
+        row !== null && typeof row === "object" && !Array.isArray(row),
+      )
+      .map((row) => ({
+        name: typeof row.name === "string" ? row.name : "",
+        phones: stringsOf(row.phones),
+        emails: stringsOf(row.emails),
+        organization: typeof row.organization === "string" ? row.organization : null,
+      }))
+      .filter((row) => row.name.length > 0);
+
+    return contacts.length > 0 ? { kind: "contacts", contacts } : null;
+  }
+
+  return null;
+}
+
+function stringsOf(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((row): row is string => typeof row === "string")
+    : [];
 }
 
 export function noteView(row: NoteSource): NoteView {

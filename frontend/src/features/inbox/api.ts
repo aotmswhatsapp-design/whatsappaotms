@@ -16,6 +16,7 @@ export type MessageKind =
   | "BUTTON"
   | "INTERACTIVE"
   | "TEMPLATE"
+  | "REACTION"
   | "UNSUPPORTED";
 export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
 
@@ -77,7 +78,33 @@ export interface InboxMessage {
     size: number | null;
     available: boolean;
   } | null;
+  /**
+   * The message this one quotes or reacts to, as a row id. Null when it
+   * quotes nothing, or quotes something outside the loaded page.
+   */
+  quotedMessageId: string | null;
+  /** Contents of a location pin or a contact card; null for every other kind. */
+  payload: MessagePayload;
 }
+
+/** One card from a contact message. */
+export interface ContactCardEntry {
+  name: string;
+  phones: string[];
+  emails: string[];
+  organization: string | null;
+}
+
+type MessagePayload =
+  | {
+      kind: "location";
+      latitude: number;
+      longitude: number;
+      name: string | null;
+      address: string | null;
+    }
+  | { kind: "contacts"; contacts: ContactCardEntry[] }
+  | null;
 
 export interface InboxNote {
   id: string;
@@ -145,10 +172,14 @@ export function fetchThread(id: string): Promise<ThreadPayload> {
 export function sendText(
   id: string,
   body: string,
+  quotedMessageId?: string | null,
 ): Promise<{ message: InboxMessage }> {
   return request(`/v1/inbox/conversations/${id}/messages`, {
     method: "POST",
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({
+      body,
+      ...(quotedMessageId ? { quotedMessageId } : {}),
+    }),
   });
 }
 
@@ -156,12 +187,63 @@ export function sendMedia(
   id: string,
   file: File,
   caption: string,
+  quotedMessageId?: string | null,
 ): Promise<{ message: InboxMessage }> {
   const form = new FormData();
   form.set("file", file, file.name);
   if (caption.trim()) form.set("caption", caption.trim());
+  if (quotedMessageId) form.set("quotedMessageId", quotedMessageId);
 
   return upload(`/v1/inbox/conversations/${id}/media`, form);
+}
+
+/**
+ * One emoji on one message. An empty string removes the reaction AOTMS sent
+ * before, which is also how a tap on the chip behaves on the customer's phone.
+ */
+export function sendReaction(
+  id: string,
+  messageId: string,
+  emoji: string,
+): Promise<{ message: InboxMessage | null }> {
+  return request(`/v1/inbox/conversations/${id}/reactions`, {
+    method: "POST",
+    body: JSON.stringify({ messageId, emoji }),
+  });
+}
+
+export interface LocationInput {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+}
+
+export function sendLocation(
+  id: string,
+  input: LocationInput,
+): Promise<{ message: InboxMessage }> {
+  return request(`/v1/inbox/conversations/${id}/locations`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export interface ContactCardInput {
+  name: string;
+  phone?: string;
+  email?: string;
+  organization?: string;
+}
+
+export function sendContact(
+  id: string,
+  input: ContactCardInput,
+): Promise<{ message: InboxMessage }> {
+  return request(`/v1/inbox/conversations/${id}/contacts`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function fetchMedia(messageId: string): Promise<MediaLink> {

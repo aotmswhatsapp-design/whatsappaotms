@@ -183,3 +183,84 @@ export function MessageLabel({ kind }: { kind: MessageKind }) {
     </p>
   );
 }
+
+/**
+ * The contents of a pin or a contact card.
+ *
+ * The label alone said "Location" over a bubble that never showed where, and
+ * "Contact card" over one that never showed who. Both directions carry the
+ * same payload shape, so a sent pin and a received one read alike.
+ */
+export function MessageContents({ message }: { message: InboxMessage }) {
+  const payload = message.payload;
+
+  if (payload?.kind === "location") {
+    const { latitude, longitude, name, address } = payload;
+    const coordinates = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+    return (
+      <div className="mb-1 space-y-0.5">
+        {name ? (
+          <p className="text-[12.5px] leading-snug font-semibold">{name}</p>
+        ) : null}
+        {address ? (
+          <p className="text-[11.5px] leading-snug text-muted-foreground">
+            {address}
+          </p>
+        ) : null}
+        <a
+          href={`https://maps.google.com/?q=${latitude},${longitude}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11.5px] font-medium text-brand underline-offset-2 hover:underline"
+        >
+          <MapPin aria-hidden="true" className="size-3.5 shrink-0" />
+          {coordinates}
+        </a>
+      </div>
+    );
+  }
+
+  if (payload?.kind === "contacts") {
+    return (
+      <div className="mb-1 space-y-1.5">
+        {payload.contacts.map((card, index) => (
+          <div
+            key={`${card.name}-${index}`}
+            className="rounded-lg border border-border/70 bg-card px-2.5 py-1.5"
+          >
+            <p className="flex items-center gap-1.5 text-[12.5px] leading-snug font-semibold">
+              <UserRound aria-hidden="true" className="size-3.5 shrink-0" />
+              {card.name}
+            </p>
+            {card.organization ? (
+              <p className="text-[11px] text-muted-foreground">
+                {card.organization}
+              </p>
+            ) : null}
+            {card.phones.map((phone) => (
+              <a
+                key={phone}
+                href={`tel:${phone.replace(/[^+\d]/g, "")}`}
+                className="block truncate text-[11.5px] text-brand underline-offset-2 hover:underline"
+              >
+                {phone}
+              </a>
+            ))}
+            {card.emails.map((email) => (
+              <a
+                key={email}
+                href={`mailto:${email}`}
+                className="block truncate text-[11.5px] text-brand underline-offset-2 hover:underline"
+              >
+                {email}
+              </a>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
+}

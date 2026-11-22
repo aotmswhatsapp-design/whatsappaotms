@@ -5,6 +5,8 @@
  * and there is no server/client hydration gap.
  */
 
+import type { InboxMessage } from "./api";
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -112,4 +114,26 @@ export function displayPhone(waId: string): string {
   if (digits.length <= 10) return waId;
 
   return `+${digits.slice(0, digits.length - 10)} ${digits.slice(-10)}`;
+}
+
+/**
+ * One line for a message that may carry no text at all.
+ *
+ * A quote block and the composer's quote chip both show the message being
+ * answered, and a location or a sticker has no body — without this they would
+ * quote a blank rectangle.
+ */
+export function messageSnippet(message: InboxMessage): string {
+  const body = message.body?.trim();
+
+  if (body) return body;
+  if (message.payload?.kind === "location") {
+    return message.payload.name ?? message.payload.address ?? "Location";
+  }
+  if (message.payload?.kind === "contacts") {
+    return message.payload.contacts.map((card) => card.name).join(", ");
+  }
+  if (message.media) return message.media.name ?? "[attachment]";
+
+  return "[message]";
 }

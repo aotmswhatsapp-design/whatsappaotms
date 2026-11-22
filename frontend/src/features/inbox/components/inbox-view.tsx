@@ -233,6 +233,29 @@ export function InboxView() {
     );
   }
 
+  /**
+   * Meta keeps one reaction per sender per message, so a new chip retires ours
+   * on the same target and a removal leaves nothing at all. The server has
+   * already made that change; this mirrors it so the bubble agrees before the
+   * next poll catches up.
+   */
+  function handleReaction(targetId: string, message: InboxMessage | null): void {
+    setThread((current) => {
+      if (!current) return current;
+
+      const kept = current.messages.filter(
+        (row) =>
+          !(
+            row.direction === "OUTBOUND" &&
+            row.kind === "REACTION" &&
+            row.quotedMessageId === targetId
+          ),
+      );
+
+      return { ...current, messages: message ? [...kept, message] : kept };
+    });
+  }
+
   function handleChanged(conversation: Conversation): void {
     setThread((current) =>
       current?.conversation.id === conversation.id
@@ -434,6 +457,7 @@ export function InboxView() {
             onDeleted={handleDeleted}
             onMessage={handleSent}
             onNote={handleNoted}
+            onReaction={handleReaction}
           />
         </div>
       </div>

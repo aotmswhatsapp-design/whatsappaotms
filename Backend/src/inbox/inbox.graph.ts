@@ -24,6 +24,19 @@ interface SendResponse {
   messages?: { id?: string }[];
 }
 
+/** One card out of a contact message we send. */
+export interface ContactCardInput {
+  name: string;
+  phones: string[];
+  emails: string[];
+  organization: string | null;
+}
+
+/** Meta quotes by wamid; a reply with nothing to quote carries no `context`. */
+function contextOf(wamid: string | null): { context?: { message_id: string } } {
+  return wamid ? { context: { message_id: wamid } } : {};
+}
+
 interface MediaNode {
   url?: string;
   mime_type?: string;
@@ -53,6 +66,8 @@ export class InboxGraph {
     phoneNumberId: string;
     to: string;
     body: string;
+    /** The message this reply quotes, when the agent answered one. */
+    contextWamid: string | null;
   }): Promise<string> {
     const payload = await this.request<SendResponse>(
       this.messagesUrl(input.version, input.phoneNumberId),
@@ -65,6 +80,7 @@ export class InboxGraph {
           to: input.to,
           type: "text",
           text: { body: input.body, preview_url: false },
+          ...contextOf(input.contextWamid),
         },
       },
     );
@@ -152,6 +168,7 @@ export class InboxGraph {
     mediaId: string;
     caption: string | null;
     fileName: string | null;
+    contextWamid: string | null;
   }): Promise<string> {
     const type = SENDABLE[input.kind];
 
@@ -176,11 +193,136 @@ export class InboxGraph {
               ? { filename: input.fileName }
               : {}),
           },
+          ...contextOf(input.contextWamid),
         },
       },
     );
 
     return wamidOf(payload);
+  }
+
+  /**
+   * One emoji on one message. An empty string removes a reaction — that is
+   * Meta's own convention, not ours, which is why it is passed through rather
+   * than refused here.
+   */
+  async sendReaction(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    messageId: string;
+    emoji: string;
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "reaction",
+          reaction: { message_id: input.messageId, emoji: input.emoji },
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
+  async sendLocation(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    latitude: number;
+    longitude: number;
+    name: string | null;
+    address: string | null;
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "location",
+          location: {
+            latitude: input.latitude,
+            longitude: input.longitude,
+            ...(input.name ? { name: input.name } : {}),
+            ...(input.address ? { address: input.address } : {}),
+          },
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
+  /** Contact cards: at most one name, one phone and one email per card we send. */
+  async sendContacts(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    contacts: ContactCardInput[];
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "contacts",
+          contacts: input.contacts.map((card) => ({
+            name: { formatted_name: card.name },
+            ...(card.phones.length > 0
+              ? { phones: card.phones.map((phone) => ({ phone })) }
+              : {}),
+            ...(card.emails.length > 0
+              ? { emails: card.emails.map((email) => ({ email })) }
+              : {}),
+            ...(card.organization ? { org: { company: card.organization } } : {}),
+          })),
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
+  /**
+   * The blue ticks on their own. The composer couples this with "typing…",
+   * but opening a thread is a read too — and a customer who is never shown a
+   * receipt assumes nobody looked.
+   */
+  async markRead(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    messageId: string;
+  }): Promise<void> {
+    await this.request<{ success?: boolean }>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: input.messageId,
+        },
+      },
+    );
   }
 
   /**

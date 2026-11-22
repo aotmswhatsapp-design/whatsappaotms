@@ -251,6 +251,10 @@ enum MessageKind {
   /// A message sent from an approved template. `body` holds it as the customer
   /// reads it, with Meta's variables already filled in.
   TEMPLATE
+  /// One emoji on someone else's message. `body` is the emoji and
+  /// `contextWamid` names the message it sits on, so a reaction is never
+  /// mistaken for a reply.
+  REACTION
   UNSUPPORTED
 }
 
@@ -346,6 +350,13 @@ model Message {
   /// the thread can say what a customer's link opened.
   tapTarget      Json?            @map("tap_target")
   errorReason    String?          @map("error_reason")
+  /// The wamid this message quotes. Set from `context.id` when Meta sends a
+  /// quote, and from the row an agent answered when we send one. Both sides of
+  /// a reply chain are stored, which is the only way a thread can draw it.
+  contextWamid   String?          @map("context_wamid")
+  /// Contents of a kind that is neither text nor a file: a location's
+  /// coordinates, a contact card's fields. Typed by `kind`, never guessed.
+  payload        Json?
   sentAt         DateTime?        @map("sent_at")
   deliveredAt    DateTime?        @map("delivered_at")
   readAt         DateTime?        @map("read_at")
@@ -356,6 +367,7 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
+  @@index([contextWamid])
   @@map("messages")
 }
 

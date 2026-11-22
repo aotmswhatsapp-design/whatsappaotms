@@ -22,7 +22,10 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { CreateNoteDto } from "./dto/create-note.dto";
 import { ListConversationsDto } from "./dto/list-conversations.dto";
+import { SendContactDto } from "./dto/send-contact.dto";
+import { SendLocationDto } from "./dto/send-location.dto";
 import { SendMediaDto } from "./dto/send-media.dto";
+import { SendReactionDto } from "./dto/send-reaction.dto";
 import { SendTemplateDto } from "./dto/send-template.dto";
 import { SendTextDto } from "./dto/send-text.dto";
 import { UpdateConversationDto } from "./dto/update-conversation.dto";
@@ -74,6 +77,7 @@ export class InboxController {
    *
    * 409 with `WINDOW_CLOSED` when the customer has not written for 24 hours:
    * WhatsApp's rule, and the composer disables itself from the same signal.
+   * An optional `quotedMessageId` puts the reply on that message.
    */
   @Post("conversations/:id/messages")
   @Throttle({ default: { limit: 40, ttl: 60_000 } })
@@ -82,7 +86,7 @@ export class InboxController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: SendTextDto,
   ) {
-    return this.inbox.sendText(claims, id, dto.body);
+    return this.inbox.sendText(claims, id, dto);
   }
 
   /**
@@ -106,7 +110,45 @@ export class InboxController {
       throw new BadRequestException("Attach a file to send.");
     }
 
-    return this.inbox.sendMedia(claims, id, file, dto.caption ?? null);
+    return this.inbox.sendMedia(claims, id, file, dto);
+  }
+
+  /**
+   * POST /api/v1/inbox/conversations/:id/reactions — one emoji on one message.
+   *
+   * `emoji: ""` removes the reaction we sent before, the way a tap on the chip
+   * does on the customer's phone.
+   */
+  @Post("conversations/:id/reactions")
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  sendReaction(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SendReactionDto,
+  ) {
+    return this.inbox.sendReaction(claims, id, dto);
+  }
+
+  /** POST /api/v1/inbox/conversations/:id/locations — a location pin. */
+  @Post("conversations/:id/locations")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  sendLocation(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SendLocationDto,
+  ) {
+    return this.inbox.sendLocation(claims, id, dto);
+  }
+
+  /** POST /api/v1/inbox/conversations/:id/contacts — a contact card. */
+  @Post("conversations/:id/contacts")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  sendContact(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SendContactDto,
+  ) {
+    return this.inbox.sendContact(claims, id, dto);
   }
 
   /**

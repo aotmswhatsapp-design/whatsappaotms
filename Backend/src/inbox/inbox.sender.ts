@@ -17,7 +17,8 @@ import {
   MetaShapeError,
   MetaTransportError,
 } from "../whatsapp/meta-graph";
-import { InboxGraph } from "./inbox.graph";
+import { InboxGraph, type ContactCardInput } from "./inbox.graph";
+import type { LocationContents } from "./inbox.payload";
 import {
   MESSAGE_SELECT,
   WINDOW_CLOSED_MESSAGE,
@@ -52,6 +53,12 @@ export interface SendTarget {
   account: AccountCredentials;
 }
 
+/** The message an agent answered: its row id for the client, its wamid for Meta. */
+export interface Quote {
+  id: string;
+  wamid: string;
+}
+
 /**
  * Everything that leaves through the number: text, files, and the file a
  * customer sent us.
@@ -72,7 +79,7 @@ export class InboxSender {
     private readonly box: SecretBox,
   ) {}
 
-  async text(input: SendTarget & { body: string }): Promise<MessageView> {
+  async text(input: SendTarget & { body: string; quote: Quote | null }): Promise<MessageView> {
     const row = await this.prisma.message.create({
       data: {
         workspaceId: input.workspaceId,
@@ -81,6 +88,7 @@ export class InboxSender {
         kind: "TEXT",
         status: "QUEUED",
         body: input.body,
+        contextWamid: input.quote?.wamid ?? null,
       },
       select: MESSAGE_SELECT,
     });
@@ -92,6 +100,7 @@ export class InboxSender {
         phoneNumberId: input.account.phoneNumberId,
         to: input.waId,
         body: input.body,
+        contextWamid: input.quote?.wamid ?? null,
       });
 
       const sentAt = new Date();
@@ -104,7 +113,7 @@ export class InboxSender {
 
       await this.bump(input.conversationId, sentAt, previewOf(input.body, "Message"));
 
-      return messageView(saved);
+      return messageView(saved, quoteIndex(input.quote));
     } catch (error) {
       await this.markFailed(row.id, error);
       throw toHttp(error);
@@ -177,7 +186,11 @@ export class InboxSender {
   }
 
   async media(
-    input: SendTarget & { file: UploadedMedia; caption: string | null },
+    input: SendTarget & {
+      file: UploadedMedia;
+      caption: string | null;
+      quote: Quote | null;
+    },
   ): Promise<MessageView> {
     const { file } = input;
 
@@ -202,6 +215,7 @@ export class InboxSender {
         mediaName: name,
         mediaMime: file.mimetype,
         mediaSize: file.size,
+        contextWamid: input.quote?.wamid ?? null,
       },
       select: MESSAGE_SELECT,
     });
@@ -238,6 +252,7 @@ export class InboxSender {
         mediaId,
         caption: input.caption,
         fileName: name,
+        contextWamid: input.quote?.wamid ?? null,
       });
 
       const sentAt = new Date();
@@ -254,7 +269,201 @@ export class InboxSender {
         previewOf(input.caption, labelOf(kind)),
       );
 
+      return messageView(saved, quoteIndex(input.quote));
+    } catch (error) {
+      await this.markFailed(row.id, error);
+      throw toHttp(error);
+    }
+  }
+
+  /**
+   * A location pin.
+   *
+   * The stored payload is the same shape a customer's shared pin arrives in,
+   * so one bubble can draw both directions.
+   */
+  async location(
+    input: SendTarget & LocationContents,
+  ): Promise<MessageView> {
+    const contents: LocationContents = {
+      latitude: input.latitude,
+      longitude: input.longitude,
+      name: input.name,
+      address: input.address,
+    };
+
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: "LOCATION",
+        status: "QUEUED",
+        body: input.name ?? "Location",
+        payload: contents as unknown as Prisma.InputJsonValue,
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid = await this.graph.sendLocation({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        to: input.waId,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        name: input.name,
+        address: input.address,
+      });
+
+      const sentAt = new Date();
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt },
+        select: MESSAGE_SELECT,
+      });
+
+      await this.bump(
+        input.conversationId,
+        sentAt,
+        previewOf(input.name ?? input.address, "[location]"),
+      );
+
       return messageView(saved);
+    } catch (error) {
+      await this.markFailed(row.id, error);
+      throw toHttp(error);
+    }
+  }
+
+  /** One or more contact cards. `body` is the names, so the queue has a preview. */
+  async contacts(
+    input: SendTarget & { contacts: ContactCardInput[] },
+  ): Promise<MessageView> {
+    const names = input.contacts.map((card) => card.name).join(", ");
+
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: "CONTACTS",
+        status: "QUEUED",
+        body: names,
+        payload: { contacts: input.contacts } as unknown as Prisma.InputJsonValue,
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid = await this.graph.sendContacts({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        to: input.waId,
+        contacts: input.contacts,
+      });
+
+      const sentAt = new Date();
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt },
+        select: MESSAGE_SELECT,
+      });
+
+      await this.bump(input.conversationId, sentAt, previewOf(names, "[contact card]"));
+
+      return messageView(saved);
+    } catch (error) {
+      await this.markFailed(row.id, error);
+      throw toHttp(error);
+    }
+  }
+
+  /**
+   * One emoji on one message, or the removal of the one we sent before.
+   *
+   * Meta keeps a single reaction per sender per message, so the newer row
+   * retires the older one instead of stacking. A removal deletes ours only
+   * after Meta agrees, so the thread never shows a chip that still exists on
+   * the customer's phone. Reactions do not touch the queue preview: an emoji
+   * is not a sentence, and hiding the last real message behind it would be.
+   */
+  async reaction(
+    input: SendTarget & { target: Quote; emoji: string },
+  ): Promise<MessageView | null> {
+    const previous = await this.prisma.message.findFirst({
+      where: {
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: "REACTION",
+        contextWamid: input.target.wamid,
+      },
+      select: { id: true },
+    });
+
+    if (input.emoji.length === 0) {
+      try {
+        await this.graph.sendReaction({
+          version: input.account.graphVersion,
+          token: this.tokenOf(input.account),
+          phoneNumberId: input.account.phoneNumberId,
+          to: input.waId,
+          messageId: input.target.wamid,
+          emoji: "",
+        });
+      } catch (error) {
+        throw toHttp(error);
+      }
+
+      if (previous) {
+        await this.prisma.message
+          .delete({ where: { id: previous.id } })
+          .catch(() => undefined);
+      }
+
+      return null;
+    }
+
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: "REACTION",
+        status: "QUEUED",
+        body: input.emoji,
+        contextWamid: input.target.wamid,
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid = await this.graph.sendReaction({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        to: input.waId,
+        messageId: input.target.wamid,
+        emoji: input.emoji,
+      });
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt: new Date() },
+        select: MESSAGE_SELECT,
+      });
+
+      if (previous) {
+        await this.prisma.message
+          .delete({ where: { id: previous.id } })
+          .catch(() => undefined);
+      }
+
+      return messageView(saved, quoteIndex(input.target));
     } catch (error) {
       await this.markFailed(row.id, error);
       throw toHttp(error);
@@ -275,24 +484,16 @@ export class InboxSender {
   async typing(
     input: SendTarget,
   ): Promise<{ sent: boolean; reason: "no-inbound" | "meta" | null }> {
-    const newest = await this.prisma.message.findFirst({
-      where: {
-        conversationId: input.conversationId,
-        direction: "INBOUND",
-        wamid: { not: null },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { wamid: true },
-    });
+    const newest = await this.newestInbound(input.conversationId);
 
-    if (!newest?.wamid) return { sent: false, reason: "no-inbound" };
+    if (!newest) return { sent: false, reason: "no-inbound" };
 
     try {
       await this.graph.markReadAndTyping({
         version: input.account.graphVersion,
         token: this.tokenOf(input.account),
         phoneNumberId: input.account.phoneNumberId,
-        messageId: newest.wamid,
+        messageId: newest,
       });
 
       return { sent: true, reason: null };
@@ -300,6 +501,49 @@ export class InboxSender {
       this.logger.warn(`Typing indicator failed: ${reasonOf(error)}`);
       return { sent: false, reason: "meta" };
     }
+  }
+
+  /**
+   * The receipt on its own, sent when an agent opens a thread.
+   *
+   * Same contract as the typing bubble: it is a courtesy, so a refusal is
+   * logged and swallowed rather than shown over a conversation that is fine.
+   */
+  async read(
+    input: SendTarget,
+  ): Promise<{ sent: boolean; reason: "no-inbound" | "meta" | null }> {
+    const newest = await this.newestInbound(input.conversationId);
+
+    if (!newest) return { sent: false, reason: "no-inbound" };
+
+    try {
+      await this.graph.markRead({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        messageId: newest,
+      });
+
+      return { sent: true, reason: null };
+    } catch (error) {
+      this.logger.warn(`Read receipt failed: ${reasonOf(error)}`);
+      return { sent: false, reason: "meta" };
+    }
+  }
+
+  /** The wamid Meta accepts in `status: read` — the newest inbound one. */
+  private async newestInbound(conversationId: string): Promise<string | null> {
+    const row = await this.prisma.message.findFirst({
+      where: {
+        conversationId,
+        direction: "INBOUND",
+        wamid: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { wamid: true },
+    });
+
+    return row?.wamid ?? null;
   }
 
   /**
@@ -425,6 +669,14 @@ function toHttp(error: unknown): unknown {
 
   // An HttpException from storage or validation must keep its status.
   return error;
+}
+
+/**
+ * The quote, as the index `messageView` resolves `contextWamid` against — so a
+ * just-sent reply carries the message it answered without a second read.
+ */
+function quoteIndex(quote: Quote | null): Map<string, string> | undefined {
+  return quote ? new Map([[quote.wamid, quote.id]]) : undefined;
 }
 
 function reasonOf(error: unknown): string {

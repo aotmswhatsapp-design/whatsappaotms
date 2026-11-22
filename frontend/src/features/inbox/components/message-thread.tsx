@@ -8,10 +8,12 @@ import {
   ChevronDown,
   CircleAlert,
   Clock,
+  CornerUpLeft,
   Inbox,
   LayoutTemplate,
   Loader2,
   MoreHorizontal,
+  SmilePlus,
   StickyNote,
   Trash2,
 } from "lucide-react";
@@ -31,6 +33,7 @@ import { cn } from "@/lib/utils";
 import {
   ApiError,
   removeConversation,
+  sendReaction,
   updateConversation,
   type Conversation,
   type ConversationStatus,
@@ -46,13 +49,22 @@ import {
   dayLabel,
   displayPhone,
   initials,
+  messageSnippet,
   windowCountdown,
 } from "../format";
-import { MessageLabel, MessageMedia } from "./message-media";
+import { MessageContents, MessageLabel, MessageMedia } from "./message-media";
 
 type Entry =
   | { kind: "message"; at: string; message: InboxMessage }
   | { kind: "note"; at: string; note: InboxNote };
+
+/** One emoji on one message, tallied across both directions. */
+interface ReactionTally {
+  emoji: string;
+  count: number;
+  /** True when AOTMS sent it, which is what makes the chip removable. */
+  mine: boolean;
+}
 
 /** The status rows for the phone menu. On wider screens the select itself is
     the control, so this list is only read below `sm`. */
@@ -74,6 +86,7 @@ export function MessageThread({
   onBack,
   onChanged,
   onMessage,
+  onReaction,
   onNote,
   onDeleted,
 }: {
@@ -83,22 +96,30 @@ export function MessageThread({
   onBack: () => void;
   onChanged: (conversation: Conversation) => void;
   onMessage: (message: InboxMessage) => void;
+  /** A reaction replaced or removed; null means nothing is left to show. */
+  onReaction: (targetId: string, message: InboxMessage | null) => void;
   onNote: (note: InboxNote) => void;
   onDeleted: () => void;
 }) {
   const toast = useToast();
   const scroller = React.useRef<HTMLDivElement>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const [quoted, setQuoted] = React.useState<InboxMessage | null>(null);
 
   const entries = React.useMemo<Entry[]>(() => {
     if (!thread) return [];
 
     return [
-      ...thread.messages.map((message) => ({
-        kind: "message" as const,
-        at: message.createdAt,
-        message,
-      })),
+      // A reaction is drawn as a chip on the message it names, never as a
+      // bubble of its own: an emoji with a timestamp reads as a message that
+      // was said, and nothing was.
+      ...thread.messages
+        .filter((message) => message.kind !== "REACTION")
+        .map((message) => ({
+          kind: "message" as const,
+          at: message.createdAt,
+          message,
+        })),
       ...thread.notes.map((note) => ({
         kind: "note" as const,
         at: note.createdAt,
@@ -107,7 +128,54 @@ export function MessageThread({
     ].sort((a, b) => a.at.localeCompare(b.at));
   }, [thread]);
 
-  const count = thread ? thread.messages.length + thread.notes.length : 0;
+  /** Every message by row id, so a quote can be looked up while rendering. */
+  const byId = React.useMemo(() => {
+    const index = new Map<string, InboxMessage>();
+
+    for (const message of thread?.messages ?? []) index.set(message.id, message);
+
+    return index;
+  }, [thread]);
+
+  /**
+   * Reactions tallied per target message. Meta keeps one reaction per sender
+   * per message, so the customer's chip and ours can share an emoji, and the
+   * count is what tells them apart in the bubble.
+   */
+  const reactions = React.useMemo(() => {
+    const tallies = new Map<string, Map<string, ReactionTally>>();
+
+    for (const message of thread?.messages ?? []) {
+      if (message.kind !== "REACTION" || !message.body || !message.quotedMessageId) {
+        continue;
+      }
+
+      const perTarget =
+        tallies.get(message.quotedMessageId) ?? new Map<string, ReactionTally>();
+      const tally = perTarget.get(message.body) ?? {
+        emoji: message.body,
+        count: 0,
+        mine: false,
+      };
+
+      tally.count += 1;
+      if (message.direction === "OUTBOUND") tally.mine = true;
+
+      perTarget.set(message.body, tally);
+      tallies.set(message.quotedMessageId, perTarget);
+    }
+
+    return new Map(
+      [...tallies].map(([id, rows]) => [id, [...rows.values()] as ReactionTally[]]),
+    );
+  }, [thread]);
+
+  // A quote survives a poll but not a change of conversation: the message it
+  // names is no longer in the thread, so it is dropped on lookup rather than
+  // cleared from an effect.
+  const activeQuote = quoted && byId.has(quoted.id) ? quoted : null;
+
+  const count = entries.length;
 
   // A new message should be visible without the agent scrolling for it.
   React.useEffect(() => {
@@ -179,6 +247,26 @@ export function MessageThread({
       });
     } finally {
       setDeleting(false);
+    }
+  }
+
+  /**
+   * One emoji, or none. An empty emoji is the removal Meta understands, and
+   * the handler above is told what is left so the chip can disappear without
+   * waiting for the next poll.
+   */
+  async function react(target: InboxMessage, emoji: string): Promise<void> {
+    if (!thread) return;
+
+    try {
+      const result = await sendReaction(thread.conversation.id, target.id, emoji);
+      onReaction(target.id, result.message);
+    } catch (error) {
+      toast.push({
+        title: "Could not react",
+        description: errorText(error),
+        tone: "error",
+      });
     }
   }
 
@@ -419,7 +507,21 @@ export function MessageThread({
                 ) : null}
 
                 {entry.kind === "message" ? (
-                  <Bubble message={entry.message} />
+                  <Bubble
+                    message={entry.message}
+                    peer={
+                      conversation.contact.name ??
+                      displayPhone(conversation.contact.waId)
+                    }
+                    quoted={
+                      (entry.message.quotedMessageId
+                        ? byId.get(entry.message.quotedMessageId)
+                        : null) ?? null
+                    }
+                    reactions={reactions.get(entry.message.id) ?? []}
+                    onQuote={setQuoted}
+                    onReact={(target, emoji) => void react(target, emoji)}
+                  />
                 ) : (
                   <NoteCard note={entry.note} />
                 )}
@@ -429,69 +531,252 @@ export function MessageThread({
         </div>
       </div>
 
-      <Composer conversation={conversation} onSent={onMessage} onNoted={onNote} />
+      <Composer
+        conversation={conversation}
+        quoted={activeQuote}
+        onClearQuote={() => setQuoted(null)}
+        onSent={onMessage}
+        onNoted={onNote}
+      />
     </div>
   );
 }
 
-function Bubble({ message }: { message: InboxMessage }) {
+function Bubble({
+  message,
+  peer,
+  quoted,
+  reactions,
+  onQuote,
+  onReact,
+}: {
+  message: InboxMessage;
+  /** Who the customer is, for the name above a quoted message. */
+  peer: string;
+  quoted: InboxMessage | null;
+  reactions: ReactionTally[];
+  onQuote: (message: InboxMessage) => void;
+  onReact: (message: InboxMessage, emoji: string) => void;
+}) {
   const outbound = message.direction === "OUTBOUND";
 
   return (
-    <div className={cn("flex", outbound ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "group/bubble flex flex-col gap-0.5",
+        outbound ? "items-end" : "items-start",
+      )}
+    >
       <div
         className={cn(
-          // WhatsApp draws the sender in green and the customer in white, with
-          // the ink staying dark on both — white type on #D9FDD3 is 1.2:1.
-          // The corner nearest the sender's edge is squarer, which reads as a
-          // tail without drawing an actual one.
-          "max-w-[85%] rounded-xl px-3 py-2 text-[13.5px] shadow-xs sm:max-w-[75%]",
-          outbound
-            ? "rounded-br-sm bg-brand-soft text-foreground"
-            : "rounded-bl-sm border border-border bg-card text-foreground",
+          "flex w-full items-center gap-1",
+          outbound ? "justify-end" : "justify-start",
         )}
       >
-        {message.media ? (
-          <div className="mb-1.5">
-            <MessageMedia message={message} />
+        {outbound ? null : (
+          <BubbleActions message={message} onQuote={onQuote} onReact={onReact} />
+        )}
+
+        <div
+          className={cn(
+            // WhatsApp draws the sender in green and the customer in white, with
+            // the ink staying dark on both — white type on #D9FDD3 is 1.2:1.
+            // The corner nearest the sender's edge is squarer, which reads as a
+            // tail without drawing an actual one.
+            "min-w-0 max-w-[85%] rounded-xl px-3 py-2 text-[13.5px] shadow-xs sm:max-w-[75%]",
+            outbound
+              ? "rounded-br-sm bg-brand-soft text-foreground"
+              : "rounded-bl-sm border border-border bg-card text-foreground",
+          )}
+        >
+          {/* The message this one answers, above everything else so a reply
+              reads as "this, then that". */}
+          {quoted ? (
+            <QuoteBlock message={quoted} outbound={outbound} peer={peer} />
+          ) : null}
+
+          {message.media ? (
+            <div className="mb-1.5">
+              <MessageMedia message={message} />
+            </div>
+          ) : null}
+
+          {/* A location and a contact card carry their own contents; the label
+              is only the fallback for a payload that did not arrive. Their
+              `body` repeats the first line of those contents (a pin's name, a
+              card's names), so it is the payload or the body, never both. */}
+          <MessageContents message={message} />
+          {message.payload ? null : <MessageLabel kind={message.kind} />}
+
+          {/* A template send says which template produced it, and — when the
+              override was used — what the whole bubble opened. */}
+          {message.template ? (
+            <p className="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-medium text-muted-foreground">
+              <LayoutTemplate aria-hidden="true" className="size-3 shrink-0" />
+              <span>Template · {message.template.name}</span>
+              {message.template.tapTarget ? (
+                <span className="text-muted-foreground/80">
+                  · tap opens “{message.template.tapTarget.title}”
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+
+          {message.body && !message.payload ? (
+            <p className="mt-0.5 break-words whitespace-pre-wrap leading-relaxed">
+              {message.body}
+            </p>
+          ) : null}
+
+          {message.errorReason ? (
+            <p className="mt-1 text-[11.5px] text-destructive">
+              {message.errorReason}
+            </p>
+          ) : null}
+
+          <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+            <time dateTime={message.createdAt}>{clockTime(message.createdAt)}</time>
+            {outbound ? <Tick status={message.status} /> : null}
           </div>
-        ) : null}
-
-        {/* A location, a contact card or a button reply carries no file, so
-            without this line those bubbles were rendered empty. */}
-        <MessageLabel kind={message.kind} />
-
-        {/* A template send says which template produced it, and — when the
-            override was used — what the whole bubble opened. */}
-        {message.template ? (
-          <p className="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-medium text-muted-foreground">
-            <LayoutTemplate aria-hidden="true" className="size-3 shrink-0" />
-            <span>Template · {message.template.name}</span>
-            {message.template.tapTarget ? (
-              <span className="text-muted-foreground/80">
-                · tap opens “{message.template.tapTarget.title}”
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-
-        {message.body ? (
-          <p className="mt-0.5 break-words whitespace-pre-wrap leading-relaxed">
-            {message.body}
-          </p>
-        ) : null}
-
-        {message.errorReason ? (
-          <p className="mt-1 text-[11.5px] text-destructive">
-            {message.errorReason}
-          </p>
-        ) : null}
-
-        <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
-          <time dateTime={message.createdAt}>{clockTime(message.createdAt)}</time>
-          {outbound ? <Tick status={message.status} /> : null}
         </div>
+
+        {outbound ? (
+          <BubbleActions message={message} onQuote={onQuote} onReact={onReact} />
+        ) : null}
       </div>
+
+      {reactions.length > 0 ? (
+        <div className="-mt-1 flex flex-wrap gap-1 px-1">
+          {reactions.map((row) => (
+            <button
+              key={row.emoji}
+              type="button"
+              aria-label={
+                row.mine
+                  ? `Remove your ${row.emoji} reaction`
+                  : `React with ${row.emoji}`
+              }
+              title={row.mine ? "Tap to remove your reaction" : undefined}
+              className={cn(
+                "inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-[11px] leading-none transition-colors",
+                row.mine
+                  ? "border-brand/50 bg-brand-soft"
+                  : "border-border bg-card hover:bg-accent",
+              )}
+              onClick={() => onReact(message, row.mine ? "" : row.emoji)}
+            >
+              <span aria-hidden="true">{row.emoji}</span>
+              {row.count > 1 ? (
+                <span className="tabular-nums text-[10px] text-muted-foreground">
+                  {row.count}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The emojis offered in one tap; anything else is still a message away. */
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "🙏", "✅", "🎉"];
+
+/**
+ * Reply and react, on the edge of the bubble away from its tail.
+ *
+ * Hidden until the bubble is hovered, or until something inside it takes
+ * focus, so a quiet thread stays quiet. `pointer-events-none` while hidden is
+ * what keeps an invisible button from swallowing a tap meant for the bubble;
+ * keyboard focus still reaches them, and `group-focus-within` is what makes
+ * them visible once it does.
+ */
+function BubbleActions({
+  message,
+  onQuote,
+  onReact,
+}: {
+  message: InboxMessage;
+  onQuote: (message: InboxMessage) => void;
+  onReact: (message: InboxMessage, emoji: string) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-0.5 transition-opacity",
+        "pointer-events-none opacity-0",
+        "group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100",
+        "group-focus-within/bubble:pointer-events-auto group-focus-within/bubble:opacity-100",
+      )}
+    >
+      <button
+        type="button"
+        aria-label="Quote this message in a reply"
+        title="Reply"
+        className="grid size-7 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+        onClick={() => onQuote(message)}
+      >
+        <CornerUpLeft aria-hidden="true" className="size-3.5" />
+      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="React to this message"
+            title="React"
+            className="grid size-7 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <SmilePlus aria-hidden="true" className="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="flex w-auto gap-0.5 p-1"
+          data-theme="inbox"
+          side="top"
+        >
+          {QUICK_REACTIONS.map((emoji) => (
+            <DropdownMenuItem
+              key={emoji}
+              aria-label={`React with ${emoji}`}
+              className="grid size-8 place-items-center rounded-md p-0 text-base leading-none"
+              onSelect={() => onReact(message, emoji)}
+            >
+              <span aria-hidden="true">{emoji}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/** The message a reply answers, drawn the way WhatsApp draws it. */
+function QuoteBlock({
+  message,
+  outbound,
+  peer,
+}: {
+  message: InboxMessage;
+  outbound: boolean;
+  peer: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "mb-1.5 rounded-md border-l-2 px-2 py-1",
+        outbound
+          ? "border-brand/60 bg-card/60"
+          : "border-brand/50 bg-secondary/60",
+      )}
+    >
+      <p className="text-[10px] font-semibold text-brand">
+        {message.direction === "OUTBOUND" ? "You" : peer}
+      </p>
+      <p className="line-clamp-2 text-[11.5px] leading-snug break-words text-muted-foreground">
+        {messageSnippet(message)}
+      </p>
     </div>
   );
 }

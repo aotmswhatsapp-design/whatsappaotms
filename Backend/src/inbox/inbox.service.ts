@@ -11,11 +11,17 @@ import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateNoteDto } from "./dto/create-note.dto";
 import type { ListConversationsDto } from "./dto/list-conversations.dto";
+import type { SendContactDto } from "./dto/send-contact.dto";
+import type { SendLocationDto } from "./dto/send-location.dto";
+import type { SendMediaDto } from "./dto/send-media.dto";
+import type { SendReactionDto } from "./dto/send-reaction.dto";
 import type { SendTemplateDto } from "./dto/send-template.dto";
+import type { SendTextDto } from "./dto/send-text.dto";
 import type { UpdateConversationDto } from "./dto/update-conversation.dto";
 import {
   InboxSender,
   type AccountCredentials,
+  type Quote,
   type UploadedMedia,
 } from "./inbox.sender";
 import {
@@ -221,9 +227,18 @@ export class InboxService {
       }),
     ]);
 
+    // A quote is drawn from a message the thread already holds, so quotes are
+    // resolved to row ids here rather than sending wamids to the client.
+    const ordered = messages.reverse();
+    const index = new Map<string, string>();
+
+    for (const row of ordered) {
+      if (row.wamid) index.set(row.wamid, row.id);
+    }
+
     return {
       conversation: conversationView(conversation),
-      messages: messages.reverse().map(messageView),
+      messages: ordered.map((row) => messageView(row, index)),
       notes: notes.map(noteView),
     };
   }
@@ -231,7 +246,7 @@ export class InboxService {
   async sendText(
     claims: AuthClaims,
     id: string,
-    body: string,
+    dto: SendTextDto,
   ): Promise<{ message: MessageView }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
     const { conversationId, waId, account } = await this.forSending(workspaceId, id);
@@ -242,7 +257,8 @@ export class InboxService {
         conversationId,
         waId,
         account,
-        body,
+        body: dto.body,
+        quote: await this.quoteOf(conversationId, dto.quotedMessageId),
       }),
     };
   }
@@ -251,7 +267,7 @@ export class InboxService {
     claims: AuthClaims,
     id: string,
     file: UploadedMedia,
-    caption: string | null,
+    dto: SendMediaDto,
   ): Promise<{ message: MessageView }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
     const { conversationId, waId, account } = await this.forSending(workspaceId, id);
@@ -263,7 +279,85 @@ export class InboxService {
         waId,
         account,
         file,
-        caption: caption && caption.length > 0 ? caption : null,
+        caption: dto.caption && dto.caption.length > 0 ? dto.caption : null,
+        quote: await this.quoteOf(conversationId, dto.quotedMessageId),
+      }),
+    };
+  }
+
+  /**
+   * One emoji on one message. Like every other service message it needs an
+   * open window, and the target has to be a message Meta already knows.
+   */
+  async sendReaction(
+    claims: AuthClaims,
+    id: string,
+    dto: SendReactionDto,
+  ): Promise<{ message: MessageView | null }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { conversationId, waId, account } = await this.forSending(workspaceId, id);
+    const target = await this.quoteOf(conversationId, dto.messageId);
+
+    if (!target) {
+      throw new BadRequestException("React to a message in this conversation.");
+    }
+
+    return {
+      message: await this.sender.reaction({
+        workspaceId,
+        conversationId,
+        waId,
+        account,
+        target,
+        emoji: dto.emoji,
+      }),
+    };
+  }
+
+  async sendLocation(
+    claims: AuthClaims,
+    id: string,
+    dto: SendLocationDto,
+  ): Promise<{ message: MessageView }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { conversationId, waId, account } = await this.forSending(workspaceId, id);
+
+    return {
+      message: await this.sender.location({
+        workspaceId,
+        conversationId,
+        waId,
+        account,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        name: dto.name ?? null,
+        address: dto.address ?? null,
+      }),
+    };
+  }
+
+  async sendContact(
+    claims: AuthClaims,
+    id: string,
+    dto: SendContactDto,
+  ): Promise<{ message: MessageView }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { conversationId, waId, account } = await this.forSending(workspaceId, id);
+
+    return {
+      message: await this.sender.contacts({
+        workspaceId,
+        conversationId,
+        waId,
+        account,
+        contacts: [
+          {
+            name: dto.name,
+            phones: dto.phone ? [dto.phone] : [],
+            emails: dto.email ? [dto.email] : [],
+            organization: dto.organization ?? null,
+          },
+        ],
       }),
     };
   }
@@ -398,6 +492,10 @@ export class InboxService {
     return { conversation: conversationView(updated) };
   }
 
+  /**
+   * Clears the badge and tells Meta the thread was read. A failure to report
+   * the read is logged by the sender and never blocks the agent.
+   */
   async markRead(
     claims: AuthClaims,
     id: string,
@@ -412,6 +510,20 @@ export class InboxService {
     // updateMany counts matched rows, so zero means the thread is not ours.
     if (result.count === 0) {
       throw new NotFoundException("That conversation does not exist.");
+    }
+
+    try {
+      const target = await this.sendTarget(workspaceId, id);
+
+      await this.sender.read({
+        workspaceId,
+        conversationId: target.conversationId,
+        waId: target.waId,
+        account: target.account,
+      });
+    } catch {
+      // No channel connected, or the receipt was refused: the badge is still
+      // cleared, which is the half of this that belongs to us.
     }
 
     return { unreadCount: 0 };
@@ -563,6 +675,36 @@ export class InboxService {
       account,
       windowOpen: windowOpen(conversation.lastInboundAt),
     };
+  }
+
+  /**
+   * The message behind a quote or a reaction, as both the client (row id) and
+   * Meta (wamid) name it. Refuses a row from another conversation, and a row
+   * that never reached WhatsApp — Meta cannot quote something it never saw.
+   */
+  private async quoteOf(
+    conversationId: string,
+    messageId: string | undefined,
+  ): Promise<Quote | null> {
+    if (!messageId) return null;
+
+    const row = await this.prisma.message.findFirst({
+      where: { id: messageId, conversationId },
+      select: { id: true, wamid: true },
+    });
+
+    if (!row) {
+      throw new NotFoundException("The message you are quoting is not in this conversation.");
+    }
+
+    if (!row.wamid) {
+      throw new ConflictException({
+        code: "QUOTE_NOT_SENT",
+        message: "That message has not reached WhatsApp yet, so it cannot be quoted.",
+      });
+    }
+
+    return { id: row.id, wamid: row.wamid };
   }
 
   private async mustConversation(
