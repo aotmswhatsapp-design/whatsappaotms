@@ -42,12 +42,14 @@ export class WhatsAppWebhookController {
   @Get()
   async verify(
     @Query() query: Record<string, unknown>,
+    @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
     const outcome = await this.webhook.handshake({
       mode: first(query["hub.mode"]),
       token: first(query["hub.verify_token"]),
       challenge: first(query["hub.challenge"]),
+      ip: req.ip,
     });
 
     if (!outcome.ok) {

@@ -18,6 +18,12 @@ export interface WebhookFacts {
   lastEventAt: string | null;
   eventCount: number;
   verifyToken: string | null;
+  /** The last call whose verify token was this workspace's. */
+  lastAttemptAt: string | null;
+  /** The last call that matched no workspace — Meta still holding an old token. */
+  lastUnmatchedAt: string | null;
+  /** Its last four characters, so the two tokens can be compared on screen. */
+  lastUnmatchedHint: string | null;
 }
 
 export interface WhatsAppAccount {

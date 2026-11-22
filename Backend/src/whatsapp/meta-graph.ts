@@ -260,6 +260,27 @@ export class MetaGraph {
   }
 
   /**
+   * Subscribes this app to the WhatsApp account's webhooks.
+   *
+   * Meta delivers an event only to apps subscribed to the account that owns the
+   * number, and a connection made by hand does not subscribe on its own — so a
+   * perfectly verified callback URL can still receive nothing. Calling this on
+   * connect closes that gap; repeating it is accepted and changes nothing.
+   */
+  async subscribeApp(input: {
+    version: string;
+    businessAccountId: string;
+    token: string;
+  }): Promise<void> {
+    const url = this.urlOf(input.version, [
+      input.businessAccountId,
+      "subscribed_apps",
+    ]);
+
+    await this.send(url, { method: "POST", token: input.token });
+  }
+
+  /**
    * The profile customers see. `whatsapp_business_profile` is a collection
    * node — it answers `{ data: [ … ] }` with at most one entry — so the
    * unwrapping belongs here rather than in every caller.

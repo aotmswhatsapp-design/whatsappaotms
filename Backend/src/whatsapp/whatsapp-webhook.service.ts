@@ -17,6 +17,10 @@ export type HandshakeOutcome =
   /** 403 for all three: Meta only needs to know the token was not accepted. */
   | { ok: false; reason: "malformed" | "wrong-mode" | "token-mismatch" };
 
+/** How long a trace row is worth keeping, and how often the sweep runs. */
+const KEEP_MS = 7 * 86_400_000;
+const SWEEP_MS = 3_600_000;
+
 /**
  * The public half of the module: what Meta calls, unauthenticated.
  *
@@ -27,6 +31,8 @@ export type HandshakeOutcome =
 @Injectable()
 export class WhatsAppWebhookService {
   private readonly logger = new Logger(WhatsAppWebhookService.name);
+  /** When the trace was last swept; zero means the next call sweeps. */
+  private sweptAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -47,12 +53,18 @@ export class WhatsAppWebhookService {
     mode: string | undefined;
     token: string | undefined;
     challenge: string | undefined;
+    /** Meta's egress address, kept so one caller can be told from another. */
+    ip?: string;
   }): Promise<HandshakeOutcome> {
+    const seen = { mode: input.mode, token: input.token, ip: input.ip };
+
     if (input.mode !== "subscribe") {
+      await this.trace({ ...seen, matchedAccountId: null });
       return { ok: false, reason: "wrong-mode" };
     }
 
     if (!input.token || !input.challenge) {
+      await this.trace({ ...seen, matchedAccountId: null });
       return { ok: false, reason: "malformed" };
     }
 
@@ -72,8 +84,13 @@ export class WhatsAppWebhookService {
     }
 
     if (!matched) {
+      // The row that makes this diagnosable: a call did arrive, with a token
+      // that belongs to no workspace — which is what a stale Meta config looks
+      // like from our side, and what the connection screen now reports.
+      await this.trace({ ...seen, matchedAccountId: null });
+
       this.logger.warn(
-        `Webhook handshake rejected: no of ${candidates.length} stored workspaces matches this token.`,
+        `Webhook handshake rejected: none of ${candidates.length} stored workspaces matches this token.`,
       );
       return { ok: false, reason: "token-mismatch" };
     }
@@ -82,6 +99,8 @@ export class WhatsAppWebhookService {
       where: { id: matched },
       data: { webhookVerifiedAt: new Date() },
     });
+
+    await this.trace({ ...seen, matchedAccountId: matched });
 
     this.logger.log("Webhook handshake accepted; workspace marked live.");
 
@@ -241,6 +260,56 @@ export class WhatsAppWebhookService {
       return null;
     }
   }
+
+  /**
+   * Writes one line of evidence per handshake attempt.
+   *
+   * Deliberately incapable of failing the request: a trace write that throws
+   * would answer Meta with 500, teach it to retry, and hide the very call this
+   * row exists to report. Only the last four characters of the presented token
+   * are stored — enough to tell two tokens apart, useless as a credential.
+   */
+  private async trace(input: {
+    mode: string | undefined;
+    token: string | undefined;
+    ip: string | undefined;
+    matchedAccountId: string | null;
+  }): Promise<void> {
+    try {
+      await this.prisma.webhookAttempt.create({
+        data: {
+          mode: input.mode?.slice(0, 32) ?? null,
+          tokenHint: input.token ? lastFour(input.token) : null,
+          matchedAccountId: input.matchedAccountId,
+          ip: input.ip?.slice(0, 64) ?? null,
+        },
+      });
+
+      await this.sweep();
+    } catch (error) {
+      this.logger.warn(
+        `Could not record the handshake attempt: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
+
+  /** Old traces are evidence about a support conversation, not history. */
+  private async sweep(): Promise<void> {
+    const now = Date.now();
+
+    if (now - this.sweptAt < SWEEP_MS) return;
+
+    this.sweptAt = now;
+
+    await this.prisma.webhookAttempt.deleteMany({
+      where: { at: { lt: new Date(now - KEEP_MS) } },
+    });
+  }
+}
+
+/** Last four characters, which is all the trace is allowed to keep. */
+function lastFour(token: string): string {
+  return token.length <= 4 ? token : token.slice(-4);
 }
 
 function equals(a: string, b: string): boolean {

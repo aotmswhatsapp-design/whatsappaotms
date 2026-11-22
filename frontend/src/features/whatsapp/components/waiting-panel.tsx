@@ -1,21 +1,25 @@
 "use client";
 
-import { ArrowLeft, KeyRound, LoaderCircle, RotateCcw } from "lucide-react";
+import { ArrowLeft, CircleAlert, KeyRound, LoaderCircle, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
+import type { WebhookFacts } from "./api";
 import { WebhookFields } from "./webhook-fields";
 
 /**
  * Step three: the wait, made legible.
  *
- * Nothing on this screen calls Meta — it watches the row Meta's handshake
- * writes to. That is why "Check again" is instant and why the answer arrives on
- * its own the moment Meta calls.
+ * Nothing on this screen calls Meta — it watches what Meta's calls left behind.
+ * The API records every handshake attempt, matched or not, so this screen can
+ * say which of two very different things is true: no call has arrived at all
+ * (nothing is saved in Meta), or a call arrived with a token that is not ours
+ * (Meta still holds an older one). Without that trace the two look identical,
+ * and the only thing left to say is "wait".
  */
 export function WaitingPanel({
   callbackUrl,
-  verifyToken,
+  webhook,
   expired,
   checking,
   onCheck,
@@ -23,8 +27,7 @@ export function WaitingPanel({
   onEditDetails,
 }: {
   callbackUrl: string | null;
-  /** Kept beside the URL: this is the screen where a wrong token is fixed. */
-  verifyToken: string | null;
+  webhook: WebhookFacts;
   expired: boolean;
   checking: boolean;
   onCheck: () => void;
@@ -32,6 +35,9 @@ export function WaitingPanel({
   /** Returns to the credential form — the fix for a wrong number or token. */
   onEditDetails: () => void;
 }) {
+  const reached = webhook.lastAttemptAt !== null;
+  const foreign = !reached && webhook.lastUnmatchedAt !== null;
+
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3">
@@ -40,12 +46,31 @@ export function WaitingPanel({
         </span>
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-foreground">
-            Waiting for the handshake from Meta
+            {foreign
+              ? "Meta called with a different verify token"
+              : "Waiting for the handshake from Meta"}
           </h2>
           <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
-            When you pressed <span className="font-medium text-foreground">Verify and save</span>,
-            Meta called this API. The moment that call arrives, this page moves
-            on by itself — you do not need to refresh.
+            {foreign ? (
+              <>
+                A call arrived {clock(webhook.lastUnmatchedAt)} and presented a
+                token ending{" "}
+                <span className="font-mono font-medium text-foreground">
+                  {webhook.lastUnmatchedHint ?? "????"}
+                </span>
+                , which is not this workspace&apos;s. Meta is still echoing an
+                earlier token — copy the current one below into Meta and save it
+                again.
+              </>
+            ) : (
+              <>
+                Nothing has reached this endpoint yet. Meta only calls it when
+                someone presses <span className="font-medium text-foreground">Verify and save</span>{" "}
+                in the app&apos;s webhook settings, so the two values below are
+                not saved there yet. This page moves on by itself the moment a
+                call lands.
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -54,18 +79,34 @@ export function WaitingPanel({
         <p className="text-[12.5px] font-medium text-muted-foreground">
           Meta is calling
         </p>
-        <WebhookFields callbackUrl={callbackUrl} verifyToken={verifyToken} />
+        <WebhookFields callbackUrl={callbackUrl} verifyToken={webhook.verifyToken} />
       </div>
 
-      {expired ? (
+      {foreign ? (
+        <p className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2.5 text-[13px] leading-relaxed text-warning">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <span>
+            The token this workspace holds ends{" "}
+            <span className="font-mono font-medium">
+              {tailOf(webhook.verifyToken)}
+            </span>
+            . If you never saved a token that ends in {" "}
+            <span className="font-mono font-medium">
+              {webhook.lastUnmatchedHint ?? "????"}
+            </span>
+            , it belongs to another customer of this API — rotating this
+            workspace&apos;s token cannot change it.
+          </span>
+        </p>
+      ) : expired ? (
         <p className="rounded-lg bg-warning-soft px-3 py-2.5 text-[13px] leading-relaxed text-warning">
-          Nothing has arrived after two minutes. The wait has stopped. If a value
-          was typed wrong, go back to the details, correct it and verify again;
-          otherwise check the three usual causes below.
+          Nothing has arrived after two minutes. The screen is still watching,
+          just less often — if Meta calls later it will move on by itself.
         </p>
       ) : (
         <p aria-live="polite" className="text-[12.5px] text-muted-foreground">
-          Watching for it. This screen keeps checking for two minutes.
+          Watching for it. This screen keeps checking for two minutes, then every
+          fifteen seconds.
         </p>
       )}
 
@@ -112,4 +153,25 @@ export function WaitingPanel({
       </div>
     </div>
   );
+}
+
+/** A timestamp the customer can hold against their own clock. */
+function clock(iso: string | null): string {
+  if (!iso) return "a moment ago";
+
+  const at = new Date(iso);
+
+  if (Number.isNaN(at.getTime())) return "a moment ago";
+
+  return at.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+/** The four characters the API keeps, for comparing two tokens on screen. */
+function tailOf(token: string | null): string {
+  if (!token) return "????";
+
+  return token.length <= 4 ? token : token.slice(-4);
 }

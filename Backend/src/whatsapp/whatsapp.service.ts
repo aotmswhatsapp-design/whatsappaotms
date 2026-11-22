@@ -31,7 +31,8 @@ export type CheckKey =
   | "appSecret"
   | "graphVersion"
   | "businessAccountId"
-  | "verifyToken";
+  | "verifyToken"
+  | "subscription";
 
 export type CheckState = "ok" | "failed" | "skipped";
 
@@ -58,7 +59,34 @@ export interface WebhookFacts {
   eventCount: number;
   /** Ours, and only useful inside Meta — so it is shown in full by design. */
   verifyToken: string | null;
+  /**
+   * The last GET this workspace's token answered, and the last that matched no
+   * workspace at all. Together they separate "Meta never called" from "Meta
+   * called with an older token" — two states the screen used to report as one
+   * silence.
+   */
+  lastAttemptAt: string | null;
+  lastUnmatchedAt: string | null;
+  /** Last four characters of that stranger's token, to compare with ours. */
+  lastUnmatchedHint: string | null;
 }
+
+/**
+ * What the handshake trace can say about one connection, spread into the
+ * public webhook facts so a screen reads one object rather than two shapes of
+ * the same truth. Empty when the account has no trace to read.
+ */
+interface HandshakeTrace {
+  lastAttemptAt: string | null;
+  lastUnmatchedAt: string | null;
+  lastUnmatchedHint: string | null;
+}
+
+const NO_TRACE: HandshakeTrace = {
+  lastAttemptAt: null,
+  lastUnmatchedAt: null,
+  lastUnmatchedHint: null,
+};
 
 export interface PublicAccount {
   phoneNumberId: string;
@@ -185,7 +213,19 @@ const FORM_ORDER: CheckKey[] = [
 ];
 
 /** The verify token is generated, so it is reported last rather than asked for. */
-const CHECK_ORDER: CheckKey[] = [...FORM_ORDER, "verifyToken"];
+const CHECK_ORDER: CheckKey[] = [...FORM_ORDER, "verifyToken", "subscription"];
+
+/**
+ * Checks that report on the setup rather than on an input. None of them can
+ * refuse a connection: the credentials themselves are already proven by Graph,
+ * and a refusal here is a warning the customer acts on, not a failed save.
+ */
+const ADVISORY: ReadonlySet<CheckKey> = new Set<CheckKey>([
+  "appId",
+  "appSecret",
+  "verifyToken",
+  "subscription",
+]);
 
 const LABELS: Record<CheckKey, string> = {
   accessToken: "Access token",
@@ -195,6 +235,7 @@ const LABELS: Record<CheckKey, string> = {
   graphVersion: "Graph version",
   businessAccountId: "Whatsapp Account ID",
   verifyToken: "Verify token",
+  subscription: "Webhook subscription",
 };
 
 const UNREADABLE_SECRET =
@@ -206,6 +247,8 @@ const UNREADABLE_SECRET =
  * recognise which token is installed and useless to anyone else.
  */
 const ACCOUNT_SELECT = {
+  /// Never disclosed; selected so the handshake trace can be looked up by it.
+  id: true,
   phoneNumberId: true,
   businessAccountId: true,
   graphVersion: true,
@@ -242,6 +285,7 @@ const STATUS_SELECT = {
   status: true,
   failureReason: true,
   webhookVerifiedAt: true,
+  lastEventAt: true,
   lastCheckAt: true,
   accessTokenCipher: true,
 } satisfies Prisma.WhatsAppAccountSelect;
@@ -399,12 +443,35 @@ export class WhatsAppService {
 
     if (blocker) {
       checks.set("businessAccountId", skipped(blocker));
+      checks.set("subscription", skipped(blocker));
     } else {
       try {
         business = await this.meta.getBusinessAccount(version, businessId, token);
         checks.set("businessAccountId", ok(describeBusiness(business)));
       } catch (error) {
         checks.set("businessAccountId", failed(blame(error, version, businessId).detail));
+      }
+
+      // Meta delivers an event only to apps subscribed to the account, and a
+      // hand-made connection subscribes nothing by itself — so this is what
+      // stops a verified callback URL from receiving zero messages.
+      try {
+        await this.meta.subscribeApp({
+          version,
+          businessAccountId: businessId,
+          token,
+        });
+        checks.set(
+          "subscription",
+          ok("This app is subscribed to the WhatsApp account, so deliveries will arrive."),
+        );
+      } catch (error) {
+        checks.set(
+          "subscription",
+          failed(
+            `Meta refused the subscription: ${blame(error, version, businessId).detail}`,
+          ),
+        );
       }
     }
 
@@ -414,7 +481,14 @@ export class WhatsAppService {
       ...(checks.get(key) ?? skipped("Not checked.")),
     }));
 
-    const allOk = ordered.every((check) => check.state === "ok");
+    // An advisory failure is shown but does not refuse the connection: the
+    // credentials are proven, and a warning the customer can act on is worth
+    // more than a save that keeps failing after Meta said yes.
+    const allOk = ordered.every(
+      (check) =>
+        check.state === "ok" ||
+        (check.state === "failed" && ADVISORY.has(check.key)),
+    );
 
     if (!allOk || !phone || !business) {
       const firstFailure = ordered.find((check) => check.state === "failed");
@@ -482,7 +556,7 @@ export class WhatsAppService {
         ? `Connected ${number}. Next: paste the callback URL and verify token into Meta.`
         : `Connected ${number}. The API's webhook URL is not configured yet, so Meta cannot reach it — set WHATSAPP_WEBHOOK_PUBLIC_URL.`,
       checks: ordered,
-      account: this.toPublic(row),
+      account: this.toPublic(row, await this.traceFor(row.id)),
     };
   }
 
@@ -500,7 +574,7 @@ export class WhatsAppService {
     }
 
     return {
-      account: this.toPublic(row),
+      account: this.toPublic(row, await this.traceFor(row.id)),
       stage: stageOf(row),
       callbackUrl: this.callbackUrl,
     };
@@ -837,7 +911,7 @@ export class WhatsAppService {
     });
   }
 
-  private toPublic(row: AccountRow): PublicAccount {
+  private toPublic(row: AccountRow, trace: HandshakeTrace = NO_TRACE): PublicAccount {
     return {
       phoneNumberId: row.phoneNumberId,
       businessAccountId: row.businessAccountId,
@@ -861,7 +935,37 @@ export class WhatsAppService {
         lastEventAt: row.lastEventAt?.toISOString() ?? null,
         eventCount: row.eventCount,
         verifyToken: this.openOrNull(row.verifyTokenCipher),
+        ...trace,
       },
+    };
+  }
+
+  /**
+   * What the handshake trace says about this connection.
+   *
+   * Two rows answer the question the screen cannot answer from a null stamp:
+   * has anyone called at all, and did the last caller present our token? A
+   * stranger's row is global by nature — a rejected token belongs to no
+   * workspace — but it is the only evidence that Meta *is* reaching us.
+   */
+  private async traceFor(accountId: string): Promise<HandshakeTrace> {
+    const [mine, stranger] = await Promise.all([
+      this.prisma.webhookAttempt.findFirst({
+        where: { matchedAccountId: accountId },
+        orderBy: { at: "desc" },
+        select: { at: true },
+      }),
+      this.prisma.webhookAttempt.findFirst({
+        where: { matchedAccountId: null },
+        orderBy: { at: "desc" },
+        select: { at: true, tokenHint: true },
+      }),
+    ]);
+
+    return {
+      lastAttemptAt: mine?.at.toISOString() ?? null,
+      lastUnmatchedAt: stranger?.at.toISOString() ?? null,
+      lastUnmatchedHint: stranger?.tokenHint ?? null,
     };
   }
 
@@ -881,9 +985,26 @@ export class WhatsAppService {
 
 }
 
-function stageOf(row: { status: string; webhookVerifiedAt: Date | null }): ConnectionStage {
+/**
+ * Proof that the pipe is open. The GET handshake is the tidy path, but a signed
+ * delivery is stronger evidence still: it proves the callback URL, the app
+ * secret and the subscription in one go. Treating only the handshake as proof
+ * left a channel that was already receiving events reading "waiting" forever.
+ */
+function isReceiving(row: {
+  webhookVerifiedAt: Date | null;
+  lastEventAt: Date | null;
+}): boolean {
+  return row.webhookVerifiedAt !== null || row.lastEventAt !== null;
+}
+
+function stageOf(row: {
+  status: string;
+  webhookVerifiedAt: Date | null;
+  lastEventAt: Date | null;
+}): ConnectionStage {
   if (row.status === "FAILED") return "error";
-  return row.webhookVerifiedAt ? "live" : "webhook";
+  return isReceiving(row) ? "live" : "webhook";
 }
 
 function deriveStatus(row: StatusRow): StatusPayload {
@@ -897,7 +1018,7 @@ function deriveStatus(row: StatusRow): StatusPayload {
     };
   }
 
-  return row.webhookVerifiedAt
+  return isReceiving(row)
     ? { state: "live", reason: null, number }
     : { state: "pending", reason: null, number };
 }
@@ -911,7 +1032,7 @@ function numberFrom(row: StatusRow): StatusNumber {
     businessName: row.businessName,
     verifiedName: row.verifiedName,
     quality: row.qualityRating,
-    receiving: row.webhookVerifiedAt !== null,
+    receiving: isReceiving(row),
   };
 }
 

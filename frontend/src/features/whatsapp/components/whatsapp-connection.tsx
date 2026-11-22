@@ -38,9 +38,11 @@ const SOURCES = [
   "Business settings → Accounts → WhatsApp accounts → copy the WhatsApp Account ID.",
 ];
 
-/** How long the waiting step watches for Meta before it gives up and explains. */
+/** How long the waiting step watches closely before dropping to a slow poll. */
 const WAIT_MS = 120_000;
 const POLL_MS = 3_000;
+/** After the first two minutes: still watching, because a late save is common. */
+const SLOW_POLL_MS = 15_000;
 
 type View = "auto" | "details" | "waiting";
 
@@ -127,12 +129,14 @@ export function WhatsAppConnection() {
         return;
       }
 
-      if (Date.now() - startedAt >= WAIT_MS) {
-        setExpired(true);
-        return;
-      }
+      // The wait does not end at two minutes: it only slows down. A customer
+      // who saves Meta's panel later must still see the screen move, and a
+      // stopped screen looks like a broken one.
+      const late = Date.now() - startedAt >= WAIT_MS;
 
-      timer = window.setTimeout(tick, POLL_MS);
+      if (late) setExpired(true);
+
+      timer = window.setTimeout(tick, late ? SLOW_POLL_MS : POLL_MS);
     };
 
     timer = window.setTimeout(tick, POLL_MS);
@@ -156,8 +160,9 @@ export function WhatsAppConnection() {
       toast.push({
         tone: "info",
         title: "Still waiting",
-        description:
-          "Meta has not called the callback URL yet. The three causes below usually explain it.",
+        description: account?.webhook.lastUnmatchedAt
+          ? "A call arrived with a verify token that is not this workspace's — Meta still holds an earlier one."
+          : "Meta has not called this endpoint yet, so the pair below is not saved in the app.",
       });
     }
   }
@@ -284,7 +289,7 @@ export function WhatsAppConnection() {
         <section className="rounded-xl border border-border bg-card p-5">
           <WaitingPanel
             callbackUrl={callbackUrl}
-            verifyToken={account.webhook.verifyToken}
+            webhook={account.webhook}
             checking={checking}
             expired={expired}
             onBack={() => setView("auto")}

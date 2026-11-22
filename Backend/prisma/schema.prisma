@@ -193,6 +193,31 @@ model WhatsAppAccount {
   @@map("whatsapp_accounts")
 }
 
+/// Every GET Meta's console sends to the webhook endpoint — matched or not.
+///
+/// Without this, "Meta never called" and "Meta called with a token that is not
+/// ours" produce the same silence, and the connection screen can only
+/// apologise. Rows are pruned after seven days, only the last four characters
+/// of the presented token are stored (enough to tell two apart, useless as a
+/// credential), and there is deliberately no foreign key: the trace has to
+/// outlive the connection it failed to complete.
+model WebhookAttempt {
+  id               String   @id @default(uuid()) @db.Uuid
+  at               DateTime @default(now())
+  /// `hub.mode` as sent. Null when the request omitted it.
+  mode             String?
+  /// Last four characters of `hub.verify_token`; never the token itself.
+  tokenHint        String?  @map("token_hint")
+  /// Set when the token matched a workspace's, so a screen can claim the call.
+  matchedAccountId String?  @map("matched_account_id") @db.Uuid
+  /// Meta's egress address, for telling one caller apart from another.
+  ip               String?
+
+  @@index([at])
+  @@index([matchedAccountId])
+  @@map("webhook_attempts")
+}
+
 // ---------------------------------------------------------------------------
 // Inbox (PRD MODULE 5).
 //
