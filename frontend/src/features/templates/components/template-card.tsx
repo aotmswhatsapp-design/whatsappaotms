@@ -9,26 +9,13 @@ import type { TemplateFacts } from "../api";
 import { templateParts, type TemplateButtonFact } from "../components-shape";
 import {
   categoryLabel,
+  STATUS_TONE_CLASS,
+  STATUS_TONE_DOT,
   statusLabel,
   statusTone,
   updatedLabel,
-  type StatusTone,
 } from "../format";
 import { languageLabel } from "../languages";
-
-const TONES: Record<StatusTone, string> = {
-  ok: "border-lime/45 bg-lime/10 text-foreground",
-  waiting: "border-warning/45 bg-warning/10 text-foreground",
-  bad: "border-destructive/35 bg-destructive/10 text-foreground",
-  muted: "border-border bg-secondary text-muted-foreground",
-};
-
-const DOTS: Record<StatusTone, string> = {
-  ok: "bg-lime",
-  waiting: "bg-warning",
-  bad: "bg-destructive",
-  muted: "bg-muted-foreground/60",
-};
 
 const QUALITY: Record<string, { label: string; className: string }> = {
   GREEN: { label: "High quality", className: "bg-lime" },
@@ -176,10 +163,10 @@ export function TemplateCard({
           <span
             className={cn(
               "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap",
-              TONES[tone],
+              STATUS_TONE_CLASS[tone],
             )}
           >
-            <span aria-hidden="true" className={cn("size-1.5 rounded-full", DOTS[tone])} />
+            <span aria-hidden="true" className={cn("size-1.5 rounded-full", STATUS_TONE_DOT[tone])} />
             {statusLabel(row.status)}
           </span>
         </div>

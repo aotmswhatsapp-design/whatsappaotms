@@ -122,6 +122,25 @@ export class TemplatesController {
     return this.templates.enableInsights(claims);
   }
 
+  /**
+   * GET /api/v1/templates/performance?days=30 — delivered count and spend for
+   * every template, for the catalogue list. Declared before `:id` so the path
+   * is not read as a template id. A Meta refusal answers 200 with null figures
+   * and the reason; the list itself does not depend on it.
+   */
+  @Get("performance")
+  performance(
+    @CurrentUser() claims: AuthClaims,
+    @Query("days") days?: string,
+  ) {
+    const parsed = days === undefined ? undefined : Number(days);
+
+    return this.templates.performance(
+      claims,
+      parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+    );
+  }
+
   /** GET /api/v1/templates/:id — one row, scoped to the caller's workspace. */
   @Get(":id")
   find(@CurrentUser() claims: AuthClaims, @Param("id", ParseUUIDPipe) id: string) {

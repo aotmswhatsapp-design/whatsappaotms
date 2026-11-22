@@ -54,6 +54,51 @@ export function statusTone(status: string): StatusTone {
   return TONE_BY_STATUS[status] ?? "muted";
 }
 
+/**
+ * The pill and its dot, in the palette the rest of the workspace uses. Shared
+ * by every place that shows a review state, so the catalogue and the detail
+ * screen cannot drift into two different greens.
+ */
+export const STATUS_TONE_CLASS: Record<StatusTone, string> = {
+  ok: "border-lime/45 bg-lime/10 text-foreground",
+  waiting: "border-warning/45 bg-warning/10 text-foreground",
+  bad: "border-destructive/35 bg-destructive/10 text-foreground",
+  muted: "border-border bg-secondary text-muted-foreground",
+};
+
+export const STATUS_TONE_DOT: Record<StatusTone, string> = {
+  ok: "bg-lime",
+  waiting: "bg-warning",
+  bad: "bg-destructive",
+  muted: "bg-muted-foreground/60",
+};
+
+/** `1,284` — a count, or an em dash when nobody measured it. */
+export function countLabel(value: number | null | undefined): string {
+  return value === null || value === undefined ? "—" : value.toLocaleString();
+}
+
+/**
+ * Money in Meta's own currency. A null is an em dash: Meta withholds cost under
+ * some billing arrangements, and "0.00" would read as "this was free".
+ */
+export function moneyLabel(
+  value: number | null | undefined,
+  currency: string | null,
+): string {
+  if (value === null || value === undefined) return "—";
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currency ?? "USD",
+      maximumFractionDigits: value !== 0 && value < 1 ? 4 : 2,
+    }).format(value);
+  } catch {
+    return `${currency ?? ""} ${value.toFixed(2)}`.trim();
+  }
+}
+
 /** Only an approved template can be sent to a customer. */
 export function isSendable(status: string): boolean {
   return status === "APPROVED";

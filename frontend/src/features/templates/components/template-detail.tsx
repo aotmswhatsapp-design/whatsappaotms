@@ -33,7 +33,7 @@ import {
   type TemplateAnalytics,
   type TemplateFacts,
 } from "../api";
-import { categoryLabel, statusLabel, statusTone, updatedLabel } from "../format";
+import { categoryLabel, moneyLabel, statusLabel, statusTone, updatedLabel } from "../format";
 import { languageLabel } from "../languages";
 import { TemplateCard } from "./template-card";
 
@@ -526,24 +526,6 @@ function shortDate(date: string): string {
     month: "short",
     timeZone: "UTC",
   });
-}
-
-/**
- * Money in Meta's own currency. A null is an em dash: Meta withholds cost
- * under some billing arrangements, and "0.00" would read as "this was free".
- */
-function moneyLabel(value: number | null, currency: string | null): string {
-  if (value === null) return "—";
-
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: currency ?? "USD",
-      maximumFractionDigits: value !== 0 && value < 1 ? 4 : 2,
-    }).format(value);
-  } catch {
-    return `${currency ?? ""} ${value.toFixed(2)}`.trim();
-  }
 }
 
 function readReason(caught: unknown): string {

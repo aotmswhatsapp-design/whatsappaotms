@@ -60,6 +60,68 @@ export interface TemplateAnalyticsPayload {
   warning?: string;
 }
 
+/**
+ * One catalogue line: how many messages this template delivered, and what Meta
+ * charged for them. `null` is "not measured", never zero.
+ */
+export interface TemplatePerformanceRow {
+  templateId: string;
+  delivered: number | null;
+  spent: number | null;
+}
+
+/**
+ * What the list screen needs and nothing more.
+ *
+ * The whole catalogue is read in one Graph call, so this payload exists to keep
+ * that read off the list itself: rows render from the cache while their two
+ * figures fill in, and a refusal here costs the figures rather than the page.
+ */
+export interface TemplatePerformancePayload {
+  window: { days: number; start: string; end: string };
+  /** Meta's billing currency for this WABA; null when it never named one. */
+  currency: string | null;
+  /** False until the customer turns Meta's one-way switch on for this WABA. */
+  insightsEnabled: boolean;
+  rows: TemplatePerformanceRow[];
+  totals: { delivered: number | null; spent: number | null };
+  /** Which figures Meta would not answer for; the rows still carry `null`. */
+  unavailable: string[];
+  warning?: string;
+}
+
+type TemplateTotal = { delivered: number; spent: number | null };
+
+/**
+ * Folds Meta's per-day, per-template points into one total per template.
+ *
+ * Summing is right here because both quantities are counts of money and
+ * messages, not ratios: the spend per delivery is derived later, if at all, so
+ * no daily ratio is ever added to another. Points Meta labels with no template
+ * are dropped — they cannot be attributed to a row on screen.
+ */
+export function totalsByTemplate(
+  points: TemplateAnalyticsPoint[],
+): Map<string, TemplateTotal> {
+  const totals = new Map<string, TemplateTotal>();
+
+  for (const point of points) {
+    if (point.templateId === null) continue;
+
+    const total = totals.get(point.templateId) ?? { delivered: 0, spent: null };
+
+    total.delivered += point.delivered ?? 0;
+
+    if (point.amountSpent !== null) {
+      total.spent = (total.spent ?? 0) + point.amountSpent;
+    }
+
+    totals.set(point.templateId, total);
+  }
+
+  return totals;
+}
+
 const DAY_MS = 86_400_000;
 
 /** A day bucket as Meta names it: the UTC date of the bucket's first second. */

@@ -8,9 +8,16 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { cn } from "@/lib/utils";
 
-import { ApiError, fetchTemplates, type TemplateListPayload } from "../api";
+import {
+  ApiError,
+  fetchTemplatePerformance,
+  fetchTemplates,
+  type TemplateListPayload,
+  type TemplatePerformance,
+} from "../api";
+import { countLabel, moneyLabel } from "../format";
 import { languageLabel } from "../languages";
-import { TemplateCard } from "./template-card";
+import { TemplateRow, TemplateRowHead } from "./template-row";
 
 type StatusFilter = "ALL" | "APPROVED" | "PENDING" | "REJECTED";
 
@@ -20,6 +27,12 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "PENDING", label: "In review" },
   { value: "REJECTED", label: "Rejected" },
 ];
+
+/**
+ * The window the delivered and spend columns cover. Meta serves ninety days at
+ * most; thirty balances "recent traffic" against "a quiet week is not a bug".
+ */
+const WINDOW_DAYS = 30;
 
 /**
  * The template catalogue.
@@ -37,6 +50,10 @@ export function TemplatesView() {
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<StatusFilter>("ALL");
   const [attempt, setAttempt] = React.useState(0);
+  // The figures are a second, independent read: the list must render even when
+  // Meta will not answer for them.
+  const [perf, setPerf] = React.useState<TemplatePerformance | null>(null);
+  const [perfError, setPerfError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let active = true;
@@ -60,6 +77,25 @@ export function TemplatesView() {
     };
   }, [attempt]);
 
+  React.useEffect(() => {
+    let active = true;
+
+    fetchTemplatePerformance(WINDOW_DAYS)
+      .then((next) => {
+        if (!active) return;
+        setPerf(next);
+        setPerfError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setPerfError(readError(caught));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
+
   async function refresh() {
     setRefreshing(true);
 
@@ -68,6 +104,15 @@ export function TemplatesView() {
       setError(null);
     } catch (caught) {
       setError(readError(caught));
+    }
+
+    // A refresh is a request for the figures too; a refusal leaves the last
+    // ones on screen rather than blanking the columns.
+    try {
+      setPerf(await fetchTemplatePerformance(WINDOW_DAYS));
+      setPerfError(null);
+    } catch (caught) {
+      setPerfError(readError(caught));
     } finally {
       setRefreshing(false);
     }
@@ -139,6 +184,9 @@ export function TemplatesView() {
 
   const approved = templates.filter((row) => row.status === "APPROVED").length;
   const pending = templates.filter((row) => row.status === "PENDING").length;
+  const byTemplate = new Map(
+    (perf?.rows ?? []).map((row) => [row.templateId, row] as const),
+  );
 
   return (
     <div className="space-y-4">
@@ -223,6 +271,21 @@ export function TemplatesView() {
         </p>
       ) : null}
 
+      {perf?.warning ? (
+        <p className="rounded-lg border border-warning/45 bg-warning/10 px-3 py-2 text-[12.5px] leading-relaxed text-foreground">
+          {perf.warning}
+          {perf.insightsEnabled
+            ? null
+            : " Meta reports delivered counts and cost per template only after insights are switched on for the number; the switch is on each template's own page."}
+        </p>
+      ) : null}
+
+      {perfError && !perf ? (
+        <p className="rounded-lg border border-warning/45 bg-warning/10 px-3 py-2 text-[12.5px] leading-relaxed text-foreground">
+          Delivered and spend could not be read. {perfError}
+        </p>
+      ) : null}
+
       <section>
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
           <h2 className="text-sm font-semibold text-foreground">
@@ -230,6 +293,9 @@ export function TemplatesView() {
           </h2>
           <p className="text-[12px] tabular-nums text-muted-foreground">
             {templates.length} total · {approved} approved · {pending} in review
+            {perf && perf.totals.delivered !== null
+              ? ` · ${countLabel(perf.totals.delivered)} delivered · ${moneyLabel(perf.totals.spent, perf.currency)} spent (${perf.window.days}d)`
+              : null}
           </p>
         </div>
 
@@ -266,15 +332,20 @@ export function TemplatesView() {
             title={templates.length === 0 ? "No templates yet" : "Nothing matches"}
           />
         ) : (
-          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {shown.map((row) => (
-              <TemplateCard
-                href={`/workspace/templates/${row.id}`}
-                key={row.id}
-                row={row}
-              />
-            ))}
-          </ul>
+          <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
+            <TemplateRowHead />
+            <ul>
+              {shown.map((row) => (
+                <TemplateRow
+                  currency={perf?.currency ?? null}
+                  href={`/workspace/templates/${row.id}`}
+                  key={row.id}
+                  metrics={byTemplate.get(row.id)}
+                  row={row}
+                />
+              ))}
+            </ul>
+          </div>
         )}
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-[11.5px] text-muted-foreground">

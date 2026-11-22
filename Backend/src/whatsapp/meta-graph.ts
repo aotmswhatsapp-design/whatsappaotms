@@ -534,18 +534,20 @@ export class MetaGraph {
   }
 
   /**
-   * Per-day numbers for one template over at most ninety days.
+   * Per-day numbers for one or more templates over at most ninety days.
    *
    * Not the `analytics.…` field expression the WABA reads use: this is its own
-   * edge, and `template_ids` is a bracketed array even for a single id. Metrics
-   * are asked for together because they are charged as one read, and the cost
-   * figures arrive split by name rather than as one number.
+   * edge, and `template_ids` is a bracketed array — one read can therefore
+   * answer for a whole catalogue, which is what the list screen needs. The
+   * caller chunks at Meta's hundred-id ceiling. Metrics are asked for together
+   * because they are charged as one read, and the cost figures arrive split by
+   * name rather than as one number.
    */
   async getTemplateAnalytics(input: {
     version: string;
     businessAccountId: string;
     token: string;
-    templateId: string;
+    templateIds: string[];
     start: number;
     end: number;
   }): Promise<TemplateAnalyticsRead> {
@@ -558,7 +560,10 @@ export class MetaGraph {
     url.searchParams.set("end", String(input.end));
     url.searchParams.set("granularity", "DAILY");
     url.searchParams.set("metric_types", "sent,delivered,read,clicked,cost");
-    url.searchParams.set("template_ids", `[${input.templateId}]`);
+    url.searchParams.set(
+      "template_ids",
+      JSON.stringify(input.templateIds),
+    );
 
     const payload = await this.send<Record<string, unknown>>(url, {
       method: "GET",

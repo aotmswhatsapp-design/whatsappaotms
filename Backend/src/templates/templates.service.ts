@@ -25,8 +25,11 @@ import type { CreateTemplateDto } from "./dto/create-template.dto";
 import {
   buildSeries,
   costFacts,
+  totalsByTemplate,
   totalsOf,
   type TemplateAnalyticsPayload,
+  type TemplatePerformancePayload,
+  type TemplatePerformanceRow,
 } from "./templates.analytics";
 import {
   extensionFor,
@@ -50,6 +53,9 @@ const NO_TOKEN =
 /** Meta serves ninety days at most; a month is the window the screen opens on. */
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 90;
+
+/** Meta's ceiling on how many template ids one analytics read may name. */
+const ANALYTICS_BATCH = 100;
 
 /** What Multer hands us from memory storage. */
 export interface UploadedTemplateImage {
@@ -418,7 +424,7 @@ export class TemplatesService {
           version: target.version,
           businessAccountId: target.businessAccountId,
           token: target.token,
-          templateId: row.metaId,
+          templateIds: [row.metaId],
           start,
           end,
         });
@@ -467,6 +473,125 @@ export class TemplatesService {
       series,
       unavailable,
       ...(warning ? { warning } : {}),
+    };
+  }
+
+  /**
+   * Delivered count and spend for the whole catalogue, in one Graph read.
+   *
+   * Kept apart from `list()` on purpose: the list is a cached local read that
+   * must answer even when Meta is slow or has never been asked for insights,
+   * while these figures are a third-party measurement. A refusal here therefore
+   * costs the two columns and a sentence, never the page.
+   */
+  async performance(
+    claims: AuthClaims,
+    requestedDays: number | undefined,
+  ): Promise<TemplatePerformancePayload> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const days = clampDays(requestedDays);
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - days * 86_400;
+    const window = {
+      days,
+      start: new Date(start * 1000).toISOString(),
+      end: new Date(end * 1000).toISOString(),
+    };
+
+    const target = await this.target(workspaceId);
+    const insightsEnabled = Boolean(target?.insightsEnabledAt);
+
+    // Only rows Meta issued an id for can be asked about; a local draft has no
+    // history to measure.
+    const catalogue = await this.prisma.messageTemplate.findMany({
+      where: { workspaceId, metaId: { not: null }, status: { not: "DELETED" } },
+      select: { id: true, metaId: true },
+    });
+
+    if (!target) {
+      return {
+        window,
+        currency: null,
+        insightsEnabled,
+        rows: blankRows(catalogue),
+        totals: { delivered: null, spent: null },
+        unavailable: ["Delivered", "Cost"],
+        warning:
+          "No WhatsApp number is connected, so Meta cannot be asked for these figures.",
+      };
+    }
+
+    const metaIds = catalogue.flatMap((row) => (row.metaId ? [row.metaId] : []));
+
+    if (metaIds.length === 0) {
+      return {
+        window,
+        currency: null,
+        insightsEnabled,
+        rows: [],
+        totals: { delivered: null, spent: null },
+        unavailable: [],
+      };
+    }
+
+    const points: TemplateAnalyticsPoint[] = [];
+    let currency: string | null = null;
+
+    try {
+      // Meta caps one read at a hundred ids; a larger catalogue takes several.
+      for (let at = 0; at < metaIds.length; at += ANALYTICS_BATCH) {
+        const read = await this.meta.getTemplateAnalytics({
+          version: target.version,
+          businessAccountId: target.businessAccountId,
+          token: target.token,
+          templateIds: metaIds.slice(at, at + ANALYTICS_BATCH),
+          start,
+          end,
+        });
+
+        points.push(...read.points);
+        currency = currency ?? read.currency;
+      }
+    } catch (error) {
+      // The commonest refusal is Meta's "insights not enabled", which the list
+      // answers with a dash and one explanatory line.
+      return {
+        window,
+        currency: null,
+        insightsEnabled,
+        rows: blankRows(catalogue),
+        totals: { delivered: null, spent: null },
+        unavailable: ["Delivered", "Cost"],
+        warning: explain(error),
+      };
+    }
+
+    const totals = totalsByTemplate(points);
+    const rows: TemplatePerformanceRow[] = catalogue.map((row) => {
+      const total = row.metaId ? totals.get(row.metaId) : undefined;
+
+      return {
+        templateId: row.id,
+        // A template Meta has no traffic for is a measured zero, not unknown:
+        // the read covered the whole window and simply found nothing.
+        delivered: total ? total.delivered : 0,
+        spent: total ? total.spent : null,
+      };
+    });
+
+    return {
+      window,
+      currency,
+      insightsEnabled,
+      rows,
+      totals: {
+        delivered: rows.reduce((sum, row) => sum + (row.delivered ?? 0), 0),
+        spent: rows.some((row) => row.spent !== null)
+          ? rows.reduce((sum, row) => sum + (row.spent ?? 0), 0)
+          : null,
+      },
+      unavailable: [],
     };
   }
 
@@ -784,6 +909,15 @@ function qualityOf(raw: MessageTemplateDetails["quality_score"]): string | null 
   if (typeof raw === "string") return raw.trim() || null;
 
   return raw.score?.trim() || null;
+}
+
+/** The same rows, with both figures unknown rather than absent from the list. */
+function blankRows(catalogue: { id: string }[]): TemplatePerformanceRow[] {
+  return catalogue.map((row) => ({
+    templateId: row.id,
+    delivered: null,
+    spent: null,
+  }));
 }
 
 /** Meta serves ninety days at most; anything larger is clamped, not rejected. */
