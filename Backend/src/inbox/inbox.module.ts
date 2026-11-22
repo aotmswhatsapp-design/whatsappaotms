@@ -15,6 +15,8 @@ import { MediaStorage } from "./media.storage";
  *
  * `InboxStore` is exported because the WhatsApp webhook — a different module,
  * and the only unauthenticated writer — persists deliveries through it.
+ * `InboxSender` is exported because campaigns send through it: a campaign
+ * message and an inbox message are the same row, and there is one Meta path.
  */
 @Module({
   imports: [AuthModule, WorkspacesModule],
@@ -27,6 +29,6 @@ import { MediaStorage } from "./media.storage";
     MediaStorage,
     SecretBox,
   ],
-  exports: [InboxStore],
+  exports: [InboxStore, InboxSender, InboxGraph],
 })
 export class InboxModule {}

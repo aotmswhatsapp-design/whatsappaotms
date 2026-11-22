@@ -134,6 +134,9 @@ export class InboxSender {
       components: unknown[];
       body: string;
       tapTarget: { url: string; title: string } | null;
+      /** Set when a campaign sent it; the campaign's insights are a groupBy
+       * over exactly these rows. */
+      campaignId?: string;
     },
   ): Promise<MessageView> {
     const row = await this.prisma.message.create({
@@ -146,6 +149,7 @@ export class InboxSender {
         body: input.body,
         templateName: input.name,
         templateLanguage: input.language,
+        ...(input.campaignId ? { campaignId: input.campaignId } : {}),
         ...(input.tapTarget
           ? { tapTarget: input.tapTarget as Prisma.InputJsonValue }
           : {}),
