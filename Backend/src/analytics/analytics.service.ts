@@ -312,7 +312,11 @@ function pricingOf(points: PricingPoint[]): AnalyticsPricing[] {
   const rows = new Map<string, { volume: number; cost: number; priced: boolean }>();
 
   for (const point of points) {
-    const category = point.category.trim().toUpperCase();
+    // The category is now nullable on the reader: a breakdown read may leave it
+    // on the group, and a point that names no category belongs to no row here.
+    const category = (point.category ?? "").trim().toUpperCase();
+    if (!category) continue;
+
     const row = rows.get(category) ?? { volume: 0, cost: 0, priced: false };
 
     row.volume += point.volume ?? 0;

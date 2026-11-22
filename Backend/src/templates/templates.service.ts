@@ -17,6 +17,7 @@ import {
   MetaGraph,
   MetaRequestError,
   MetaTransportError,
+  TEMPLATE_IDS_PER_READ,
   type MessageTemplateDetails,
   type TemplateAnalyticsPoint,
 } from "../whatsapp/meta-graph";
@@ -54,8 +55,13 @@ const NO_TOKEN =
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 90;
 
-/** Meta's ceiling on how many template ids one analytics read may name. */
-const ANALYTICS_BATCH = 100;
+/**
+ * Meta's ceiling on how many template ids one analytics read may name: ten.
+ * This used to be a hundred, which Meta refuses outright — so every workspace
+ * with more than ten templates lost the whole performance column rather than
+ * part of it.
+ */
+const ANALYTICS_BATCH = TEMPLATE_IDS_PER_READ;
 
 /** What Multer hands us from memory storage. */
 export interface UploadedTemplateImage {
@@ -539,7 +545,7 @@ export class TemplatesService {
     let currency: string | null = null;
 
     try {
-      // Meta caps one read at a hundred ids; a larger catalogue takes several.
+      // Meta caps one read at ten ids; a larger catalogue takes several reads.
       for (let at = 0; at < metaIds.length; at += ANALYTICS_BATCH) {
         const read = await this.meta.getTemplateAnalytics({
           version: target.version,

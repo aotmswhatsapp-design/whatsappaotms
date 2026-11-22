@@ -78,6 +78,13 @@ model Workspace {
   templates     MessageTemplate[]
   campaigns     Campaign[]
 
+  /// Cost and usage snapshots. Kept per workspace so no report can ever
+  /// straddle two tenants.
+  templateStats TemplateDailyStat[]
+  pricingStats  PricingDailyStat[]
+  analyticsSync AnalyticsSyncState?
+  analyticsRuns AnalyticsSyncRun[]
+
   /// The workspace's own identity. Customers never see these fields: the
   /// profile they see on WhatsApp lives in Meta and is read through Graph.
   businessProfile BusinessProfile?
@@ -161,6 +168,11 @@ model WhatsAppAccount {
   verifiedName       String?        @map("verified_name")
   qualityRating      String?        @map("quality_rating")
   businessName       String?        @map("business_name")
+  /// The WABA's billing currency, as Graph reports it (`INR`, `USD`, …).
+  /// Null until the currency read succeeds; money is never formatted with an
+  /// assumed currency, so a null here means the UI says nothing rather than
+  /// guessing.
+  currency            String?        @map("currency")
   status             WhatsAppStatus @default(VERIFIED)
   source             WhatsAppSource @default(MANUAL)
   lastVerifiedAt     DateTime?      @map("last_verified_at")
@@ -558,4 +570,169 @@ model CampaignRecipient {
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
   @@map("campaign_recipients")
+}
+
+// ---------------------------------------------------------------------------
+// Cost and usage analytics.
+//
+// This is the one place AOTMS keeps Meta's own numbers locally, which the
+// older dashboard deliberately refused to do. Retention is why: Meta answers
+// `template_analytics` for 90 days only, and read/click counters are reset
+// seven days after a send, so a live-only projection silently rewrites
+// history. A daily snapshot keeps what Meta reported, verbatim.
+//
+// Ratios are never stored as window totals: `cost_per_delivered` is kept as
+// Meta sent it for that day, and any wider ratio is recomputed at read time
+// from summed numerator and denominator. Summing daily ratios is wrong.
+//
+// `costStatus` is the honesty switch. ACTUAL means Meta returned a figure;
+// UNAVAILABLE means it returned none, which is normal for a Messaging account
+// that shares a Solution Partner's credit line. There is deliberately no
+// ESTIMATED member: nothing in this module may invent a number and label it as
+// a Meta charge.
+// ---------------------------------------------------------------------------
+
+enum CostStatus {
+  ACTUAL
+  UNAVAILABLE
+}
+
+/// Where a figure came from. Only Meta is writable; the enum exists so a future
+/// reader cannot mistake a local calculation for a reported charge.
+enum AnalyticsSource {
+  META
+}
+
+enum SyncTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum SyncStatus {
+  RUNNING
+  /// Every read Meta accepted and every write landed.
+  OK
+  /// Some reads succeeded, some did not; what succeeded is stored.
+  PARTIAL
+  FAILED
+}
+
+/// One template on one day, exactly as `template_analytics` reported it.
+model TemplateDailyStat {
+  id                 String          @id @default(uuid()) @db.Uuid
+  workspaceId        String          @map("workspace_id") @db.Uuid
+  /// The connection these figures came from. Not a foreign key on purpose: a
+  /// disconnected number must not erase the spend history it produced.
+  whatsappAccountId  String          @map("whatsapp_account_id") @db.Uuid
+  wabaId             String          @map("waba_id")
+  /// Meta's template id — the identifier `template_analytics` answers for.
+  templateId         String          @map("template_id")
+  /// Our own row, when a matching `metaId` existed at sync time. Null for a
+  /// template that only ever lived in WhatsApp Manager.
+  messageTemplateId  String?         @map("message_template_id") @db.Uuid
+  /// Snapshot at sync: a later rename must not rewrite what was reported.
+  templateName       String          @map("template_name")
+  category           String?
+  date               DateTime        @db.Date
+  sentCount          Int             @default(0) @map("sent_count")
+  deliveredCount     Int             @default(0) @map("delivered_count")
+  readCount          Int             @default(0) @map("read_count")
+  clickedCount       Int             @default(0) @map("clicked_count")
+  amountSpent        Decimal?        @map("amount_spent") @db.Decimal(18, 6)
+  costPerDelivered   Decimal?        @map("cost_per_delivered") @db.Decimal(18, 6)
+  costPerUrlClick    Decimal?        @map("cost_per_url_click") @db.Decimal(18, 6)
+  /// The WABA's billing currency, read from Graph. Null while unknown.
+  currency           String?
+  costStatus         CostStatus      @default(UNAVAILABLE) @map("cost_status")
+  source             AnalyticsSource @default(META)
+  lastSyncedAt       DateTime        @map("last_synced_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  /// Meta re-reports a day when late delivery receipts arrive, so a second sync
+  /// must overwrite that day, never add a second row for it.
+  @@unique([workspaceId, templateId, date])
+  @@index([workspaceId, date])
+  @@index([workspaceId, category, date])
+  @@map("template_daily_stats")
+}
+
+/// One pricing breakdown row for one day, from `pricing_analytics`.
+///
+/// Meta answers across dimensions, so the breakdown columns are part of the
+/// row's identity. Every dimension is a non-null string defaulting to "":
+/// Postgres treats NULLs as distinct inside a unique index, so a nullable
+/// column would let the same day be written twice.
+model PricingDailyStat {
+  id                String          @id @default(uuid()) @db.Uuid
+  workspaceId       String          @map("workspace_id") @db.Uuid
+  whatsappAccountId String          @map("whatsapp_account_id") @db.Uuid
+  wabaId            String          @map("waba_id")
+  date              DateTime        @db.Date
+  phoneNumber       String          @default("") @map("phone_number")
+  country           String          @default("")
+  pricingCategory   String          @default("") @map("pricing_category")
+  pricingType       String          @default("") @map("pricing_type")
+  /// Meta's `lower:upper` tier, e.g. `0:750000`, or `0:MAX` for marketing.
+  tier              String          @default("")
+  volume            Int             @default(0)
+  cost              Decimal?        @map("cost") @db.Decimal(18, 6)
+  currency          String?
+  costStatus        CostStatus      @default(UNAVAILABLE) @map("cost_status")
+  source            AnalyticsSource @default(META)
+  lastSyncedAt      DateTime        @map("last_synced_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, date, phoneNumber, country, pricingCategory, pricingType, tier])
+  @@index([workspaceId, date])
+  @@map("pricing_daily_stats")
+}
+
+/// Where the last sync for a workspace stands, written by both the cron and the
+/// Sync button, so the screen can name when it last actually succeeded rather
+/// than when it last tried.
+model AnalyticsSyncState {
+  workspaceId       String      @id @map("workspace_id") @db.Uuid
+  whatsappAccountId String?     @map("whatsapp_account_id") @db.Uuid
+  wabaId            String?     @map("waba_id")
+  /// The WABA's billing currency, as Graph reported it.
+  currency          String?
+  /// What the last completed run found: ACTUAL when Meta returned cost,
+  /// UNAVAILABLE when it returned none for this billing arrangement.
+  costStatus        CostStatus  @default(UNAVAILABLE) @map("cost_status")
+  lastRunAt         DateTime?   @map("last_run_at")
+  lastOkAt          DateTime?   @map("last_ok_at")
+  lastError         String?     @map("last_error")
+  /// Deepest day already stored, so a run can ask Meta for the gap only.
+  syncedThrough     DateTime?   @db.Date @map("synced_through")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("analytics_sync_states")
+}
+
+/// Append-only log of sync attempts. A failure has to stay legible after the
+/// fact; the state row only remembers the latest one.
+model AnalyticsSyncRun {
+  id            String      @id @default(uuid()) @db.Uuid
+  workspaceId   String      @map("workspace_id") @db.Uuid
+  trigger       SyncTrigger
+  status        SyncStatus  @default(RUNNING)
+  startedAt     DateTime    @default(now()) @map("started_at")
+  finishedAt    DateTime?   @map("finished_at")
+  /// Days asked of Meta, after the 90-day clamp.
+  windowDays    Int         @default(0) @map("window_days")
+  templatesRead Int         @default(0) @map("templates_read")
+  templateRows  Int         @default(0) @map("template_rows")
+  pricingRows   Int         @default(0) @map("pricing_rows")
+  prunedRows    Int         @default(0) @map("pruned_rows")
+  error         String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, startedAt])
+  @@map("analytics_sync_runs")
 }

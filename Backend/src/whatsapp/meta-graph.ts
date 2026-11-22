@@ -11,6 +11,16 @@ const TIMEOUT_MS = 10_000;
  */
 const UPLOAD_TIMEOUT_MS = 60_000;
 
+/**
+ * Meta's hard ceiling on `template_analytics`: one read may name ten template
+ * ids, not more. Exceeding it is rejected by Meta, so callers chunk against
+ * this number rather than discovering the limit at runtime.
+ */
+export const TEMPLATE_IDS_PER_READ = 10;
+
+/** Meta answers template analytics for ninety days back, and no further. */
+export const TEMPLATE_ANALYTICS_WINDOW_DAYS = 90;
+
 export interface MetaErrorBody {
   message: string;
   type?: string;
@@ -168,15 +178,46 @@ export interface WabaAnalyticsRead {
 }
 
 /**
- * One pricing category's volume and cost over a window. `cost` is null when
- * Meta withheld it — Solution-Partner billing reports volume without a
- * figure, and a `0` would read as "this was free".
+ * One pricing breakdown row over a window. `cost` is null when Meta withheld
+ * it — Solution-Partner billing reports volume without a figure, and a `0`
+ * would read as "this was free".
+ *
+ * The breakdown columns are the dimensions the read asked for; a dimension not
+ * requested is null, not empty, so a caller can tell "not asked" from "Meta
+ * answered nothing".
  */
 export interface PricingPoint {
-  category: string;
+  category: string | null;
+  phoneNumber: string | null;
+  country: string | null;
+  pricingType: string | null;
+  /** Meta's `lower:upper` volume tier, e.g. `0:750000`. */
+  tier: string | null;
+  /** Start of the bucket in Unix seconds; null if Meta omitted it. */
+  start: number | null;
   volume: number | null;
   cost: number | null;
 }
+
+/**
+ * How wide a pricing read should break its answer down.
+ *
+ * `TIER` is only populated when `PRICING_CATEGORY` and `COUNTRY` are asked for
+ * as well — Meta omits the tier otherwise, so the two travel together.
+ */
+export interface PricingQuery {
+  granularity?: PricingGranularity;
+  dimensions?: PricingDimension[];
+}
+
+export type PricingGranularity = "DAILY" | "MONTHLY";
+
+export type PricingDimension =
+  | "PHONE"
+  | "COUNTRY"
+  | "PRICING_CATEGORY"
+  | "PRICING_TYPE"
+  | "TIER";
 
 export interface PricingRead {
   points: PricingPoint[];
@@ -534,14 +575,39 @@ export class MetaGraph {
   }
 
   /**
+   * The WABA's billing currency (`INR`, `USD`, …).
+   *
+   * Read instead of guessed. Meta's analytics payloads do not carry a currency
+   * of their own on every path, and every money figure AOTMS renders has to be
+   * labelled with the currency the account is actually billed in — so this is
+   * asked for once per sync and stored. A refusal here is not fatal: the sync
+   * records a null and the UI says the currency is unknown rather than printing
+   * a dollar sign over an amount that may be rupees.
+   */
+  async getWabaCurrency(
+    version: string,
+    businessAccountId: string,
+    token: string,
+  ): Promise<string | null> {
+    const payload = await this.get<{ currency?: string }>(
+      version,
+      businessAccountId,
+      "currency",
+      token,
+    );
+
+    return textOf(payload.currency);
+  }
+
+  /**
    * Per-day numbers for one or more templates over at most ninety days.
    *
    * Not the `analytics.…` field expression the WABA reads use: this is its own
-   * edge, and `template_ids` is a bracketed array — one read can therefore
-   * answer for a whole catalogue, which is what the list screen needs. The
-   * caller chunks at Meta's hundred-id ceiling. Metrics are asked for together
-   * because they are charged as one read, and the cost figures arrive split by
-   * name rather than as one number.
+   * edge, and `template_ids` is a bracketed array. Meta caps one read at **ten**
+   * ids, so the caller chunks; asking for more is refused here rather than
+   * answered partially, because a silent half-read would understate spend.
+   * Metrics are asked for together because they are charged as one read, and the
+   * cost figures arrive split by name rather than as one number.
    */
   async getTemplateAnalytics(input: {
     version: string;
@@ -551,6 +617,16 @@ export class MetaGraph {
     start: number;
     end: number;
   }): Promise<TemplateAnalyticsRead> {
+    if (input.templateIds.length === 0) {
+      return { points: [], currency: null };
+    }
+
+    if (input.templateIds.length > TEMPLATE_IDS_PER_READ) {
+      throw new Error(
+        `template_analytics accepts at most ${TEMPLATE_IDS_PER_READ} template ids per read; got ${input.templateIds.length}.`,
+      );
+    }
+
     const url = this.urlOf(input.version, [
       input.businessAccountId,
       "template_analytics",
@@ -684,12 +760,17 @@ export class MetaGraph {
   }
 
   /**
-   * What the window cost, per pricing category.
+   * What the window cost, broken down by the dimensions asked for.
    *
    * The answer is a group per dimension value, each with its own data points;
-   * the groups are flattened here so callers sum one list. A point that names
+   * the groups are flattened here so callers read one list. A point that names
    * its metric carries the figure in `value`; one that carries `volume` and
    * `cost` directly is read as-is.
+   *
+   * `dimensions` defaults to the pricing category alone, which is what the
+   * dashboard's spend card wants. The reconciliation sync asks for the full
+   * set, because a breakdown that cannot name the country, the phone number or
+   * the volume tier is not something anyone can check against an invoice.
    */
   async getPricingAnalytics(
     version: string,
@@ -697,11 +778,16 @@ export class MetaGraph {
     token: string,
     start: number,
     end: number,
+    query: PricingQuery = {},
   ): Promise<PricingRead> {
+    const dimensions = query.dimensions?.length
+      ? query.dimensions
+      : (["PRICING_CATEGORY"] as PricingDimension[]);
+
     const expression = [
-      `pricing_analytics.start(${start}).end(${end}).granularity(DAILY)`,
+      `pricing_analytics.start(${start}).end(${end}).granularity(${query.granularity ?? "DAILY"})`,
       ".metric_types(VOLUME,COST)",
-      ".dimensions(PRICING_CATEGORY)",
+      `.dimensions(${dimensions.join(",")})`,
     ].join("");
 
     const payload = await this.send<Record<string, unknown>>(
@@ -729,14 +815,24 @@ export class MetaGraph {
         if (!isRecord(point)) continue;
 
         const category = textOf(point.pricing_category) ?? textOf(point.category);
-        if (!category) continue;
 
+        // A breakdown read naming one category repeats it on the group rather
+        // than on every point, so the group is the fallback.
         const metric = (textOf(point.metric_type) ?? "").toUpperCase();
         const value = numberOf(point.value);
         const volume = numberOf(point.volume) ?? (metric === "VOLUME" ? value : null);
         const cost = numberOf(point.cost) ?? (metric === "COST" ? value : null);
 
-        points.push({ category, volume, cost });
+        points.push({
+          category: category ?? textOf(group.pricing_category),
+          phoneNumber: textOf(point.phone_number) ?? textOf(group.phone_number),
+          country: textOf(point.country) ?? textOf(group.country),
+          pricingType: textOf(point.pricing_type) ?? textOf(group.pricing_type),
+          tier: textOf(point.tier) ?? textOf(group.tier),
+          start: secondsOf(point.start),
+          volume,
+          cost,
+        });
       }
     }
 

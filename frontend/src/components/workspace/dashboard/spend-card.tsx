@@ -1,4 +1,5 @@
 import type { AnalyticsPricing } from "@/features/analytics/api";
+import { formatMoney } from "@/lib/money";
 
 import { ChartCard } from "./charts";
 
@@ -82,17 +83,12 @@ export function SpendCard({
   );
 }
 
-/** Currency codes arrive from Meta; an unknown one falls back to plain digits. */
+/**
+ * Currency codes arrive from Meta; an unknown one renders the digits alone
+ * rather than a guessed symbol. See `lib/money.ts` for why that matters.
+ */
 export function money(value: number, currency: string | null): string {
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency ?? "USD",
-      maximumFractionDigits: 2,
-    }).format(value);
-  } catch {
-    return `${value.toFixed(2)} ${currency ?? ""}`.trim();
-  }
+  return formatMoney(value, currency);
 }
 
 function categoryLabel(category: string): string {

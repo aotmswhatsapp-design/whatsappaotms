@@ -5,6 +5,8 @@
  * is safe: there is no server pass to disagree with.
  */
 
+import { formatMoney } from "@/lib/money";
+
 const CATEGORY_LABELS: Record<string, string> = {
   AUTHENTICATION: "Authentication",
   MARKETING: "Marketing",
@@ -80,23 +82,15 @@ export function countLabel(value: number | null | undefined): string {
 
 /**
  * Money in Meta's own currency. A null is an em dash: Meta withholds cost under
- * some billing arrangements, and "0.00" would read as "this was free".
+ * some billing arrangements, and "0.00" would read as "this was free". When the
+ * currency itself is unknown the digits are shown bare — the shared formatter
+ * refuses to invent a symbol.
  */
 export function moneyLabel(
   value: number | null | undefined,
   currency: string | null,
 ): string {
-  if (value === null || value === undefined) return "—";
-
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: currency ?? "USD",
-      maximumFractionDigits: value !== 0 && value < 1 ? 4 : 2,
-    }).format(value);
-  } catch {
-    return `${currency ?? ""} ${value.toFixed(2)}`.trim();
-  }
+  return formatMoney(value, currency);
 }
 
 /** Only an approved template can be sent to a customer. */
