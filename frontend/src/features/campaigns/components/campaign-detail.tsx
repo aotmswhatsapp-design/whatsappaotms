@@ -554,9 +554,24 @@ export function CampaignDetail({ id }: { id: string }) {
         </dl>
 
         <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
-          Meta bills each delivered message at its own rate. That charge is not
-          available through the API, so it is not shown here — and no campaign
-          is ever described as free.
+          Meta bills each delivered message at its own rate, priced by country
+          and volume tier — never per campaign, so no amount is shown here and
+          no campaign is ever described as free. Meta&apos;s own figures sit one
+          screen away:{" "}
+          <Link
+            className="font-medium text-foreground underline underline-offset-4 hover:text-brand"
+            href={`/workspace/templates/${campaign.template.id}`}
+          >
+            this template&apos;s amount spent
+          </Link>{" "}
+          and{" "}
+          <Link
+            className="font-medium text-foreground underline underline-offset-4 hover:text-brand"
+            href="/workspace"
+          >
+            spend by pricing category
+          </Link>
+          .
         </p>
       </section>
 
