@@ -13,6 +13,8 @@ export interface TemplateUrlButton {
   /** Position in the whole buttons array, which is what Meta's `index` means. */
   index: number;
   url: string;
+  /** The label on the button; Meta falls back to "Open link" when empty. */
+  text: string | null;
   hasVariable: boolean;
 }
 
@@ -52,7 +54,15 @@ export function shapeOf(components: unknown): TemplateShape {
     }
 
     return [
-      { index, url: entry.url, hasVariable: variablesIn(entry.url).length > 0 },
+      {
+        index,
+        url: entry.url,
+        text:
+          typeof entry.text === "string" && entry.text.trim()
+            ? entry.text.trim()
+            : null,
+        hasVariable: variablesIn(entry.url).length > 0,
+      },
     ];
   });
 
