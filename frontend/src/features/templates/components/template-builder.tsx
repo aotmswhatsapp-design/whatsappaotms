@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Check,
+  ImageIcon,
   LoaderCircle,
   Send,
   TriangleAlert,
@@ -19,13 +20,15 @@ import { cn } from "@/lib/utils";
 import {
   ApiError,
   createTemplate,
+  uploadTemplateMedia,
   type ParameterFormat,
   type TemplateButton,
   type TemplateCategory,
   type TemplateDraft,
+  type UploadedTemplateMedia,
 } from "../api";
 import { variablesOf } from "../format";
-import { LIMITS, problemsIn, type DraftValues } from "../rules";
+import { IMAGE_LIMITS, LIMITS, problemsIn, type DraftValues } from "../rules";
 import { ButtonList, type DraftButton } from "./button-list";
 import { ExampleFields } from "./example-fields";
 import { LanguageSelect } from "./language-select";
@@ -64,6 +67,17 @@ const FORMATS: { value: ParameterFormat; label: string; hint: string; sample: st
   },
 ];
 
+/**
+ * The header kinds Meta documents. Video and document are listed rather than
+ * omitted so the choice is visibly coming, not silently missing.
+ */
+const HEADER_KINDS = [
+  { value: "TEXT", label: "Text" },
+  { value: "IMAGE", label: "Image" },
+  { value: "VIDEO", label: "Video" },
+  { value: "DOCUMENT", label: "Document" },
+] as const;
+
 const INITIAL: DraftValues = {
   name: "",
   // No category: Meta files, prices and reviews each one differently, so a
@@ -71,7 +85,9 @@ const INITIAL: DraftValues = {
   category: "",
   language: "en_US",
   parameterFormat: "POSITIONAL",
+  headerFormat: "TEXT",
   header: "",
+  mediaPath: "",
   body: "",
   footer: "",
   examples: {},
@@ -102,7 +118,12 @@ export function TemplateBuilder() {
     null,
   );
   const [pending, setPending] = React.useState(false);
+  const [sample, setSample] = React.useState<UploadedTemplateMedia | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const [imageProblem, setImageProblem] = React.useState<string | null>(null);
+  const [dragging, setDragging] = React.useState(false);
   const problemsRef = React.useRef<HTMLDivElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   // The card only exists after the refusal renders, so it is scrolled to from
   // an effect rather than from the handler that produced it.
@@ -125,6 +146,43 @@ export function TemplateBuilder() {
       ...current,
       examples: { ...current.examples, [token]: value },
     }));
+  }
+
+  /**
+   * Sends the chosen file to our own bucket first, and only then to the form.
+   * The template itself is created on submit — the file has to exist before
+   * Meta can be handed a copy of it.
+   */
+  async function chooseImage(file: File | undefined) {
+    if (!file) return;
+
+    if (!(IMAGE_LIMITS.mimes as readonly string[]).includes(file.type)) {
+      setImageProblem("Use a JPEG, PNG or static WebP image.");
+      return;
+    }
+
+    if (file.size > IMAGE_LIMITS.maxBytes) {
+      setImageProblem("Images are limited to 5 MB.");
+      return;
+    }
+
+    setImageProblem(null);
+    setUploading(true);
+
+    try {
+      const uploaded = await uploadTemplateMedia(file, values.name);
+
+      setSample(uploaded);
+      update("mediaPath", uploaded.path);
+    } catch (error) {
+      setImageProblem(
+        error instanceof ApiError
+          ? error.message
+          : "The image could not be uploaded. Try again.",
+      );
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -372,51 +430,192 @@ export function TemplateBuilder() {
         >
           <div className="space-y-4">
             <div>
-              <div className="flex items-baseline justify-between gap-2">
-                <Label htmlFor="template-header">Header</Label>
-                <Counter max={LIMITS.headerMax} value={values.header.trim().length} />
+              <span className="text-sm font-medium text-foreground" id="template-header">
+                Header
+              </span>
+
+              <div
+                aria-labelledby="template-header"
+                className="mt-1.5 flex flex-wrap items-center gap-1.5"
+                role="radiogroup"
+              >
+                {HEADER_KINDS.map((kind) => {
+                  const available = kind.value === "TEXT" || kind.value === "IMAGE";
+                  const active = values.headerFormat === kind.value;
+
+                  return (
+                    <button
+                      aria-checked={active}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors",
+                        "focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none",
+                        active
+                          ? "border-brand/30 bg-brand-soft text-brand"
+                          : available
+                            ? "border-border bg-secondary text-muted-foreground hover:bg-accent"
+                            : "cursor-not-allowed border-border bg-secondary text-muted-foreground/60",
+                      )}
+                      disabled={!available}
+                      key={kind.value}
+                      onClick={() => {
+                        if (kind.value === "TEXT" || kind.value === "IMAGE") {
+                          update("headerFormat", kind.value);
+                        }
+                      }}
+                      role="radio"
+                      title={
+                        available
+                          ? undefined
+                          : "Video and document headers are not supported yet."
+                      }
+                      type="button"
+                    >
+                      {kind.label}
+                    </button>
+                  );
+                })}
               </div>
-              <input
-                autoComplete="off"
-                className={cn(FIELD, "h-11")}
-                id="template-header"
-                onChange={(event) => update("header", event.target.value)}
-                placeholder="Order update"
-                type="text"
-                value={values.header}
-              />
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="text-[12px] text-muted-foreground">Type:</span>
-                {["Text", "Image", "Video", "Document"].map((kind) => (
-                  <span
-                    className={cn(
-                      "rounded-full border px-2 py-0.5 text-[11.5px]",
-                      kind === "Text"
-                        ? "border-brand/30 bg-brand-soft text-brand"
-                        : "cursor-not-allowed border-border bg-secondary text-muted-foreground",
-                    )}
-                    key={kind}
-                    title={
-                      kind === "Text"
-                        ? undefined
-                        : "Media headers need the file uploaded to Meta first. This build submits text headers only."
-                    }
-                  >
-                    {kind}
-                  </span>
-                ))}
-                <span className="text-[11.5px] text-muted-foreground">
-                  Text headers only — media needs the file uploaded to Meta first.
-                </span>
-              </div>
-              <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">
-                Text headers are the only kind this build can submit.
-              </p>
-              <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
-                {headerTokens.length > 0
-                  ? "A header carries at most one variable."
-                  : `One line, ${LIMITS.headerMax} characters. A variable would look like ${format.sample}.`}
-              </p>
+
+              {values.headerFormat === "IMAGE" ? (
+                // The two branches are keyed apart on purpose: without a key
+                // React reuses the DOM node and the text input turns into the
+                // file input in place, which reads as controlled → uncontrolled.
+                <div className="mt-3" key="header-image">
+                  {sample ? (
+                    <div className="overflow-hidden rounded-lg border border-border">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt="The header image for this template"
+                        className="aspect-[1.91/1] w-full bg-secondary object-cover"
+                        src={sample.previewUrl}
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
+                        <p className="text-[12px] text-muted-foreground">
+                          {Math.max(1, Math.round(sample.size / 1024))} KB
+                          {sample.width && sample.height
+                            ? ` · ${sample.width}×${sample.height}`
+                            : ""}
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            onClick={() => fileRef.current?.click()}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Replace
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              setSample(null);
+                              update("mediaPath", "");
+                              setImageProblem(null);
+                            }}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className={cn(
+                        "grid w-full place-items-center gap-1.5 rounded-lg border border-dashed px-4 py-6 text-center transition-colors",
+                        "focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none",
+                        dragging
+                          ? "border-brand bg-brand-soft/60"
+                          : "border-border bg-secondary/30 hover:bg-accent",
+                        uploading && "cursor-progress",
+                      )}
+                      disabled={uploading}
+                      onClick={() => fileRef.current?.click()}
+                      onDragLeave={() => setDragging(false)}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setDragging(true);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setDragging(false);
+                        void chooseImage(event.dataTransfer.files?.[0]);
+                      }}
+                      type="button"
+                    >
+                      {uploading ? (
+                        <LoaderCircle
+                          aria-hidden="true"
+                          className="size-4 animate-spin text-muted-foreground"
+                        />
+                      ) : (
+                        <ImageIcon
+                          aria-hidden="true"
+                          className="size-4 text-muted-foreground"
+                        />
+                      )}
+                      <span className="text-[13px] font-medium text-foreground">
+                        {uploading ? "Uploading…" : "Drop an image here, or browse"}
+                      </span>
+                      <span className="text-[11.5px] text-muted-foreground">
+                        JPEG, PNG or static WebP · up to 5 MB · 1.91:1 recommended
+                      </span>
+                    </button>
+                  )}
+
+                  <input
+                    accept={IMAGE_LIMITS.mimes.join(",")}
+                    className="sr-only"
+                    onClick={(event) => {
+                      // Clearing on open, not after the change, is what lets the
+                      // same file be chosen twice — and keeps React from seeing
+                      // the value reset inside its own event handler.
+                      event.currentTarget.value = "";
+                    }}
+                    onChange={(event) => void chooseImage(event.target.files?.[0])}
+                    ref={fileRef}
+                    type="file"
+                  />
+
+                  {imageProblem ? (
+                    <p className="mt-1.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-destructive">
+                      <TriangleAlert
+                        aria-hidden="true"
+                        className="mt-px size-3.5 shrink-0"
+                      />
+                      {imageProblem}
+                    </p>
+                  ) : (
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                      Meta renders this above the body. The original stays in this
+                      workspace&apos;s private storage; Meta receives a copy when
+                      you submit.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-2" key="header-text">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <Label htmlFor="template-header-text">Header text</Label>
+                    <Counter max={LIMITS.headerMax} value={values.header.trim().length} />
+                  </div>
+                  <input
+                    autoComplete="off"
+                    className={cn(FIELD, "h-11")}
+                    id="template-header-text"
+                    onChange={(event) => update("header", event.target.value)}
+                    placeholder="Order update"
+                    type="text"
+                    value={values.header}
+                  />
+                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                    {headerTokens.length > 0
+                      ? "A header carries at most one variable."
+                      : `One line, ${LIMITS.headerMax} characters. A variable would look like ${format.sample}.`}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div>
@@ -520,6 +719,8 @@ export function TemplateBuilder() {
           examples={values.examples}
           footer={values.footer}
           header={values.header}
+          headerFormat={values.headerFormat}
+          imageUrl={sample?.previewUrl ?? null}
         />
       </aside>
     </form>
@@ -539,7 +740,10 @@ function payloadOf(
 ): TemplateDraft {
   const examples: Record<string, string> = {};
 
-  for (const token of variablesOf(values.header, values.body)) {
+  for (const token of variablesOf(
+    values.headerFormat === "IMAGE" ? "" : values.header,
+    values.body,
+  )) {
     examples[token] = values.examples[token]?.trim() ?? "";
   }
 
@@ -555,13 +759,28 @@ function payloadOf(
     return next;
   });
 
+  // An image header and a text header are exclusive: Meta receives the stored
+  // sample's path, or the words, never both.
+  const header =
+    values.headerFormat === "IMAGE"
+      ? {}
+      : values.header.trim()
+        ? { header: values.header.trim() }
+        : {};
+  const media =
+    values.headerFormat === "IMAGE" && values.mediaPath
+      ? { mediaPath: values.mediaPath }
+      : {};
+
   return {
     name: values.name.trim(),
     category: values.category,
     language: values.language,
     parameterFormat: values.parameterFormat,
+    headerFormat: values.headerFormat,
     body: values.body.trim(),
-    ...(values.header.trim() ? { header: values.header.trim() } : {}),
+    ...header,
+    ...media,
     ...(values.footer.trim() ? { footer: values.footer.trim() } : {}),
     ...(clean.length > 0 ? { buttons: clean } : {}),
     ...(Object.keys(examples).length > 0 ? { examples } : {}),

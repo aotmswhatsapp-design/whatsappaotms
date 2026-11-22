@@ -901,6 +901,226 @@ export function SeasonalityCard({
   );
 }
 
+/* ---------------- multi-series trend ---------------- */
+
+/**
+ * Several lines sharing one axis and one x scale.
+ *
+ * The single-series `TrendCard` answers "how many"; this answers "which of
+ * these is moving", which is what a template's sent/delivered/read curves are
+ * for. The top of the axis is rounded up to a readable step so the gridlines
+ * name numbers a human would have chosen.
+ */
+export function MultiTrendCard({
+  title,
+  meta,
+  note,
+  series,
+  className,
+}: {
+  title: string;
+  meta?: ReactNode;
+  note?: string;
+  /** One entry per line. Every line is drawn against the same x positions. */
+  series: { label: string; color: string; points: Point[] }[];
+  className?: string;
+}) {
+  const [ref, { w: W, h: H }] = useSize();
+  const [hover, setHover] = useState(null as number | null);
+  const { api, node } = useTip();
+
+  const count = series.reduce((most, line) => Math.max(most, line.points.length), 0);
+  const peak = series.reduce(
+    (most, line) => Math.max(most, ...line.points.map((point) => point.value)),
+    0,
+  );
+  const max = niceMax(peak);
+
+  const padLeft = 38;
+  const padRight = 14;
+  const top = 10;
+  const bottom = 22;
+  const wide = Math.max(1, W - padLeft - padRight);
+  const tall = Math.max(1, H - top - bottom);
+  const x = (index: number) => padLeft + (index / Math.max(1, count - 1)) * wide;
+  const y = (value: number) => top + (1 - value / max) * tall;
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((share) => Math.round(max * share));
+
+  const move = (event: ReactPointerEvent) => {
+    const svg = (event.currentTarget as SVGRectElement).ownerSVGElement;
+    if (!svg || count === 0) return;
+
+    const rect = svg.getBoundingClientRect();
+    const index = Math.max(
+      0,
+      Math.min(
+        count - 1,
+        Math.round(((event.clientX - rect.left - padLeft) / wide) * (count - 1)),
+      ),
+    );
+
+    setHover(index);
+    api.current?.show(rect.left + x(index), rect.top + 12, {
+      title: series[0]?.points[index]?.label ?? "",
+      rows: series.map((line) => ({
+        label: line.label,
+        value: fmt(line.points[index]?.value ?? 0),
+        color: line.color,
+      })),
+    });
+  };
+
+  return (
+    <ChartCard title={title} meta={meta} className={cn("gap-2", className)}>
+      <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-secondary/40">
+        {W > 0 && H > 0 ? (
+          <svg
+            width={W}
+            height={H}
+            className="block"
+            role="img"
+            aria-label={`${title}: ${series.map((line) => line.label).join(", ")}`}
+          >
+            {ticks.map((tick) => (
+              <g key={tick}>
+                <line
+                  x1={padLeft}
+                  x2={W - padRight}
+                  y1={y(tick)}
+                  y2={y(tick)}
+                  className="stroke-border"
+                  strokeWidth={1}
+                />
+                <text
+                  x={padLeft - 8}
+                  y={y(tick) + 3}
+                  textAnchor="end"
+                  fontSize={10}
+                  className="fill-muted-foreground"
+                  style={{ fontFamily: FONT_MONO }}
+                >
+                  {tick >= 1000 ? `${(tick / 1000).toFixed(tick % 1000 === 0 ? 0 : 1)}K` : tick}
+                </text>
+              </g>
+            ))}
+
+            {series.map((line) => {
+              const points = line.points.map(
+                (point, index) => [x(index), y(point.value)] as [number, number],
+              );
+              const last = points[points.length - 1];
+
+              if (!last) return null;
+
+              return (
+                <g key={line.label}>
+                  {/* Two or more points curve; a single day is a dot, not a path. */}
+                  {points.length > 1 ? (
+                    <path
+                      d={smooth(points)}
+                      fill="none"
+                      stroke={line.color}
+                      strokeWidth={2.2}
+                      strokeLinecap="round"
+                    />
+                  ) : null}
+                  <circle
+                    cx={last[0]}
+                    cy={last[1]}
+                    r={3}
+                    fill={line.color}
+                    className="stroke-card"
+                    strokeWidth={1.5}
+                  />
+                </g>
+              );
+            })}
+
+            {hover !== null ? (
+              <g>
+                <line
+                  x1={x(hover)}
+                  x2={x(hover)}
+                  y1={top}
+                  y2={H - bottom}
+                  className="stroke-muted-foreground/40"
+                  strokeWidth={1}
+                />
+                {series.map((line) => {
+                  const point = line.points[hover];
+
+                  return point ? (
+                    <circle
+                      key={line.label}
+                      cx={x(hover)}
+                      cy={y(point.value)}
+                      r={3.5}
+                      fill={line.color}
+                      className="stroke-card"
+                      strokeWidth={1.5}
+                    />
+                  ) : null;
+                })}
+              </g>
+            ) : null}
+
+            {/* Three date labels: the ends and the middle, so the window reads. */}
+            {[0, Math.floor((count - 1) / 2), count - 1]
+              .filter((index, at, all) => index >= 0 && all.indexOf(index) === at)
+              .map((index) => (
+                <text
+                  key={index}
+                  x={x(index)}
+                  y={H - 6}
+                  textAnchor={index === 0 ? "start" : index === count - 1 ? "end" : "middle"}
+                  fontSize={10}
+                  className="fill-muted-foreground"
+                  style={{ fontFamily: FONT_MONO }}
+                >
+                  {series[0]?.points[index]?.label ?? ""}
+                </text>
+              ))}
+
+            <rect
+              width={W}
+              height={H}
+              fill="transparent"
+              onPointerMove={move}
+              onPointerLeave={() => {
+                setHover(null);
+                api.current?.hide();
+              }}
+            />
+          </svg>
+        ) : null}
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {series.map((line) => (
+          <span key={line.label} className="inline-flex items-center gap-1.5">
+            <i className="h-0.5 w-3 rounded-sm" style={{ background: line.color }} />
+            {line.label}
+          </span>
+        ))}
+        {note ? <span className="ml-auto">{note}</span> : null}
+      </div>
+      {node}
+    </ChartCard>
+  );
+}
+
+/** Rounds an axis top up to 1, 2, 2.5 or 5 times a power of ten. */
+function niceMax(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const step =
+    [1, 2, 2.5, 5, 10].find((factor) => factor * magnitude >= value) ?? 10;
+
+  return step * magnitude;
+}
+
 /* ---------------- KPI tile ---------------- */
 
 export function KpiTile({

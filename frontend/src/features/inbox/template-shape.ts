@@ -18,6 +18,8 @@ export interface TemplateUrlButton {
 
 export interface TemplateShape {
   header: string | null;
+  /** Meta's header format, uppercase — `IMAGE` means the preview can show one. */
+  headerKind: string | null;
   body: string;
   footer: string | null;
   /** Header then body, in first-appearance order — the order Meta fills them. */
@@ -28,7 +30,11 @@ export interface TemplateShape {
 export function shapeOf(components: unknown): TemplateShape {
   const list = Array.isArray(components) ? components : [];
 
-  const header = textOf(find(list, "HEADER"));
+  const headerComponent = record(find(list, "HEADER"));
+  const header = textOf(headerComponent);
+  const headerKind = headerComponent
+    ? String(headerComponent.format ?? "TEXT").toUpperCase()
+    : null;
   const body = textOf(find(list, "BODY")) ?? "";
   const footer = textOf(find(list, "FOOTER"));
 
@@ -52,6 +58,7 @@ export function shapeOf(components: unknown): TemplateShape {
 
   return {
     header,
+    headerKind,
     body,
     footer,
     // One entry per token: Meta fills a header and a body from the same

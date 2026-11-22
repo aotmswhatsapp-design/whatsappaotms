@@ -1,6 +1,8 @@
 import * as React from "react";
+import Link from "next/link";
 import { CircleAlert, FileText, ImageIcon, Video } from "lucide-react";
 
+import { TemplateImage } from "@/components/workspace/template-image";
 import { cn } from "@/lib/utils";
 
 import type { TemplateFacts } from "../api";
@@ -55,9 +57,22 @@ const TOKEN = /(\{\{\s*[A-Za-z0-9_]+\s*\}\})/g;
  * the facts a card is judged by: name, review status, category, language,
  * last change.
  */
-export function TemplateCard({ row }: { row: TemplateFacts }) {
+export function TemplateCard({
+  row,
+  href,
+}: {
+  row: TemplateFacts;
+  /** Where the card leads. Omitted on the detail screen, which is the end. */
+  href?: string;
+}) {
   const parts = templateParts(row.components);
-  const media = parts.headerKind ? MEDIA_HEADERS[parts.headerKind] : undefined;
+  // An image header can show the real sample; video and document headers keep
+  // the icon, because a still frame of either would be a guess.
+  const imageHeader = parts.headerKind === "IMAGE";
+  const media =
+    parts.headerKind && !imageHeader
+      ? MEDIA_HEADERS[parts.headerKind]
+      : undefined;
   const mediaIcon = media ? media.icon : null;
 
   // WhatsApp collapses more than three buttons: two stay, the rest go behind
@@ -69,7 +84,16 @@ export function TemplateCard({ row }: { row: TemplateFacts }) {
   const quality = row.qualityScore ? QUALITY[row.qualityScore.toUpperCase()] : undefined;
 
   return (
-    <li className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
+    <li className="relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/25">
+      {/* One overlay rather than a wrapper: the card is a list item, and a
+          link around it would put an anchor between `li` and `ul`. */}
+      {href ? (
+        <Link
+          aria-label={`Open ${row.name}`}
+          className="absolute inset-0 z-10 rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none"
+          href={href}
+        />
+      ) : null}
       <div
         aria-label="Message preview"
         className="flex flex-1 flex-col justify-start gap-1.5 bg-[#efeae2] px-3 pt-4 pb-3"
@@ -78,7 +102,14 @@ export function TemplateCard({ row }: { row: TemplateFacts }) {
         <div className="ml-auto w-full max-w-[19rem] space-y-1.5">
           <div className="rounded-lg rounded-tr-none bg-white shadow-sm">
             <div className="px-2.5 py-2">
-              {mediaIcon ? (
+              {imageHeader ? (
+                <TemplateImage
+                  alt={`Sample image for ${row.name}`}
+                  className="mb-1.5 aspect-[1.91/1] w-full rounded-md"
+                  hasMedia={row.hasMedia}
+                  templateId={row.id}
+                />
+              ) : mediaIcon ? (
                 <div className="mb-1.5 grid h-16 place-items-center rounded-md bg-[#d1d7db]">
                   {React.createElement(mediaIcon, {
                     className: "size-4 text-[#5b6b73]",
@@ -96,7 +127,7 @@ export function TemplateCard({ row }: { row: TemplateFacts }) {
                 <p
                   className={cn(
                     "text-[12.5px] leading-[1.45] whitespace-pre-wrap text-[#111b21]",
-                    (parts.header || mediaIcon) && "mt-1",
+                    (parts.header || imageHeader || mediaIcon) && "mt-1",
                   )}
                 >
                   {withTokens(parts.body)}

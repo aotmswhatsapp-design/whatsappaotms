@@ -81,12 +81,30 @@ export const envSchema = z.object({
     .or(z.literal("").transform(() => undefined)),
   /** Test seam: point this at a local Graph stub to prove the success path. */
   META_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
+  /**
+   * The Meta app that owns the tokens this deployment stores. Only the
+   * template sample upload needs it: the Resumable Upload API is addressed as
+   * `/{app-id}/uploads`. Optional so the API still boots without it — a
+   * template with an image header then answers 503 with that sentence instead
+   * of guessing an id and letting Meta reject the upload.
+   */
+  META_APP_ID: z
+    .string()
+    .regex(/^\d+$/, "META_APP_ID is a numeric app id")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   CORS_ORIGINS: z.string().optional(),
   /**
    * Private Supabase Storage bucket for inbox attachments. Created on the
    * first upload; left as the default so a deployment needs no new setting.
    */
   INBOX_MEDIA_BUCKET: z.string().min(1).default("inbox-media"),
+  /**
+   * Private bucket for template sample images. Separate from the inbox bucket
+   * because a template's sample outlives every conversation and is never
+   * purged with one.
+   */
+  TEMPLATE_MEDIA_BUCKET: z.string().min(1).default("template-media"),
   /**
    * Retention for the connection status: within this window a page load reads
    * the stored verdict instead of calling Graph again.

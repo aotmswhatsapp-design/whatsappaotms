@@ -39,6 +39,7 @@ export function LivePanel({
     ["Verified name", account.verifiedName ?? "—"],
     ["Quality rating", account.qualityRating ?? "—"],
     ["Business account", account.businessName ?? `ID ${account.businessAccountId}`],
+    ["App ID", account.appId ?? "not stored — reconnect to add it"],
     ["Graph version", account.graphVersion],
     ["Access token", account.accessTokenHint],
     ["App secret", account.appSecretHint ?? "not stored — reconnect"],

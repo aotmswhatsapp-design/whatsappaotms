@@ -1,8 +1,21 @@
-import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 /** How long a generated download link stays usable. */
 const SIGNED_TTL_SECONDS = 300;
+
+/**
+ * Which bucket an instance writes to. A module that wants its own bucket
+ * provides this token; one that does not gets the inbox bucket, which keeps
+ * `InboxModule` unaware that a second bucket exists.
+ */
+export const MEDIA_BUCKET = Symbol("MEDIA_BUCKET");
 
 /**
  * Supabase Storage over its REST API.
@@ -20,7 +33,13 @@ export class MediaStorage {
   private readonly bucket: string;
   private bucketChecked = false;
 
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    // A second constructor parameter is a token rather than a type on purpose:
+    // a bare optional `string` would make Nest try to resolve a `String`
+    // provider for every module that registers this class.
+    @Optional() @Inject(MEDIA_BUCKET) bucket?: string,
+  ) {
     const url = (config.get<string>("SUPABASE_URL") ?? "").replace(/\/+$/, "");
     const key =
       config.get<string>("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -31,7 +50,8 @@ export class MediaStorage {
 
     this.base = ready ? url : null;
     this.key = ready ? key : null;
-    this.bucket = config.get<string>("INBOX_MEDIA_BUCKET") ?? "inbox-media";
+    this.bucket =
+      bucket ?? config.get<string>("INBOX_MEDIA_BUCKET") ?? "inbox-media";
   }
 
   get configured(): boolean {
@@ -87,6 +107,29 @@ export class MediaStorage {
     }
 
     return `${base}/storage/v1${payload.signedURL}`;
+  }
+
+  /**
+   * The object's bytes, read back with the service key.
+   *
+   * This is what lets a template sample be re-sent to Meta on a retry: our copy
+   * is the durable one, and Meta's handle is not.
+   */
+  async download(path: string): Promise<Buffer> {
+    const { base } = this.required();
+
+    const response = await fetch(
+      `${base}/storage/v1/object/${this.bucket}/${path}`,
+      { headers: this.headers() },
+    );
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Could not read the stored file (storage answered ${response.status}).`,
+      );
+    }
+
+    return Buffer.from(await response.arrayBuffer());
   }
 
   /** Best effort: a deleted thread must not fail because storage hiccuped. */

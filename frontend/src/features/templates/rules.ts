@@ -1,4 +1,5 @@
 import type {
+  HeaderFormat,
   ParameterFormat,
   TemplateButton,
   TemplateCategory,
@@ -27,6 +28,17 @@ export const LIMITS = {
   copyCodeExampleMax: 20,
 } as const;
 
+/**
+ * What Meta accepts as a header image, mirrored from the API's
+ * `template-media.ts` so a wrong file is refused here instead of after a slow
+ * upload. The server proves the type from the bytes; this only screens by what
+ * the browser reports.
+ */
+export const IMAGE_LIMITS = {
+  maxBytes: 5 * 1024 * 1024,
+  mimes: ["image/jpeg", "image/png", "image/webp"],
+} as const;
+
 const NAME = /^[a-z0-9_]+$/;
 const NAMED = /^[a-z][a-z0-9_]*$/;
 const POSITIONAL = /^\d+$/;
@@ -41,7 +53,11 @@ export interface DraftValues {
   category: TemplateCategory | "";
   language: string;
   parameterFormat: ParameterFormat;
+  /** A text header carries words; an image header carries a stored file. */
+  headerFormat: HeaderFormat;
   header: string;
+  /** Empty until an image is uploaded; the path the API answered. */
+  mediaPath: string;
   body: string;
   footer: string;
   examples: Record<string, string>;
@@ -57,6 +73,7 @@ export function problemsIn(values: DraftValues, buttons: TemplateButton[]): stri
   const body = values.body.trim();
   const header = values.header.trim();
   const footer = values.footer.trim();
+  const image = values.headerFormat === "IMAGE";
 
   if (!NAME.test(name)) {
     problems.push(
@@ -78,7 +95,13 @@ export function problemsIn(values: DraftValues, buttons: TemplateButton[]): stri
     problems.push(`The body is ${body.length} characters; Meta allows ${LIMITS.bodyMax}.`);
   }
 
-  if (header.length > LIMITS.headerMax) {
+  if (image) {
+    // Words typed before switching to an image header are kept for a switch
+    // back, but Meta receives neither them nor a length problem.
+    if (!values.mediaPath) {
+      problems.push("Upload the image this template's header will show.");
+    }
+  } else if (header.length > LIMITS.headerMax) {
     problems.push(`The header is ${header.length} characters; Meta allows ${LIMITS.headerMax}.`);
   }
 
@@ -86,13 +109,13 @@ export function problemsIn(values: DraftValues, buttons: TemplateButton[]): stri
     problems.push(`The footer is ${footer.length} characters; Meta allows ${LIMITS.footerMax}.`);
   }
 
-  const headerVariables = variablesOf(header);
+  const headerVariables = image ? [] : variablesOf(header);
 
   if (headerVariables.length > 1) {
     problems.push("A text header supports one variable. Move the rest into the body.");
   }
 
-  const variables = variablesOf(header, body);
+  const variables = variablesOf(image ? "" : header, body);
 
   for (const token of variables) {
     if (values.parameterFormat === "POSITIONAL" && !POSITIONAL.test(token)) {

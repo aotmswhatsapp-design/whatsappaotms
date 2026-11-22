@@ -151,6 +151,11 @@ model WhatsAppAccount {
   phoneNumberId      String         @map("phone_number_id")
   businessAccountId  String         @map("business_account_id")
   graphVersion       String         @map("graph_version")
+  /// The Meta app that issued the access token. Template image uploads are
+  /// addressed by app id and Meta requires the token to belong to that same
+  /// app, so this is a per-connection value rather than a platform one.
+  /// Nullable: rows connected before the field existed stay usable.
+  appId              String?        @map("app_id")
   displayPhoneNumber String?        @map("display_phone_number")
   verifiedName       String?        @map("verified_name")
   qualityRating      String?        @map("quality_rating")
@@ -170,6 +175,10 @@ model WhatsAppAccount {
   eventCount         Int            @default(0) @map("event_count")
   /// Cache marker for the live re-check, so a page load is not a Meta call.
   lastCheckAt        DateTime?      @map("last_check_at")
+  /// Stamped when the customer turned on per-template insights. Meta's switch
+  /// is one-way and per WABA, so this records a promise rather than a setting
+  /// we can toggle back.
+  insightsEnabledAt  DateTime?      @map("insights_enabled_at")
   failureReason      String?        @map("failure_reason")
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")
@@ -379,6 +388,16 @@ model MessageTemplate {
   /// The exact `components` array sent to Meta, verbatim. Rebuilding it from
   /// our own fields would drift; an audit has to see what was submitted.
   components      Json
+  /// The sample image we keep for an IMAGE header: our own copy, in the
+  /// `template-media` bucket, so the card still shows it after Meta's handle
+  /// expires. Null for text headers and for templates made in WhatsApp Manager.
+  mediaPath       String?         @map("media_path")
+  mediaMime       String?         @map("media_mime")
+  mediaSize       Int?            @map("media_size")
+  /// The `4::…` handle the Resumable Upload API minted at creation time.
+  /// Recorded for diagnosis only: handles expire, our object does not.
+  mediaHandle     String?         @map("media_handle")
+  mediaUploadedAt DateTime?       @map("media_uploaded_at")
   lastSyncedAt    DateTime?       @map("last_synced_at")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")

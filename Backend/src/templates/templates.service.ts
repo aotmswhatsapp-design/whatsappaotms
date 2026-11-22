@@ -1,17 +1,39 @@
-import { BadGatewayException, BadRequestException, Injectable, Logger } from "@nestjs/common";
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Prisma, type MessageTemplate } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { SecretBox } from "../common/crypto/secret-box";
+import { MediaStorage } from "../inbox/media.storage";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   MetaGraph,
   MetaRequestError,
   MetaTransportError,
   type MessageTemplateDetails,
+  type TemplateAnalyticsPoint,
 } from "../whatsapp/meta-graph";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateTemplateDto } from "./dto/create-template.dto";
+import {
+  buildSeries,
+  costFacts,
+  totalsOf,
+  type TemplateAnalyticsPayload,
+} from "./templates.analytics";
+import {
+  extensionFor,
+  inspectImage,
+  mediaPathFor,
+  pathBelongsTo,
+} from "./template-media";
 import { buildComponents, problemsIn, type TemplateDraft } from "./templates.payload";
 import type { TemplateFacts, TemplateListPayload } from "./templates.view";
 
@@ -24,6 +46,28 @@ const SYNC_TTL_MS = 60_000;
 
 const NO_TOKEN =
   "The stored access token cannot be read. Reconnect the number and try again.";
+
+/** Meta serves ninety days at most; a month is the window the screen opens on. */
+const DEFAULT_DAYS = 30;
+const MAX_DAYS = 90;
+
+/** What Multer hands us from memory storage. */
+export interface UploadedTemplateImage {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+}
+
+/** What the builder gets back from an upload, before the template exists. */
+export interface UploadedTemplateMedia {
+  path: string;
+  previewUrl: string;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+}
 
 /**
  * Templates are the one place Meta, not this API, decides what exists.
@@ -42,6 +86,8 @@ export class TemplatesService {
     private readonly box: SecretBox,
     private readonly meta: MetaGraph,
     private readonly workspaces: WorkspacesService,
+    private readonly storage: MediaStorage,
+    private readonly config: ConfigService,
   ) {}
 
   async list(claims: AuthClaims, refresh: boolean): Promise<TemplateListPayload> {
@@ -125,7 +171,9 @@ export class TemplatesService {
       category: input.category,
       language: input.language,
       parameterFormat: input.parameterFormat,
+      headerFormat: input.headerFormat ?? "TEXT",
       header: input.header ?? null,
+      mediaPath: input.mediaPath ?? null,
       body: input.body,
       footer: input.footer ?? null,
       buttons: input.buttons ?? [],
@@ -137,6 +185,17 @@ export class TemplatesService {
     if (problems.length > 0) {
       throw new BadRequestException({ message: problems, code: "TEMPLATE_INVALID" });
     }
+
+    // An image travels in two steps: the draft names our stored copy, and the
+    // Resumable Upload API mints the handle here, immediately before the
+    // creation call. Nothing is held between requests, so no handle can be
+    // stale by the time Meta reads it.
+    const media =
+      draft.headerFormat === "IMAGE"
+        ? await this.sendImage(workspaceId, draft.mediaPath ?? "", target)
+        : null;
+
+    if (media) draft.headerHandle = media.handle;
 
     const components = buildComponents(draft);
 
@@ -163,6 +222,24 @@ export class TemplatesService {
 
     const status = created.status?.trim() || "PENDING";
 
+    // A resubmission as a text template must not keep the old image, or the
+    // card would show a picture the message no longer sends.
+    const mediaColumns = media
+      ? {
+          mediaPath: media.path,
+          mediaMime: media.mime,
+          mediaSize: media.size,
+          mediaHandle: media.handle,
+          mediaUploadedAt: new Date(),
+        }
+      : {
+          mediaPath: null,
+          mediaMime: null,
+          mediaSize: null,
+          mediaHandle: null,
+          mediaUploadedAt: null,
+        };
+
     // Upsert on name+language: a previous attempt that Meta rejected may have
     // left a row behind, and Meta treats name+language as the identity.
     const row = await this.prisma.messageTemplate.upsert({
@@ -182,6 +259,7 @@ export class TemplatesService {
         parameterFormat: draft.parameterFormat,
         status,
         components: components as Prisma.InputJsonValue,
+        ...mediaColumns,
       },
       update: {
         metaId: created.id,
@@ -190,10 +268,349 @@ export class TemplatesService {
         status,
         rejectedReason: null,
         components: components as Prisma.InputJsonValue,
+        ...mediaColumns,
       },
     });
 
     return facts(row);
+  }
+
+  /**
+   * Stores the sample for an IMAGE header and answers a URL the builder can
+   * paint straight away.
+   *
+   * The bytes reach Supabase before Meta ever sees them, because our copy is
+   * the durable one: an upload handle expires in 30 days, while the card has to
+   * keep showing the image. The folder is the number's verified business name
+   * so the bucket is readable in the dashboard; isolation comes from the
+   * workspace id in the path, which is checked again on the way back in.
+   */
+  async uploadMedia(
+    claims: AuthClaims,
+    file: UploadedTemplateImage,
+    name: string | undefined,
+  ): Promise<UploadedTemplateMedia> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const image = inspectImage(file.buffer);
+
+    if (!image.ok) {
+      throw new BadRequestException({
+        message: [image.reason],
+        code: "TEMPLATE_MEDIA_INVALID",
+      });
+    }
+
+    const account = await this.prisma.whatsAppAccount.findUnique({
+      where: { workspaceId },
+      select: { verifiedName: true, businessName: true, phoneNumberId: true },
+    });
+
+    const folder =
+      account?.verifiedName ??
+      account?.businessName ??
+      account?.phoneNumberId ??
+      "workspace";
+
+    const path = mediaPathFor({
+      workspaceId,
+      folder,
+      name: (name ?? "").trim() || "template",
+      extension: extensionFor(image.mime),
+    });
+
+    await this.storage.upload(path, file.buffer, image.mime);
+
+    return {
+      path,
+      previewUrl: await this.storage.signedUrl(path),
+      mime: image.mime,
+      size: file.buffer.length,
+      width: image.width,
+      height: image.height,
+    };
+  }
+
+  /**
+   * A fresh signed URL for a stored sample.
+   *
+   * Signed per request because the link dies in five minutes: the browser gets
+   * one when it needs to paint, never a stored one that is found broken
+   * tomorrow. Another workspace's id answers 404 rather than 403, so template
+   * ids cannot be probed.
+   */
+  async mediaUrl(
+    claims: AuthClaims,
+    id: string,
+  ): Promise<{ url: string; mime: string | null }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.messageTemplate.findFirst({
+      where: { id, workspaceId },
+      select: { mediaPath: true, mediaMime: true },
+    });
+
+    if (!row?.mediaPath) {
+      throw new NotFoundException("That template has no sample image.");
+    }
+
+    return {
+      url: await this.storage.signedUrl(row.mediaPath),
+      mime: row.mediaMime,
+    };
+  }
+
+  /** One row, scoped to the caller's workspace — the detail screen's header. */
+  async find(claims: AuthClaims, id: string): Promise<TemplateFacts> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.messageTemplate.findFirst({
+      where: { id, workspaceId },
+    });
+
+    if (!row) throw new NotFoundException("That template does not exist.");
+
+    return facts(row);
+  }
+
+  /**
+   * One template's numbers over the last `days` days.
+   *
+   * Three sources, merged: Meta's per-day read (performance and cost), this
+   * database's own message log (unique replies, which Meta does not publish),
+   * and the connection row (whether insights were ever switched on). A Meta
+   * failure keeps the local half and says which half is missing — a screen
+   * that threw away local figures because a third party was slow would be
+   * worse than one that admits the gap.
+   */
+  async analytics(
+    claims: AuthClaims,
+    id: string,
+    requestedDays: number | undefined,
+  ): Promise<TemplateAnalyticsPayload> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.messageTemplate.findFirst({
+      where: { id, workspaceId },
+    });
+
+    if (!row) throw new NotFoundException("That template does not exist.");
+
+    const days = clampDays(requestedDays);
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - days * 86_400;
+
+    const target = await this.target(workspaceId);
+
+    let points: TemplateAnalyticsPoint[] = [];
+    let currency: string | null = null;
+    const unavailable: string[] = [];
+    let warning: string | undefined;
+
+    if (!target || !row.metaId) {
+      unavailable.push("Message performance", "Cost");
+      warning = target
+        ? "This template has no Meta id yet, so Meta has nothing to report for it."
+        : "No WhatsApp number is connected, so Meta cannot be asked about this template.";
+    } else {
+      try {
+        const read = await this.meta.getTemplateAnalytics({
+          version: target.version,
+          businessAccountId: target.businessAccountId,
+          token: target.token,
+          templateId: row.metaId,
+          start,
+          end,
+        });
+
+        points = read.points;
+        currency = read.currency;
+      } catch (error) {
+        // The commonest refusal here is Meta's "insights not enabled", which
+        // the screen answers with the switch rather than an error page.
+        warning = explain(error);
+        unavailable.push("Message performance", "Cost");
+      }
+    }
+
+    const series = unavailable.length > 0 ? [] : buildSeries(points, start, end);
+    const totals = totalsOf(series);
+    // Without Meta's answer the counts are unknown, not zero — reporting zero
+    // would say the template was never sent, which is a different claim.
+    const counted = unavailable.length === 0;
+
+    const uniqueReplies = await this.uniqueReplies(
+      workspaceId,
+      row.name,
+      row.language,
+      new Date(start * 1000),
+    );
+
+    return {
+      templateId: row.id,
+      templateName: row.name,
+      insightsEnabled: Boolean(target?.insightsEnabledAt),
+      window: {
+        days,
+        start: new Date(start * 1000).toISOString(),
+        end: new Date(end * 1000).toISOString(),
+      },
+      currency,
+      cost: costFacts(totals),
+      performance: {
+        sent: counted ? totals.sent : null,
+        delivered: counted ? totals.delivered : null,
+        read: counted ? totals.read : null,
+        clicked: counted ? totals.clicked : null,
+        uniqueReplies,
+      },
+      series,
+      unavailable,
+      ...(warning ? { warning } : {}),
+    };
+  }
+
+  /**
+   * Turns Meta's per-template insights on for the workspace's WABA.
+   *
+   * Irreversible on Meta's side, so the screen confirms first and this records
+   * the stamp. Re-asking is harmless and answers the stored timestamp rather
+   * than sending a second switch Meta would only accept once anyway.
+   */
+  async enableInsights(
+    claims: AuthClaims,
+  ): Promise<{ enabled: boolean; enabledAt: string }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const target = await this.target(workspaceId);
+
+    if (!target) {
+      throw new BadRequestException(
+        "Connect a WhatsApp number before turning on insights.",
+      );
+    }
+
+    if (target.insightsEnabledAt) {
+      return {
+        enabled: true,
+        enabledAt: target.insightsEnabledAt.toISOString(),
+      };
+    }
+
+    try {
+      await this.meta.enableTemplateInsights({
+        version: target.version,
+        businessAccountId: target.businessAccountId,
+        token: target.token,
+      });
+    } catch (error) {
+      throw new BadGatewayException(explain(error));
+    }
+
+    const at = new Date();
+
+    await this.prisma.whatsAppAccount.update({
+      where: { workspaceId },
+      data: { insightsEnabledAt: at },
+    });
+
+    return { enabled: true, enabledAt: at.toISOString() };
+  }
+
+  /**
+   * Distinct conversations that replied after this template was sent.
+   *
+   * `Message` records the template's name and language, not its id, so the
+   * join is by name — and a row written before the language was stored counts
+   * too, because a missed reply is a worse error than a stray one.
+   */
+  private async uniqueReplies(
+    workspaceId: string,
+    name: string,
+    language: string,
+    since: Date,
+  ): Promise<number> {
+    const sentTo = await this.prisma.message.groupBy({
+      by: ["conversationId"],
+      where: {
+        workspaceId,
+        direction: "OUTBOUND",
+        templateName: name,
+        OR: [{ templateLanguage: language }, { templateLanguage: null }],
+        createdAt: { gte: since },
+      },
+    });
+
+    if (sentTo.length === 0) return 0;
+
+    const replied = await this.prisma.message.groupBy({
+      by: ["conversationId"],
+      where: {
+        workspaceId,
+        direction: "INBOUND",
+        conversationId: { in: sentTo.map((row) => row.conversationId) },
+        createdAt: { gte: since },
+      },
+    });
+
+    return replied.length;
+  }
+
+  /**
+   * Turns our stored sample into the handle Meta's creation call wants, using
+   * the app the connection's token belongs to.
+   */
+  private async sendImage(
+    workspaceId: string,
+    path: string,
+    target: { version: string; token: string; appId: string | null },
+  ): Promise<{ path: string; mime: string; size: number; handle: string }> {
+    if (!pathBelongsTo(path, workspaceId)) {
+      throw new BadRequestException("That image belongs to another workspace.");
+    }
+
+    // Meta's Resumable Upload API is addressed by app id and refuses a token
+    // minted by another app, so the connection's own id wins. META_APP_ID is
+    // only the fallback for connections stored before the field existed.
+    const appId =
+      target.appId?.trim() ||
+      (this.config.get<string>("META_APP_ID") ?? "").trim();
+
+    if (!appId) {
+      throw new ServiceUnavailableException(
+        "Add the Meta App ID on the WhatsApp connection page — image headers are uploaded under it.",
+      );
+    }
+
+    const bytes = await this.storage.download(path);
+
+    // Validate the bytes being sent, not the ones the upload checked: the
+    // stored object, not a claim about it, is what Meta receives.
+    const image = inspectImage(bytes);
+
+    if (!image.ok) {
+      throw new BadRequestException({
+        message: [image.reason],
+        code: "TEMPLATE_MEDIA_INVALID",
+      });
+    }
+
+    let handle: string;
+
+    try {
+      handle = await this.meta.uploadTemplateMedia({
+        version: target.version,
+        appId,
+        token: target.token,
+        bytes,
+        mime: image.mime,
+        fileName: path.split("/").pop() || "template",
+      });
+    } catch (error) {
+      throw new BadGatewayException(explain(error));
+    }
+
+    return { path, mime: image.mime, size: bytes.length, handle };
   }
 
   /**
@@ -266,6 +683,8 @@ export class TemplatesService {
     version: string;
     businessAccountId: string;
     token: string;
+    appId: string | null;
+    insightsEnabledAt: Date | null;
   } | null> {
     const row = await this.prisma.whatsAppAccount.findUnique({
       where: { workspaceId },
@@ -273,6 +692,8 @@ export class TemplatesService {
         graphVersion: true,
         businessAccountId: true,
         accessTokenCipher: true,
+        appId: true,
+        insightsEnabledAt: true,
       },
     });
 
@@ -286,6 +707,8 @@ export class TemplatesService {
       version: row.graphVersion,
       businessAccountId: row.businessAccountId,
       token,
+      appId: row.appId,
+      insightsEnabledAt: row.insightsEnabledAt,
     };
   }
 
@@ -317,6 +740,7 @@ function facts(row: MessageTemplate): TemplateFacts {
     qualityScore: row.qualityScore,
     rejectedReason: row.rejectedReason,
     components: row.components,
+    hasMedia: row.mediaPath !== null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -360,6 +784,15 @@ function qualityOf(raw: MessageTemplateDetails["quality_score"]): string | null 
   if (typeof raw === "string") return raw.trim() || null;
 
   return raw.score?.trim() || null;
+}
+
+/** Meta serves ninety days at most; anything larger is clamped, not rejected. */
+function clampDays(requested: number | undefined): number {
+  if (requested === undefined || !Number.isFinite(requested)) {
+    return DEFAULT_DAYS;
+  }
+
+  return Math.min(MAX_DAYS, Math.max(1, Math.floor(requested)));
 }
 
 /** Meta's own sentence when it gave one, then the transport reason. */

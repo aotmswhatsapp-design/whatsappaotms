@@ -183,6 +183,8 @@ export interface SendableTemplate {
   parameterFormat: "NAMED" | "POSITIONAL";
   status: string;
   components: unknown;
+  /** True when a stored sample exists, so the preview can ask for a link. */
+  hasMedia: boolean;
 }
 
 export function fetchSendableTemplates(): Promise<{

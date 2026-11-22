@@ -268,7 +268,11 @@ export function TemplatesView() {
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {shown.map((row) => (
-              <TemplateCard key={row.id} row={row} />
+              <TemplateCard
+                href={`/workspace/templates/${row.id}`}
+                key={row.id}
+                row={row}
+              />
             ))}
           </ul>
         )}

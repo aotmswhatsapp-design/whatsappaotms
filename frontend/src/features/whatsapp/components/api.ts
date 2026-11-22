@@ -24,6 +24,8 @@ export interface WhatsAppAccount {
   phoneNumberId: string;
   businessAccountId: string;
   graphVersion: string;
+  /** The Meta app that issued the token; null on rows connected before it was asked for. */
+  appId: string | null;
   displayPhoneNumber: string | null;
   verifiedName: string | null;
   qualityRating: string | null;
@@ -66,6 +68,8 @@ export interface Verdict {
 export interface ConnectInput {
   accessToken: string;
   phoneNumberId: string;
+  /** Optional: only image-header templates need it. */
+  appId?: string;
   appSecret: string;
   graphVersion: string;
   businessAccountId: string;

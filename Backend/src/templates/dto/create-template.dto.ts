@@ -9,6 +9,7 @@ import {
 } from "class-validator";
 
 import type {
+  HeaderFormatName,
   ParameterFormatName,
   TemplateButtonType,
   TemplateCategoryName,
@@ -29,6 +30,8 @@ export const TEMPLATE_CATEGORIES: TemplateCategoryName[] = [
 ];
 
 export const PARAMETER_FORMATS: ParameterFormatName[] = ["NAMED", "POSITIONAL"];
+
+const HEADER_FORMATS: HeaderFormatName[] = ["TEXT", "IMAGE"];
 
 const BUTTON_TYPES: TemplateButtonType[] = [
   "QUICK_REPLY",
@@ -89,10 +92,21 @@ export class CreateTemplateDto {
   @IsIn(PARAMETER_FORMATS, { message: "Parameters are named or positional." })
   parameterFormat!: ParameterFormatName;
 
+  /** Omitted means a text header, so an older client is unaffected. */
+  @IsOptional()
+  @IsIn(HEADER_FORMATS, { message: "A header is text or an image." })
+  headerFormat?: HeaderFormatName;
+
   @IsOptional()
   @Transform(trimmed)
   @IsString()
   header?: string;
+
+  /** The path POST /v1/templates/media answered, required for IMAGE headers. */
+  @IsOptional()
+  @Transform(trimmed)
+  @IsString()
+  mediaPath?: string;
 
   @Transform(trimmed)
   @IsString()

@@ -4,6 +4,13 @@ import { ConfigService } from "@nestjs/config";
 /** Meta answers slowly on a bad day; never let a request hang the API. */
 const TIMEOUT_MS = 10_000;
 
+/**
+ * An upload moves bytes, not JSON: 5 MB over a slow link can honestly take
+ * longer than a read, and cutting it at ten seconds would report a failure for
+ * a request Meta was still assembling.
+ */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
 export interface MetaErrorBody {
   message: string;
   type?: string;
@@ -177,6 +184,33 @@ export interface PricingRead {
 }
 
 export type AnalyticsGranularity = "DAY" | "HALF_HOUR" | "MONTHLY";
+
+/**
+ * One day of one template's numbers.
+ *
+ * `clicked` counts taps on a URL button; `cost` arrives as a list of named
+ * figures rather than a single number, because the same read can answer for
+ * spend, cost per delivery and cost per click at once.
+ */
+export interface TemplateAnalyticsPoint {
+  templateId: string | null;
+  start: number | null;
+  end: number | null;
+  sent: number | null;
+  delivered: number | null;
+  read: number | null;
+  clicked: number | null;
+  /** What Meta charged that day. Null when it withheld the figure. */
+  amountSpent: number | null;
+  /** Meta's own ratio, kept for diagnosis; the window total is recomputed. */
+  costPerDelivered: number | null;
+  costPerClicked: number | null;
+}
+
+export interface TemplateAnalyticsRead {
+  points: TemplateAnalyticsPoint[];
+  currency: string | null;
+}
 
 /**
  * The only place that knows Meta's wire format.
@@ -426,6 +460,155 @@ export class MetaGraph {
   }
 
   /**
+   * Uploads a template's sample image and returns the handle Meta wants in
+   * `header_handle`.
+   *
+   * Two calls, not one: the first opens a session and declares the file's
+   * length and type, the second sends the bytes and answers `{ h: "4::…" }`.
+   * The handle is opaque and lives 30 days, which is why the caller mints it in
+   * the same request that creates the template instead of storing it for later
+   * use.
+   *
+   * Addressed by app id, not by number: this is the one WhatsApp call whose
+   * path is the Meta app rather than the WABA or the phone number.
+   */
+  async uploadTemplateMedia(input: {
+    version: string;
+    appId: string;
+    token: string;
+    bytes: Buffer;
+    mime: string;
+    fileName: string;
+  }): Promise<string> {
+    const session = await this.sendBinary<{ id?: string }>(
+      this.uploadSessionUrl(input),
+      { method: "POST", token: input.token },
+    );
+
+    const sessionId = session.id?.trim() ?? "";
+
+    if (!sessionId.startsWith("upload:")) {
+      throw new MetaShapeError("Meta opened no upload session for that file.");
+    }
+
+    const uploaded = await this.sendBinary<{ h?: string }>(
+      // The session id is a path segment Meta documents verbatim; encoding its
+      // colon would change which object it names.
+      new URL(`${this.base}/${encodeURIComponent(input.version)}/${sessionId}`),
+      {
+        method: "POST",
+        token: input.token,
+        body: new Uint8Array(input.bytes),
+        headers: { file_offset: "0", "content-type": input.mime },
+      },
+    );
+
+    const handle = uploaded.h?.trim() ?? "";
+
+    if (!handle) {
+      throw new MetaShapeError("Meta stored the file but returned no handle.");
+    }
+
+    return handle;
+  }
+
+  /**
+   * Per-day numbers for one template over at most ninety days.
+   *
+   * Not the `analytics.…` field expression the WABA reads use: this is its own
+   * edge, and `template_ids` is a bracketed array even for a single id. Metrics
+   * are asked for together because they are charged as one read, and the cost
+   * figures arrive split by name rather than as one number.
+   */
+  async getTemplateAnalytics(input: {
+    version: string;
+    businessAccountId: string;
+    token: string;
+    templateId: string;
+    start: number;
+    end: number;
+  }): Promise<TemplateAnalyticsRead> {
+    const url = this.urlOf(input.version, [
+      input.businessAccountId,
+      "template_analytics",
+    ]);
+
+    url.searchParams.set("start", String(input.start));
+    url.searchParams.set("end", String(input.end));
+    url.searchParams.set("granularity", "DAILY");
+    url.searchParams.set("metric_types", "sent,delivered,read,clicked,cost");
+    url.searchParams.set("template_ids", `[${input.templateId}]`);
+
+    const payload = await this.send<Record<string, unknown>>(url, {
+      method: "GET",
+      token: input.token,
+    });
+
+    // One group per metric family, each holding the days. Both wrapper keys
+    // appear in Meta's own examples, so the reader accepts either.
+    const groups = Array.isArray(payload.data) ? payload.data : [];
+    const points: TemplateAnalyticsPoint[] = [];
+
+    for (const group of groups) {
+      if (!isRecord(group)) continue;
+
+      const raw = Array.isArray(group.data_points)
+        ? group.data_points
+        : Array.isArray(group.data)
+          ? group.data
+          : [];
+
+      for (const point of raw) {
+        if (!isRecord(point)) continue;
+
+        const cost = costOf(point.cost);
+
+        points.push({
+          templateId: textOf(point.template_id),
+          start: secondsOf(point.start),
+          end: secondsOf(point.end),
+          sent: numberOf(point.sent),
+          delivered: numberOf(point.delivered),
+          read: numberOf(point.read),
+          clicked: countOf(point.clicked),
+          amountSpent: cost.spent,
+          costPerDelivered: cost.perDelivered,
+          costPerClicked: cost.perClicked,
+        });
+      }
+    }
+
+    const first = groups.find(isRecord);
+
+    return {
+      points,
+      currency: textOf(payload.currency) ?? (first ? textOf(first.currency) : null),
+    };
+  }
+
+  /**
+   * Turns per-template insights on for the whole WABA.
+   *
+   * One-way and irreversible, which is why the caller confirms it first. Meta
+   * answers the WABA node itself rather than a sub-edge, so the switch travels
+   * in the body.
+   */
+  async enableTemplateInsights(input: {
+    version: string;
+    businessAccountId: string;
+    token: string;
+  }): Promise<void> {
+    await this.send(
+      this.urlOf(input.version, [input.businessAccountId]),
+      {
+        method: "POST",
+        token: input.token,
+        body: { is_enabled_for_insights: true },
+      },
+    );
+  }
+
+  /**
    * Messaging volume on the WABA, bucketed by granularity.
    *
    * `productTypes` narrows the read to Meta's product classes (0 template,
@@ -578,6 +761,85 @@ export class MetaGraph {
     return url;
   }
 
+  /** The session URL names the file's length and type before any byte moves. */
+  private uploadSessionUrl(input: {
+    version: string;
+    appId: string;
+    bytes: Buffer;
+    mime: string;
+    fileName: string;
+  }): URL {
+    const url = new URL(
+      `${this.base}/${encodeURIComponent(input.version)}/${encodeURIComponent(input.appId)}/uploads`,
+    );
+
+    url.searchParams.set("file_name", input.fileName);
+    url.searchParams.set("file_length", String(input.bytes.length));
+    url.searchParams.set("file_type", input.mime);
+
+    return url;
+  }
+
+  /**
+   * The binary counterpart of `send`.
+   *
+   * Kept separate rather than folded into `send`: every existing call carries
+   * JSON, and the resumable upload is the only one that sends raw bytes and
+   * uses the `OAuth` scheme Meta documents for it.
+   */
+  private async sendBinary<T>(
+    url: URL,
+    init: {
+      method: "POST";
+      token: string;
+      body?: Uint8Array;
+      headers?: Record<string, string>;
+    },
+  ): Promise<T> {
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      authorization: `OAuth ${init.token}`,
+      ...(init.headers ?? {}),
+    };
+
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        method: init.method,
+        headers,
+        body: init.body,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
+    } catch (error) {
+      const reason =
+        error instanceof Error && error.name === "TimeoutError"
+          ? `no answer within ${UPLOAD_TIMEOUT_MS / 1000}s`
+          : error instanceof Error
+            ? error.message
+            : "unknown network failure";
+
+      throw new MetaTransportError(reason);
+    }
+
+    const text = await response.text();
+    const payload = parseJson(text);
+
+    if (!response.ok) {
+      const body = (payload as { error?: MetaErrorBody } | null)?.error;
+      throw new MetaRequestError(
+        response.status,
+        body ?? { message: text.slice(0, 200) || response.statusText },
+      );
+    }
+
+    if (!payload) {
+      throw new MetaTransportError("Meta returned a body that is not JSON");
+    }
+
+    return payload as T;
+  }
+
   private async send<T>(
     url: URL,
     init: {
@@ -664,4 +926,83 @@ function secondsOf(value: unknown): number | null {
   const parsed = numberOf(value);
 
   return parsed === null ? null : Math.round(parsed);
+}
+
+/**
+ * A count that may arrive as a number or as a list of per-button rows.
+ * `clicked` is documented as a total but observed as rows of `{count}` on
+ * some versions, so both read as the same number.
+ */
+function countOf(value: unknown): number | null {
+  const direct = numberOf(value);
+
+  if (direct !== null) return direct;
+
+  if (!Array.isArray(value)) return null;
+
+  return value.reduce<number>((total, entry) => {
+    if (!isRecord(entry)) return total;
+
+    return total + (numberOf(entry.count) ?? numberOf(entry.value) ?? 0);
+  }, 0);
+}
+
+/**
+ * The three cost figures Meta can return for one day.
+ *
+ * `cost` is a list of `{ type, amount }` — `amount_spent`, `cost_per_delivered`
+ * and `cost_per_url_button_click` — rather than a bare number, so each is
+ * matched by name. A bare number is read as the spend itself.
+ */
+function costOf(value: unknown): {
+  spent: number | null;
+  perDelivered: number | null;
+  perClicked: number | null;
+} {
+  const empty: {
+    spent: number | null;
+    perDelivered: number | null;
+    perClicked: number | null;
+  } = { spent: null, perDelivered: null, perClicked: null };
+
+  if (value === undefined || value === null) return empty;
+
+  const bare = numberOf(value);
+
+  if (bare !== null) return { ...empty, spent: bare };
+
+  if (!Array.isArray(value)) {
+    if (!isRecord(value)) return empty;
+
+    return sortCost("", numberOf(value.amount), empty);
+  }
+
+  let result = empty;
+
+  for (const entry of value) {
+    if (!isRecord(entry)) continue;
+
+    result = sortCost(
+      textOf(entry.type) ?? "",
+      numberOf(entry.amount) ?? numberOf(entry.value),
+      result,
+    );
+  }
+
+  return result;
+}
+
+function sortCost(
+  type: string,
+  amount: number | null,
+  into: { spent: number | null; perDelivered: number | null; perClicked: number | null },
+) {
+  if (amount === null) return into;
+
+  const name = type.toLowerCase();
+
+  if (name.includes("deliver")) return { ...into, perDelivered: amount };
+  if (name.includes("click")) return { ...into, perClicked: amount };
+
+  return { ...into, spent: amount };
 }

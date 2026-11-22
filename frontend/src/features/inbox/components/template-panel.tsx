@@ -4,6 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { LayoutTemplate, Loader2, SendHorizontal } from "lucide-react";
 
+import { TemplateImage } from "@/components/workspace/template-image";
+
 import {
   ApiError,
   fetchSendableTemplates,
@@ -223,6 +225,14 @@ export function TemplatePanel({
               <LayoutTemplate aria-hidden="true" className="size-3" />
               Preview
             </p>
+            {shape.headerKind === "IMAGE" ? (
+              <TemplateImage
+                alt={`Sample image for ${selected.name}`}
+                className="mt-1.5 aspect-[1.91/1] w-full rounded-md"
+                hasMedia={selected.hasMedia}
+                templateId={selected.id}
+              />
+            ) : null}
             <p className="mt-1 line-clamp-5 text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground">
               {readable(shape, values)}
             </p>

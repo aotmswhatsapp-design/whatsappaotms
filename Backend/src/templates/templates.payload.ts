@@ -14,6 +14,7 @@
 
 export type TemplateCategoryName = "AUTHENTICATION" | "MARKETING" | "UTILITY";
 export type ParameterFormatName = "NAMED" | "POSITIONAL";
+export type HeaderFormatName = "TEXT" | "IMAGE";
 export type TemplateButtonType =
   | "QUICK_REPLY"
   | "URL"
@@ -39,7 +40,20 @@ export interface TemplateDraft {
   category: TemplateCategoryName;
   language: string;
   parameterFormat: ParameterFormatName;
+  /** Absent means a text header, so an older client keeps working unchanged. */
+  headerFormat?: HeaderFormatName;
   header?: string | null;
+  /**
+   * Our own copy of the sample, `templates/{workspaceId}/…`. The client names
+   * it; the service turns it into `headerHandle` just before submission.
+   */
+  mediaPath?: string | null;
+  /**
+   * The `4::…` handle the Resumable Upload API minted for the sample image.
+   * Required when `headerFormat` is IMAGE, because Meta will not accept a
+   * media header without one. Never accepted from a client.
+   */
+  headerHandle?: string | null;
   body: string;
   footer?: string | null;
   buttons?: TemplateButtonInput[];
@@ -92,6 +106,7 @@ export function problemsIn(draft: TemplateDraft): string[] {
   const footer = draft.footer?.trim() ?? "";
   const buttons = draft.buttons ?? [];
   const examples = draft.examples ?? {};
+  const image = draft.headerFormat === "IMAGE";
 
   if (!NAME.test(name) || name.length > TEMPLATE_LIMITS.nameMax) {
     problems.push(
@@ -107,7 +122,14 @@ export function problemsIn(draft: TemplateDraft): string[] {
     );
   }
 
-  if (header.length > TEMPLATE_LIMITS.headerMax) {
+  if (image) {
+    // An image header has no text at all, so the length rule below does not
+    // apply to it — but Meta will refuse the template without a sample. The
+    // client names the stored copy; the service mints the handle it needs.
+    if (!draft.mediaPath?.trim() && !draft.headerHandle?.trim()) {
+      problems.push("Upload the image this template's header will show.");
+    }
+  } else if (header.length > TEMPLATE_LIMITS.headerMax) {
     problems.push(
       `The header is ${header.length} characters; Meta allows ${TEMPLATE_LIMITS.headerMax}.`,
     );
@@ -119,7 +141,7 @@ export function problemsIn(draft: TemplateDraft): string[] {
     );
   }
 
-  const headerVariables = variablesIn(header);
+  const headerVariables = image ? [] : variablesIn(header);
 
   if (headerVariables.length > 1) {
     problems.push("A text header supports one variable. Move the rest into the body.");
@@ -247,8 +269,17 @@ export function buildComponents(draft: TemplateDraft): unknown[] {
   const buttons = draft.buttons ?? [];
   const examples = draft.examples ?? {};
   const named = draft.parameterFormat === "NAMED";
+  const image = draft.headerFormat === "IMAGE";
 
-  if (header) {
+  if (image) {
+    // Meta's own shape for a sample: one handle in an array. It is not a URL —
+    // it is the reference the Resumable Upload API returned.
+    components.push({
+      type: "HEADER",
+      format: "IMAGE",
+      example: { header_handle: [draft.headerHandle?.trim()] },
+    });
+  } else if (header) {
     const variables = variablesIn(header);
 
     components.push({

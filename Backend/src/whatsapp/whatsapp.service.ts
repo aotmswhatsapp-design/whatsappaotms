@@ -27,6 +27,7 @@ import {
 export type CheckKey =
   | "accessToken"
   | "phoneNumberId"
+  | "appId"
   | "appSecret"
   | "graphVersion"
   | "businessAccountId"
@@ -63,6 +64,11 @@ export interface PublicAccount {
   phoneNumberId: string;
   businessAccountId: string;
   graphVersion: string;
+  /**
+   * The Meta app that issued the token. Shown in full: it is not a secret, and
+   * it is the one value a customer has to correct when image uploads fail.
+   */
+  appId: string | null;
   displayPhoneNumber: string | null;
   verifiedName: string | null;
   qualityRating: string | null;
@@ -168,10 +174,11 @@ export interface QrCodeListPayload {
  */
 const QR_LIMIT = 2_000;
 
-/** The five inputs, in the order the form asks for them. */
+/** The inputs, in the order the form asks for them. */
 const FORM_ORDER: CheckKey[] = [
   "accessToken",
   "phoneNumberId",
+  "appId",
   "appSecret",
   "graphVersion",
   "businessAccountId",
@@ -183,6 +190,7 @@ const CHECK_ORDER: CheckKey[] = [...FORM_ORDER, "verifyToken"];
 const LABELS: Record<CheckKey, string> = {
   accessToken: "Access token",
   phoneNumberId: "Phone number ID",
+  appId: "App ID",
   appSecret: "App secret",
   graphVersion: "Graph version",
   businessAccountId: "Whatsapp Account ID",
@@ -201,6 +209,7 @@ const ACCOUNT_SELECT = {
   phoneNumberId: true,
   businessAccountId: true,
   graphVersion: true,
+  appId: true,
   displayPhoneNumber: true,
   verifiedName: true,
   qualityRating: true,
@@ -311,6 +320,17 @@ export class WhatsAppService {
     // Neither of these can be confirmed by Graph: the app secret is only proven
     // by a signature we have not received yet, and the verify token is ours.
     // They are reported as accepted-for-format rather than faked as verified.
+    //
+    // The app id is reported the same way, and for a related reason: the token
+    // proves which app issued it only when an upload is attempted, so a wrong
+    // id would pass every Graph read here and fail at the first image. Leaving
+    // it blank is allowed — a text-only template never names the app.
+    checks.set(
+      "appId",
+      input.appId
+        ? ok("Accepted — image uploads are addressed by this app.")
+        : ok("Not given. Text templates work; an image header needs it."),
+    );
     checks.set(
       "appSecret",
       ok("Format accepted — the first signed delivery is the real proof."),
@@ -413,7 +433,7 @@ export class WhatsAppService {
     // working webhook into a 403 until they visit Meta again.
     const previous = await this.prisma.whatsAppAccount.findUnique({
       where: { workspaceId },
-      select: { phoneNumberId: true, verifyTokenCipher: true },
+      select: { phoneNumberId: true, verifyTokenCipher: true, appId: true },
     });
 
     const verifyToken =
@@ -426,6 +446,9 @@ export class WhatsAppService {
       phoneNumberId: phoneId,
       businessAccountId: businessId,
       graphVersion: version,
+      // Leaving the field blank keeps the app id the row already had: an edit
+      // that only rotates the token must not quietly break image uploads.
+      appId: input.appId ?? previous?.appId ?? null,
       displayPhoneNumber: phone.display_phone_number ?? null,
       verifiedName: phone.verified_name ?? null,
       qualityRating: phone.quality_rating ?? null,
@@ -819,6 +842,7 @@ export class WhatsAppService {
       phoneNumberId: row.phoneNumberId,
       businessAccountId: row.businessAccountId,
       graphVersion: row.graphVersion,
+      appId: row.appId,
       displayPhoneNumber: row.displayPhoneNumber,
       verifiedName: row.verifiedName,
       qualityRating: row.qualityRating,

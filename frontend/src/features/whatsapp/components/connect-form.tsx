@@ -42,6 +42,13 @@ const FIELDS: {
     inputMode: "numeric",
   },
   {
+    name: "appId",
+    label: "Meta App ID",
+    placeholder: "1207473174896357",
+    hint: "App settings → Basic → App ID. Image headers are uploaded under this app, so it must be the app the token came from. Text-only templates work without it.",
+    inputMode: "numeric",
+  },
+  {
     name: "appSecret",
     label: "App secret",
     placeholder: "32 characters from App settings → Basic",
@@ -65,6 +72,7 @@ const FIELDS: {
 const INITIAL: Values = {
   accessToken: "",
   phoneNumberId: "",
+  appId: "",
   appSecret: "",
   graphVersion: "v23.0",
   businessAccountId: "",
@@ -72,7 +80,7 @@ const INITIAL: Values = {
 
 /**
  * Client rules mirror the server DTO so a typo is answered instantly instead
- * of as a 400. The server stays authoritative: it re-checks all five.
+ * of as a 400. The server stays authoritative: it re-checks every field.
  */
 const RULES: Record<FieldKey, (value: string) => string | null> = {
   accessToken: (value) =>
@@ -81,6 +89,11 @@ const RULES: Record<FieldKey, (value: string) => string | null> = {
     /^\d{5,25}$/.test(value)
       ? null
       : "Digits only. This is the ID, not the display phone number.",
+  // Optional: blank is a valid answer, and only image headers need it.
+  appId: (value) =>
+    value.length === 0 || /^\d{6,25}$/.test(value)
+      ? null
+      : "Digits only, from App settings → Basic.",
   appSecret: (value) =>
     /^[A-Za-z0-9_-]{16,128}$/.test(value)
       ? null
@@ -211,7 +224,7 @@ export function ConnectForm({
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-[12.5px] font-medium text-muted-foreground">
-          {filled}/5 filled
+          {filled}/{FIELDS.length} filled
         </span>
       </div>
 

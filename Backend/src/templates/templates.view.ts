@@ -10,6 +10,11 @@ export interface TemplateFacts {
   qualityScore: string | null;
   rejectedReason: string | null;
   components: unknown;
+  /**
+   * True when we hold a sample for this row's IMAGE header. The card uses it
+   * to decide whether asking for a signed URL is worth a request at all.
+   */
+  hasMedia: boolean;
   createdAt: string;
   updatedAt: string;
 }

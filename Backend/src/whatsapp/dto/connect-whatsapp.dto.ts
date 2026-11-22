@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
 
 /**
  * Pasted credentials routinely arrive with a trailing newline or a stray
@@ -7,6 +7,15 @@ import { IsString, Matches, MaxLength, MinLength } from "class-validator";
  */
 const trimmed = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
+
+/** An empty optional field is absent, not invalid. */
+const optionalTrimmed = ({ value }: { value: unknown }) => {
+  if (typeof value !== "string") return value;
+
+  const clean = value.trim();
+
+  return clean.length > 0 ? clean : undefined;
+};
 
 /**
  * The five values a customer copies out of Meta. The verify token is not here
@@ -44,6 +53,21 @@ export class ConnectWhatsAppDto {
   @IsString()
   @Matches(/^v\d{1,2}\.\d$/, { message: "Graph version looks like v23.0." })
   graphVersion!: string;
+
+  /**
+   * App settings → Basic → App ID.
+   *
+   * Not a secret and not a duplicate of the token: Meta's Resumable Upload API
+   * is addressed by app id and rejects a token minted by a different app, so
+   * the number's own app has to be named. Optional because a connection that
+   * never sends an image header works without it — the templates screen says
+   * so in one sentence when it is missing.
+   */
+  @IsOptional()
+  @Transform(optionalTrimmed)
+  @IsString()
+  @Matches(/^\d{6,25}$/, { message: "App ID is numeric, e.g. 1207..." })
+  appId?: string;
 
   /** WhatsApp Business Account (WABA) id, not the Business Manager id. */
   @Transform(trimmed)

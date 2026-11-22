@@ -1,4 +1,6 @@
-import type { TemplateButton } from "../api";
+import { ImageIcon } from "lucide-react";
+
+import type { HeaderFormat, TemplateButton } from "../api";
 import { fillVariables } from "../format";
 
 /**
@@ -11,12 +13,17 @@ import { fillVariables } from "../format";
  */
 export function TemplatePreview({
   header,
+  headerFormat,
+  imageUrl,
   body,
   footer,
   buttons,
   examples,
 }: {
   header: string;
+  headerFormat: HeaderFormat;
+  /** The sample just uploaded, or null while the header is still empty. */
+  imageUrl: string | null;
   body: string;
   footer: string;
   buttons: TemplateButton[];
@@ -26,7 +33,13 @@ export function TemplatePreview({
   // move behind "See all options".
   const collapsed = buttons.length > 3;
   const shown = collapsed ? buttons.slice(0, 2) : buttons;
-  const empty = !header.trim() && !body.trim() && !footer.trim() && buttons.length === 0;
+  const image = headerFormat === "IMAGE";
+  const empty =
+    !header.trim() &&
+    !image &&
+    !body.trim() &&
+    !footer.trim() &&
+    buttons.length === 0;
 
   return (
     <div>
@@ -66,7 +79,20 @@ export function TemplatePreview({
             </p>
           ) : (
             <div className="ml-auto max-w-[92%] rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
-              {header.trim() ? (
+              {image ? (
+                imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt="The template's header image"
+                    className="mb-1 aspect-[1.91/1] w-full rounded-md object-cover"
+                    src={imageUrl}
+                  />
+                ) : (
+                  <div className="mb-1 grid aspect-[1.91/1] place-items-center rounded-md bg-[#d1d7db]">
+                    <ImageIcon aria-hidden="true" className="size-5 text-[#5b6b73]" />
+                  </div>
+                )
+              ) : header.trim() ? (
                 <p className="text-[13.5px] leading-snug font-semibold whitespace-pre-wrap text-[#111b21]">
                   {fillVariables(header.trim(), examples)}
                 </p>
@@ -75,7 +101,7 @@ export function TemplatePreview({
               {body.trim() ? (
                 <p
                   className={
-                    header.trim()
+                    header.trim() || image
                       ? "mt-1 text-[13.5px] leading-[1.45] whitespace-pre-wrap text-[#111b21]"
                       : "text-[13.5px] leading-[1.45] whitespace-pre-wrap text-[#111b21]"
                   }
