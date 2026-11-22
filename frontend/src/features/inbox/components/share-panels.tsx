@@ -63,7 +63,7 @@ function PanelHeader({
       {children}
       <button
         type="button"
-        aria-label={`Close the ${title.toLowerCase()} panel`}
+        aria-label="Close this panel"
         className={ICON_BUTTON}
         onClick={onClose}
       >
