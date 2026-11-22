@@ -62,6 +62,7 @@ export function CampaignsView() {
   const toast = useToast();
   const [campaigns, setCampaigns] = React.useState<Campaign[] | null>(null);
   const [options, setOptions] = React.useState<CampaignOptions | null>(null);
+  const [optionsFailed, setOptionsFailed] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<Filter>("ALL");
@@ -73,10 +74,14 @@ export function CampaignsView() {
 
     fetchCampaignOptions()
       .then((next) => {
-        if (active) setOptions(next);
+        if (!active) return;
+        setOptions(next);
+        setOptionsFailed(false);
       })
       .catch(() => {
-        if (active) setOptions(null);
+        if (!active) return;
+        setOptions(null);
+        setOptionsFailed(true);
       });
 
     return () => {
@@ -123,7 +128,9 @@ export function CampaignsView() {
       : options.templates.length === 0
         ? "No approved template yet — submit one and wait for Meta's review."
         : null
-    : "Reading the templates and contacts this can send to…";
+    : optionsFailed
+      ? "The templates and contacts could not be read, so New campaign stays closed until a retry succeeds."
+      : "Reading the templates and contacts this can send to…";
 
   return (
     <div className="space-y-5">

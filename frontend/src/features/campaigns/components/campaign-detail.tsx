@@ -602,7 +602,7 @@ export function CampaignDetail({ id }: { id: string }) {
               {recipientLabel(recipient)}
             </span>,
             <span
-              className="block max-w-56 text-[12px] leading-relaxed text-muted-foreground"
+              className="line-clamp-2 max-w-56 text-[12px] leading-relaxed text-muted-foreground sm:line-clamp-none"
               key="reason"
               title={recipient.errorReason ?? undefined}
             >
