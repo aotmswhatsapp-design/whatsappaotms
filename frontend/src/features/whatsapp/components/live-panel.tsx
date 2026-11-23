@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 import { ApiError, disconnectWhatsApp, type WhatsAppAccount } from "./api";
+import { expiryDays, expiryState } from "./token-expiry";
 import { WebhookFields } from "./webhook-fields";
 import { when } from "./when";
 
@@ -21,6 +22,7 @@ export function LivePanel({
   callbackUrl,
   checking,
   onRecheck,
+  onReconnect,
   onDisconnected,
 }: {
   account: WhatsAppAccount;
@@ -28,11 +30,17 @@ export function LivePanel({
   callbackUrl: string | null;
   checking: boolean;
   onRecheck: () => void;
+  /** Runs Meta's dialog again, because an expired token cannot be refreshed. */
+  onReconnect: () => void;
   onDisconnected: () => void;
 }) {
   const toast = useToast();
   const [confirming, setConfirming] = React.useState(false);
   const [pending, setPending] = React.useState(false);
+
+  const embedded = account.source === "EMBEDDED_SIGNUP";
+  const state = expiryState(account.tokenExpiresAt);
+  const days = expiryDays(account.tokenExpiresAt);
 
   const rows: [string, string][] = [
     ["Phone number", account.displayPhoneNumber ?? `ID ${account.phoneNumberId}`],
@@ -42,10 +50,25 @@ export function LivePanel({
     ["App ID", account.appId ?? "not stored — reconnect to add it"],
     ["Graph version", account.graphVersion],
     ["Access token", account.accessTokenHint],
-    ["App secret", account.appSecretHint ?? "not stored — reconnect"],
-    ["Handshake", when(account.webhook.verifiedAt)],
+    [
+      "App secret",
+      embedded
+        ? "Held by the platform app"
+        : (account.appSecretHint ?? "not stored — reconnect"),
+    ],
+    // Both are proof Meta will call us, but one was pasted in and the other was
+    // subscribed by the API, so the label says which happened.
+    [embedded ? "Meta subscription" : "Handshake", when(account.webhook.verifiedAt)],
     ["Last delivery", when(account.webhook.lastEventAt)],
     ["Deliveries", String(account.webhook.eventCount)],
+    [
+      "Token expires",
+      days === null
+        ? "Never expires"
+        : state === "expired"
+          ? "Expired — reconnect"
+          : `in ${days} ${days === 1 ? "day" : "days"}`,
+    ],
   ];
 
   async function disconnect() {
@@ -100,8 +123,26 @@ export function LivePanel({
         ))}
       </dl>
 
+      {state === "soon" || state === "expired" ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[13px] leading-relaxed">
+          <p className="font-medium text-foreground">
+            {state === "expired"
+              ? "The access token has expired. Sending is paused until you reconnect."
+              : `The access token expires in ${days} ${days === 1 ? "day" : "days"}.`}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            Meta tokens cannot be refreshed silently — reconnect through Meta to
+            issue a new one. The number and its history stay as they are.
+          </p>
+          <Button className="mt-3" onClick={onReconnect} size="sm">
+            Reconnect
+          </Button>
+        </div>
+      ) : null}
+
       <WebhookFields
         callbackUrl={callbackUrl ?? account.webhook.callbackUrl}
+        platform={embedded}
         verifyToken={account.webhook.verifyToken}
       />
 

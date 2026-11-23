@@ -14,9 +14,16 @@ import { CopyField } from "./copy-field";
 export function WebhookFields({
   callbackUrl,
   verifyToken,
+  platform = false,
 }: {
   callbackUrl: string | null;
   verifyToken: string | null;
+  /**
+   * A one-click connection lives under the server's platform Meta app, whose
+   * callback URL is verified once for the whole deployment — so there is no
+   * per-workspace token for the customer to paste.
+   */
+  platform?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -26,11 +33,18 @@ export function WebhookFields({
         value={callbackUrl}
       />
 
-      <CopyField
-        hint="Generated for this workspace. Meta echoes it back when it verifies the URL."
-        label="Verify token"
-        value={verifyToken}
-      />
+      {platform ? (
+        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+          Meta verified this app&apos;s callback URL once; the token lives in the
+          server&apos;s environment. Nothing to paste here.
+        </p>
+      ) : (
+        <CopyField
+          hint="Generated for this workspace. Meta echoes it back when it verifies the URL."
+          label="Verify token"
+          value={verifyToken}
+        />
+      )}
     </div>
   );
 }

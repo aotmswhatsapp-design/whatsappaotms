@@ -12,6 +12,13 @@
 
 const SDK_SRC = "https://connect.facebook.net/en_US/sdk.js";
 const SDK_TIMEOUT_MS = 15_000;
+/**
+ * How long to wait for the `FINISH` post-message after the login callback has
+ * already handed us the code. v4 sends the ids in their own message and it can
+ * trail the callback by a moment; failing instantly would reject a setup that
+ * actually finished.
+ */
+const IDS_GRACE_MS = 3_000;
 
 interface FbAuthResponse {
   code?: string;
@@ -123,13 +130,33 @@ export function runEmbeddedSignup(input: {
 
   return new Promise<SignupResult>((resolve) => {
     let settled = false;
+    /** The code, once the login callback has produced it. */
+    let pendingCode: string | null = null;
+    /** Armed when the code arrives before the ids; see IDS_GRACE_MS. */
+    let idsTimer: number | null = null;
     const chosen: { wabaId?: string; phoneNumberId?: string } = {};
 
     const settle = (result: SignupResult) => {
       if (settled) return;
       settled = true;
+      if (idsTimer !== null) {
+        window.clearTimeout(idsTimer);
+        idsTimer = null;
+      }
       window.removeEventListener("message", onMessage);
       resolve(result);
+    };
+
+    /** Resolves once both halves exist, whichever order Meta sends them in. */
+    const settleIfComplete = () => {
+      if (!pendingCode || !chosen.wabaId || !chosen.phoneNumberId) return;
+
+      settle({
+        ok: true,
+        code: pendingCode,
+        wabaId: chosen.wabaId,
+        phoneNumberId: chosen.phoneNumberId,
+      });
     };
 
     const onMessage = (event: MessageEvent) => {
@@ -152,6 +179,7 @@ export function runEmbeddedSignup(input: {
           ok: false,
           message: "The Meta window was closed before setup finished.",
         });
+        return;
       }
 
       if (payload.event === "ERROR") {
@@ -162,7 +190,14 @@ export function runEmbeddedSignup(input: {
               ? data.error_message
               : "Meta reported an error during setup.",
         });
+        return;
       }
+
+      // `FINISH` and `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` are the v4 names
+      // for "the customer picked a number"; older builds carried the ids on
+      // events that no longer exist, which is why this does not switch on the
+      // event name at all.
+      settleIfComplete();
     };
 
     window.addEventListener("message", onMessage);
@@ -202,11 +237,16 @@ export function runEmbeddedSignup(input: {
         }
 
         if (!chosen.wabaId || !chosen.phoneNumberId) {
-          settle({
-            ok: false,
-            message:
-              "Meta did not report which business and number you chose. Run the setup again and finish every step.",
-          });
+          // The ids may still be in flight; give the FINISH message a moment
+          // before calling the setup incomplete.
+          pendingCode = code;
+          idsTimer = window.setTimeout(() => {
+            settle({
+              ok: false,
+              message:
+                "Meta did not report which business and number you chose. Run the setup again and finish every step.",
+            });
+          }, IDS_GRACE_MS);
           return;
         }
 
@@ -221,9 +261,9 @@ export function runEmbeddedSignup(input: {
         config_id: input.configId,
         response_type: "code",
         override_default_response_type: true,
-        // The builder in Meta's dashboard prints these values; `featureType`
-        // has to match the feature the login configuration was created with.
-        extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
+        // v4 only. `featureType` and `sessionInfoVersion` belonged to the v2
+        // launch shape, which Meta retired on 15 October 2026.
+        extras: { setup: {} },
       },
     );
   });

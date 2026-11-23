@@ -37,8 +37,10 @@ export interface WhatsAppAccount {
   qualityRating: string | null;
   businessName: string | null;
   status: string;
-  /** Every row is `MANUAL` now; the field stays because stored rows keep it. */
-  source: string;
+  /** `MANUAL` rows were typed in; `EMBEDDED_SIGNUP` rows came from Meta's dialog. */
+  source: "MANUAL" | "EMBEDDED_SIGNUP";
+  /** When the business token lapses. Null means never-expiring or unknown. */
+  tokenExpiresAt: string | null;
   lastVerifiedAt: string | null;
   lastCheckAt: string | null;
   failureReason: string | null;
@@ -209,5 +211,42 @@ export function deleteQrCode(code: string): Promise<{ removed: boolean }> {
   return request<{ removed: boolean }>(
     `/v1/whatsapp/qr-codes/${encodeURIComponent(code)}`,
     { method: "DELETE" },
+  );
+}
+
+/**
+ * Whether this server can run Meta's one-click dialog. `enabled` is false when
+ * the operator has not installed a platform Meta app yet, and the page then
+ * leads with the credentials form instead.
+ */
+export interface SignupConfig {
+  enabled: boolean;
+  appId: string | null;
+  configId: string | null;
+  graphVersion: string;
+}
+
+export function fetchSignupConfig(): Promise<SignupConfig> {
+  return request<SignupConfig>("/v1/whatsapp/signup-config", { method: "GET" });
+}
+
+/** What Meta's dialog handed the browser: no token, no secret. */
+export interface EmbeddedSignupInput {
+  code: string;
+  wabaId: string;
+  phoneNumberId: string;
+}
+
+/**
+ * The server trades the code, proves the number belongs to the authorised
+ * account, subscribes the app and records the token's expiry. A refusal throws
+ * `ApiError` with one sentence; there is no per-field breakdown to render.
+ */
+export function connectEmbeddedSignup(
+  input: EmbeddedSignupInput,
+): Promise<{ account: WhatsAppAccount; summary: string }> {
+  return request<{ account: WhatsAppAccount; summary: string }>(
+    "/v1/whatsapp/embedded-signup",
+    { method: "POST", body: JSON.stringify(input) },
   );
 }

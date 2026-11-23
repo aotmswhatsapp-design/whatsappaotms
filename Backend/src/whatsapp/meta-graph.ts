@@ -92,6 +92,31 @@ export interface BusinessDetails {
 }
 
 /**
+ * `GET /oauth/access_token` with a signup code. `expires_in` is present only
+ * when the exchanged token itself expires; the authoritative lifetime is read
+ * back with `debugToken` instead of trusting this field.
+ */
+export interface TokenExchangeResult {
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+}
+
+/** `GET /{waba-id}/phone_numbers?fields=id`. */
+export interface PhoneNumberList {
+  data?: { id?: string }[];
+}
+
+/**
+ * `GET /debug_token`. `expires_at` is epoch seconds and 0 means "never"; a
+ * missing field is reported as null so the caller can refuse to store a
+ * connection whose lifetime is unknown.
+ */
+export interface TokenDebugResult {
+  data?: { is_valid?: boolean; expires_at?: number };
+}
+
+/**
  * The profile a customer sees when they open the chat. These fields live on
  * the phone number's `whatsapp_business_profile` edge, not on the phone node:
  * `verified_name` is NOT in this payload, which is why the service merges the
@@ -842,6 +867,84 @@ export class MetaGraph {
       currency:
         textOf(payload.currency) ??
         (isRecord(root) ? textOf(root.currency) : null),
+    };
+  }
+
+  /**
+   * Embedded Signup, step one. The dialog hands the browser a one-shot code;
+   * only a server holding the app secret can trade it. GET with credentials in
+   * the query string is the only shape Meta accepts here.
+   */
+  async exchangeCode(input: {
+    version: string;
+    clientId: string;
+    clientSecret: string;
+    code: string;
+  }): Promise<string> {
+    const url = this.urlOf(input.version, ["oauth", "access_token"]);
+    url.searchParams.set("client_id", input.clientId);
+    url.searchParams.set("client_secret", input.clientSecret);
+    url.searchParams.set("code", input.code);
+
+    const payload = await this.send<TokenExchangeResult>(url, { method: "GET" });
+
+    if (!payload.access_token) {
+      throw new MetaShapeError(
+        "Meta accepted the signup code but returned no access token.",
+      );
+    }
+
+    return payload.access_token;
+  }
+
+  /**
+   * The numbers the WABA actually owns. The dialog tells the browser which one
+   * was picked; this list is the server's proof that the account really
+   * contains it, so one tenant cannot claim another's number.
+   */
+  async listBusinessPhoneNumberIds(input: {
+    version: string;
+    businessAccountId: string;
+    token: string;
+  }): Promise<string[]> {
+    const url = this.urlOf(input.version, [
+      input.businessAccountId,
+      "phone_numbers",
+    ]);
+    url.searchParams.set("fields", "id");
+
+    const payload = await this.send<PhoneNumberList>(url, {
+      method: "GET",
+      token: input.token,
+    });
+    const rows = Array.isArray(payload.data) ? payload.data : [];
+
+    return rows
+      .map((row) => row?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+  }
+
+  /**
+   * What the token actually is. `expires_at` is epoch seconds and 0 means
+   * never; a missing value is returned as null so the caller can refuse to
+   * store a connection whose lifetime is unknown.
+   */
+  async debugToken(input: {
+    version: string;
+    appId: string;
+    appSecret: string;
+    token: string;
+  }): Promise<{ isValid: boolean; expiresAt: number | null }> {
+    const url = this.urlOf(input.version, ["debug_token"]);
+    url.searchParams.set("input_token", input.token);
+    url.searchParams.set("access_token", `${input.appId}|${input.appSecret}`);
+
+    const payload = await this.send<TokenDebugResult>(url, { method: "GET" });
+    const data = payload.data ?? {};
+
+    return {
+      isValid: data.is_valid === true,
+      expiresAt: typeof data.expires_at === "number" ? data.expires_at : null,
     };
   }
 

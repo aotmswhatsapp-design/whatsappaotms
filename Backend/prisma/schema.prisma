@@ -192,6 +192,10 @@ model WhatsAppAccount {
   /// is one-way and per WABA, so this records a promise rather than a setting
   /// we can toggle back.
   insightsEnabledAt  DateTime?      @map("insights_enabled_at")
+  /// When the stored business token lapses, as Meta reported at connect time.
+  /// Null means "Meta said it never expires" or "not yet known" — the UI says
+  /// nothing rather than guessing, matching how `currency` behaves.
+  tokenExpiresAt     DateTime?      @map("token_expires_at")
   failureReason      String?        @map("failure_reason")
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")

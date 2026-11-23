@@ -16,6 +16,8 @@ export interface ConnectionNumber {
   quality: string | null;
   /** Meta's webhook handshake landed, so deliveries are being accepted. */
   receiving: boolean;
+  /** When the business token lapses. Null means never-expiring or unknown. */
+  tokenExpiresAt: string | null;
 }
 
 export interface ConnectionStatus {

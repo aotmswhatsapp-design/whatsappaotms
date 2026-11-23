@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 import { SecretBox } from "../common/crypto/secret-box";
 import { parseDelivery } from "../inbox/inbox.payload";
@@ -37,6 +38,7 @@ export class WhatsAppWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly box: SecretBox,
+    private readonly config: ConfigService,
     private readonly store: InboxStore,
   ) {}
 
@@ -66,6 +68,13 @@ export class WhatsAppWebhookService {
     if (!input.token || !input.challenge) {
       await this.trace({ ...seen, matchedAccountId: null });
       return { ok: false, reason: "malformed" };
+    }
+
+    const platformToken = this.config.get<string>("WHATSAPP_WEBHOOK_VERIFY_TOKEN");
+
+    if (platformToken && equals(platformToken, input.token)) {
+      this.logger.log("Webhook handshake accepted by the platform token.");
+      return { ok: true, challenge: input.challenge };
     }
 
     const candidates = await this.prisma.whatsAppAccount.findMany({
@@ -163,6 +172,16 @@ export class WhatsAppWebhookService {
       return;
     }
 
+    // A platform-app delivery is signed with our app secret and a customer-app
+    // one with theirs; either proves Meta sent the bytes. Computed once because
+    // a single delivery can carry numbers from several workspaces.
+    const platformSecret = this.config.get<string>("META_APP_SECRET") ?? null;
+
+    const platformSigned =
+      signature !== undefined &&
+      platformSecret !== null &&
+      signatureMatches(raw, platformSecret, signature);
+
     // Parsed once: a single delivery can carry changes for several numbers, and
     // each account below takes only its own.
     const changes = parseDelivery(payload);
@@ -177,14 +196,15 @@ export class WhatsAppWebhookService {
         signature !== undefined &&
         signatureMatches(raw, secret, signature);
 
-      if (!rowSigned) {
+      if (!rowSigned && !platformSigned) {
         // Only the app that owns the number can sign for it. A row stored
         // before app secrets were collected cannot verify at all, so it is
-        // skipped with a message that names the fix.
+        // skipped with a message that names the fix. One-click rows carry no
+        // per-row secret and rely on the platform signature above.
         this.logger.warn(
           secret
-            ? "Webhook delivery signature did not match the stored app secret; ignored."
-            : "Webhook delivery could not be verified: no app secret stored for this number. Reconnect it.",
+            ? "Webhook delivery signature matched neither the stored app secret nor the platform app secret; ignored."
+            : "Webhook delivery could not be verified: no app secret stored for this number and no platform signature matched. Reconnect it.",
         );
         continue;
       }

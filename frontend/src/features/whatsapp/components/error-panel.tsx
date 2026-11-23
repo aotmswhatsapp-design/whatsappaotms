@@ -20,16 +20,21 @@ export function ErrorPanel({
   checking,
   onRecheck,
   onEditCredentials,
+  onReconnect,
   onDisconnected,
 }: {
   account: WhatsAppAccount;
   checking: boolean;
   onRecheck: () => void;
   onEditCredentials: () => void;
+  /** Runs Meta's dialog again; platform tokens cannot be edited by hand. */
+  onReconnect: () => void;
   onDisconnected: () => void;
 }) {
   const toast = useToast();
   const [pending, setPending] = React.useState(false);
+
+  const embedded = account.source === "EMBEDDED_SIGNUP";
 
   async function disconnect() {
     setPending(true);
@@ -77,9 +82,9 @@ export function ErrorPanel({
       </p>
 
       <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-        This does not delete anything. If the token was revoked in Meta, generate
-        a new system-user token and paste it below; if the number changed, use
-        the new phone number ID too.
+        {embedded
+          ? "This does not delete anything. Meta issued this connection's token, so the way back is to reconnect through Meta — an expired token cannot be extended by hand."
+          : "This does not delete anything. If the token was revoked in Meta, generate a new system-user token and paste it below; if the number changed, use the new phone number ID too."}
       </p>
 
       <div className="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center">
@@ -91,14 +96,25 @@ export function ErrorPanel({
           )}
           Check again
         </Button>
-        <Button
-          className="w-full sm:w-auto"
-          onClick={onEditCredentials}
-          size="lg"
-          variant="outline"
-        >
-          Update credentials
-        </Button>
+        {embedded ? (
+          <Button
+            className="w-full sm:w-auto"
+            onClick={onReconnect}
+            size="lg"
+            variant="outline"
+          >
+            Reconnect
+          </Button>
+        ) : (
+          <Button
+            className="w-full sm:w-auto"
+            onClick={onEditCredentials}
+            size="lg"
+            variant="outline"
+          >
+            Update credentials
+          </Button>
+        )}
         <Button
           className="w-full sm:w-auto"
           disabled={pending}

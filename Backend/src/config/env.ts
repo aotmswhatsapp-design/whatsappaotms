@@ -93,6 +93,37 @@ export const envSchema = z.object({
     .regex(/^\d+$/, "META_APP_ID is a numeric app id")
     .optional()
     .or(z.literal("").transform(() => undefined)),
+  /**
+   * Embedded Signup's platform app secret. It signs the OAuth code exchange and
+   * every delivery from a connection created through the dialog. Optional, like
+   * META_APP_ID, so a manual-only deployment still boots.
+   */
+  META_APP_SECRET: z
+    .string()
+    .min(10)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  /** The "Facebook Login for Business" configuration that carries Embedded Signup. */
+  META_ES_CONFIG_ID: z
+    .string()
+    .regex(/^\d{6,}$/, "META_ES_CONFIG_ID is a numeric configuration id")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  /** Version the platform app calls: code exchange, subscribed_apps, debug_token. */
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d{1,2}\.\d$/, "META_GRAPH_VERSION looks like v23.0")
+    .default("v23.0"),
+  /**
+   * The token typed into the app's single Webhooks panel. With a platform app
+   * Meta verifies the callback URL once for the whole deployment, so there is
+   * no per-workspace token to match for signup rows.
+   */
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN: z
+    .string()
+    .min(8)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   CORS_ORIGINS: z.string().optional(),
   /**
    * Private Supabase Storage bucket for inbox attachments. Created on the

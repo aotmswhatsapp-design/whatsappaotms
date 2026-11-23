@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { ChevronDown } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Stepper } from "@/components/ui/stepper";
 import { useToast } from "@/components/ui/toast";
 import { notifyWhatsAppStatus } from "@/lib/api/whatsapp-status";
@@ -10,12 +17,15 @@ import {
   ApiError,
   checkConnection,
   fetchConnection,
+  fetchSignupConfig,
   type ConnectionPayload,
+  type SignupConfig,
   type Verdict,
   type WhatsAppAccount,
 } from "./api";
 import { CheckList } from "./check-list";
 import { ConnectForm } from "./connect-form";
+import { EmbeddedSignup } from "./embedded-signup";
 import { ErrorPanel } from "./error-panel";
 import { LivePanel } from "./live-panel";
 import { MetaRequirements } from "./meta-requirements";
@@ -44,7 +54,7 @@ const POLL_MS = 3_000;
 /** After the first two minutes: still watching, because a late save is common. */
 const SLOW_POLL_MS = 15_000;
 
-type View = "auto" | "details" | "waiting";
+type View = "auto" | "details" | "waiting" | "reconnect";
 
 function readError(error: unknown): string {
   return error instanceof ApiError
@@ -68,6 +78,13 @@ export function WhatsAppConnection() {
   const [view, setView] = React.useState<View>("auto");
   const [expired, setExpired] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
+  const [signup, setSignup] = React.useState<SignupConfig | null>(null);
+  const [signupResolved, setSignupResolved] = React.useState(false);
+  /**
+   * Code exchange upserts one row per workspace, so the primary card asks
+   * before it replaces a working connection.
+   */
+  const [replaceConfirmed, setReplaceConfirmed] = React.useState(false);
 
   const load = React.useCallback(async (): Promise<ConnectionPayload | null> => {
     try {
@@ -97,6 +114,20 @@ export function WhatsAppConnection() {
       })
       .finally(() => {
         if (active) setLoading(false);
+      });
+
+    // A missing or failing signup-config is not an error: it means this
+    // deployment has no platform Meta app, and the screen falls back to the
+    // credentials form exactly as it did before one-click existed.
+    fetchSignupConfig()
+      .then((next) => {
+        if (active) setSignup(next);
+      })
+      .catch(() => {
+        if (active) setSignup(null);
+      })
+      .finally(() => {
+        if (active) setSignupResolved(true);
       });
 
     return () => {
@@ -214,10 +245,25 @@ export function WhatsAppConnection() {
     notifyWhatsAppStatus();
   }
 
+  /**
+   * Embedded Signup subscribes our app before it answers, so there is no
+   * handshake left to wait for: Meta's subscription is the proof, and the
+   * screen goes straight to the live panel.
+   */
+  function handleEmbeddedConnected(next: WhatsAppAccount) {
+    setPayload({ account: next, stage: "live", callbackUrl });
+    setVerdict(null);
+    setView("auto");
+    setExpired(false);
+    setReplaceConfirmed(false);
+    notifyWhatsAppStatus();
+  }
+
   function handleDisconnected() {
     setPayload({ account: null, stage: "details", callbackUrl });
     setVerdict(null);
     setView("auto");
+    setReplaceConfirmed(false);
     notifyWhatsAppStatus();
   }
 
@@ -237,9 +283,6 @@ export function WhatsAppConnection() {
 
   const showingWaiting = account !== null && view === "waiting";
   const showingForm = view === "details" || (!account && stage === "details");
-
-  // The credentials form is the only door, and it is never hidden behind a
-  // disclosure.
 
   return (
     <div className="space-y-4">
@@ -275,6 +318,28 @@ export function WhatsAppConnection() {
             {loadError}
           </p>
         </section>
+      ) : view === "reconnect" && account ? (
+        <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
+          <EmbeddedSignup
+            config={
+              signup ?? {
+                enabled: false,
+                appId: null,
+                configId: null,
+                graphVersion: "v23.0",
+              }
+            }
+            onConnected={handleEmbeddedConnected}
+          />
+          <Button
+            className="mt-4"
+            onClick={() => setView("auto")}
+            size="sm"
+            variant="ghost"
+          >
+            Cancel
+          </Button>
+        </section>
       ) : stage === "error" && account && view !== "details" ? (
         <section className="rounded-xl border border-border bg-card p-5">
           <ErrorPanel
@@ -282,6 +347,7 @@ export function WhatsAppConnection() {
             checking={checking}
             onDisconnected={handleDisconnected}
             onEditCredentials={() => setView("details")}
+            onReconnect={() => setView("reconnect")}
             onRecheck={recheckAgainstMeta}
           />
         </section>
@@ -304,6 +370,7 @@ export function WhatsAppConnection() {
             callbackUrl={callbackUrl}
             checking={checking}
             onDisconnected={handleDisconnected}
+            onReconnect={() => setView("reconnect")}
             onRecheck={recheckAgainstMeta}
           />
         </section>
@@ -324,23 +391,73 @@ export function WhatsAppConnection() {
         <>
           <section className="rounded-xl border border-border bg-card p-4 sm:p-5">
             <h2 className="text-base font-semibold text-foreground">
-              Connect your WhatsApp Cloud API
+              Connect WhatsApp
             </h2>
             <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
-              Five values from the Meta app that owns this number. Each one is
-              checked against Graph before anything is stored, and the verify
-              token below is generated for this workspace.
+              Sign in to Meta and pick the WhatsApp Business account and number.
+              Meta verifies them and reports the result straight back here, so
+              there are no keys to copy.
             </p>
 
             <div className="mt-5">
-              <CredentialsPanel
-                existing={account !== null}
-                onConnected={handleConnected}
-                onVerdict={setVerdict}
-                verdict={verdict}
-              />
+              {account && !replaceConfirmed ? (
+                <div className="rounded-lg bg-secondary px-3 py-2.5 text-[13px] leading-relaxed">
+                  <p className="text-foreground">
+                    This workspace is already connected to{" "}
+                    {account.displayPhoneNumber ?? `ID ${account.phoneNumberId}`}.
+                    Connecting again replaces its access token and webhook proof.
+                    The number itself is untouched in Meta.
+                  </p>
+                  <Button
+                    className="mt-3"
+                    onClick={() => setReplaceConfirmed(true)}
+                    size="sm"
+                  >
+                    Replace this connection
+                  </Button>
+                </div>
+              ) : signup?.enabled && signup.appId && signup.configId ? (
+                <EmbeddedSignup
+                  config={signup}
+                  onConnected={handleEmbeddedConnected}
+                />
+              ) : (
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  {signupResolved
+                    ? "One-click setup is not configured on this server. Use the credentials form below."
+                    : "Checking whether one-click setup is available…"}
+                </p>
+              )}
             </div>
           </section>
+
+          <Collapsible className="rounded-xl border border-border bg-card">
+            <CollapsibleTrigger className="group flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left sm:px-5">
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">
+                  I already have my own Meta app
+                </span>
+                <span className="mt-0.5 block text-[12px] leading-relaxed text-muted-foreground">
+                  Enter the token, ids and app secret yourself. Each value is
+                  checked against Graph before anything is stored.
+                </span>
+              </span>
+              <ChevronDown
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="border-t border-border p-4 sm:p-5">
+                <CredentialsPanel
+                  existing={account !== null}
+                  onConnected={handleConnected}
+                  onVerdict={setVerdict}
+                  verdict={verdict}
+                />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           <MetaRequirements />
         </>
