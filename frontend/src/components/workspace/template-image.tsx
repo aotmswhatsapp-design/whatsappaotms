@@ -127,7 +127,10 @@ export function TemplateImage({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       alt={alt}
-      className={cn("w-full object-cover", className)}
+      // `contain`, not `cover`: a poster wider or taller than 1.91:1 must not
+      // lose its edges. The grey matches the placeholder above, so the
+      // letterboxed area reads as part of the frame rather than a gap.
+      className={cn("w-full bg-[#d1d7db] object-contain", className)}
       onError={() => {
         // An expired link is the likeliest cause, so retry once with a fresh
         // signature before giving up on the image.

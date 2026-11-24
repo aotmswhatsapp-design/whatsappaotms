@@ -483,10 +483,13 @@ export function TemplateBuilder() {
                 <div className="mt-3" key="header-image">
                   {sample ? (
                     <div className="overflow-hidden rounded-lg border border-border">
+                      {/* This tile exists to confirm the file you picked, so
+                          it shows the whole poster at its own ratio instead of
+                          cropping it into the shape a message bubble uses. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         alt="The header image for this template"
-                        className="aspect-[1.91/1] w-full bg-secondary object-cover"
+                        className="mx-auto block max-h-96 w-auto max-w-full bg-secondary object-contain"
                         src={sample.previewUrl}
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
