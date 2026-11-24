@@ -81,13 +81,14 @@ export function TemplatePreview({
             <div className="ml-auto max-w-[92%] rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
               {image ? (
                 imageUrl ? (
-                  /* The bubble keeps WhatsApp's 1.91:1 shape because that is
-                     what a recipient receives; the poster is letterboxed inside
-                     it rather than sliced at the top and bottom. */
+                  /* The bubble follows the poster's own shape, capped in
+                     height. A fixed 1.91:1 box cropped tall posters, and
+                     `contain` inside that box shrank them to a sliver — the
+                     image IS the header, so it gets the room. */
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     alt="The template's header image"
-                    className="mb-1 aspect-[1.91/1] w-full rounded-md bg-[#d1d7db] object-contain"
+                    className="mb-1 mx-auto block h-auto max-h-96 w-auto max-w-full rounded-md bg-[#d1d7db] object-contain"
                     src={imageUrl}
                   />
                 ) : (

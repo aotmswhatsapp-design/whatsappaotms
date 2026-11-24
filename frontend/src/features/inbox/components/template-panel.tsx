@@ -228,7 +228,7 @@ export function TemplatePanel({
             {shape.headerKind === "IMAGE" ? (
               <TemplateImage
                 alt={`Sample image for ${selected.name}`}
-                className="mt-1.5 aspect-[1.91/1] w-full rounded-md"
+                className="mt-1.5 mx-auto block h-auto max-h-64 w-auto max-w-full rounded-md"
                 hasMedia={selected.hasMedia}
                 templateId={selected.id}
               />

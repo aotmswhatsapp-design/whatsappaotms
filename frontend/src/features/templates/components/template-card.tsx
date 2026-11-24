@@ -92,7 +92,7 @@ export function TemplateCard({
               {imageHeader ? (
                 <TemplateImage
                   alt={`Sample image for ${row.name}`}
-                  className="mb-1.5 aspect-[1.91/1] w-full rounded-md"
+                  className="mb-1.5 mx-auto block h-auto max-h-56 w-auto max-w-full rounded-md"
                   hasMedia={row.hasMedia}
                   templateId={row.id}
                 />
