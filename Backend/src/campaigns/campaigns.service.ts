@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { AudienceSource, type Prisma } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { problemsIn, shapeOf } from "../inbox/template-send";
@@ -13,6 +13,12 @@ import { WorkspacesService } from "../workspaces/workspaces.service";
 import { bindingsOf, problemsInBindings } from "./campaign.values";
 import { Deliverer } from "./campaigns.delivery";
 import { CampaignsEngine } from "./campaigns.engine";
+import {
+  normaliseRecipients,
+  REPORT_SAMPLE,
+  type RecipientImportReport,
+  type RecipientInput,
+} from "./campaigns.recipients";
 import {
   buttonUrlsOf,
   CAMPAIGN_SELECT,
@@ -25,6 +31,7 @@ import {
   type CampaignView,
   type RecipientView,
 } from "./campaigns.view";
+import type { AddRecipientsDto } from "./dto/add-recipients.dto";
 import type { CreateCampaignDto } from "./dto/create-campaign.dto";
 import type { ListCampaignsDto } from "./dto/list-campaigns.dto";
 import type { TestCampaignDto } from "./dto/test-campaign.dto";
@@ -175,7 +182,14 @@ export class CampaignsService {
           waId: true,
           status: true,
           errorReason: true,
-          contact: { select: { profileName: true, phoneDisplay: true } },
+          contact: {
+            select: {
+              profileName: true,
+              phoneDisplay: true,
+              email: true,
+              externalId: true,
+            },
+          },
           message: {
             select: {
               status: true,
@@ -211,7 +225,7 @@ export class CampaignsService {
   async create(
     claims: AuthClaims,
     dto: CreateCampaignDto,
-  ): Promise<{ campaign: CampaignView }> {
+  ): Promise<{ campaign: CampaignView; recipients?: RecipientImportReport }> {
     const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
 
     const template = await this.prisma.messageTemplate.findFirst({
@@ -277,6 +291,29 @@ export class CampaignsService {
       });
     }
 
+    // A list is what the form sends, so its presence picks the source; an old
+    // client that sends neither keeps the tag behaviour it was written for.
+    const audienceSource =
+      dto.audienceSource ??
+      ((dto.recipients?.length ?? 0) > 0
+        ? AudienceSource.LIST
+        : AudienceSource.SEGMENT);
+
+    if (audienceSource === AudienceSource.SEGMENT && (dto.recipients?.length ?? 0) > 0) {
+      throw new BadRequestException({
+        code: "RECIPIENTS_NOT_FOR_SEGMENT",
+        message:
+          "A campaign sends to one audience: a list of numbers or the contacts carrying its tags, never both.",
+      });
+    }
+
+    if (audienceSource === AudienceSource.LIST && (dto.recipients?.length ?? 0) === 0) {
+      throw new BadRequestException({
+        code: "NO_RECIPIENTS",
+        message: "Add at least one phone number to this campaign's list.",
+      });
+    }
+
     const row = await this.prisma.campaign.create({
       data: {
         workspaceId,
@@ -285,7 +322,11 @@ export class CampaignsService {
         templateName: template.name,
         templateLanguage: template.language,
         templateCategory: template.category,
-        audienceTags: dto.audienceTags ?? [],
+        audienceSource,
+        // Tags only describe a tag campaign; keeping them on a list campaign
+        // would leave two audiences on a row that can only send to one.
+        audienceTags:
+          audienceSource === AudienceSource.SEGMENT ? (dto.audienceTags ?? []) : [],
         variables: bindings as unknown as Prisma.InputJsonValue,
         buttonUrls: buttonUrls as Prisma.InputJsonValue,
         optInConfirmed: dto.optInConfirmed ?? false,
@@ -297,7 +338,36 @@ export class CampaignsService {
       select: CAMPAIGN_SELECT,
     });
 
-    return { campaign: campaignView(row) };
+    if (audienceSource !== AudienceSource.LIST) {
+      return { campaign: campaignView(row) };
+    }
+
+    // The list is part of the same act: a campaign created without the numbers
+    // it was created for is a draft nobody asked for, so a failed import takes
+    // the campaign row with it.
+    try {
+      const recipients = await this.ingest(
+        workspaceId,
+        row.id,
+        dto.recipients ?? [],
+      );
+
+      if (recipients.added === 0) {
+        throw new BadRequestException({
+          code: "NO_VALID_RECIPIENTS",
+          message: describeEmptyImport(recipients),
+        });
+      }
+
+      const saved = await this.mustCampaign(workspaceId, row.id);
+
+      return { campaign: campaignView(saved), recipients };
+    } catch (error) {
+      await this.prisma.campaign
+        .delete({ where: { id: row.id } })
+        .catch(() => undefined);
+      throw error;
+    }
   }
 
   async update(
@@ -312,7 +382,34 @@ export class CampaignsService {
     const shape = shapeOf(current.template.components);
 
     if (dto.name !== undefined) data.name = dto.name;
-    if (dto.audienceTags !== undefined) data.audienceTags = dto.audienceTags;
+
+    if (dto.audienceSource !== undefined && dto.audienceSource !== current.audienceSource) {
+      if (dto.audienceSource === AudienceSource.SEGMENT) {
+        const rows = await this.prisma.campaignRecipient.count({
+          where: { campaignId: id },
+        });
+
+        if (rows > 0) {
+          throw new ConflictException({
+            code: "AUDIENCE_HAS_RECIPIENTS",
+            message:
+              "This campaign already has a list of numbers. Remove them before switching it to contact tags.",
+          });
+        }
+
+        data.audienceTags = dto.audienceTags ?? current.audienceTags;
+      } else {
+        // A tag list means nothing once the audience is an explicit list.
+        data.audienceTags = [];
+      }
+
+      data.audienceSource = dto.audienceSource;
+    } else if (
+      dto.audienceTags !== undefined &&
+      current.audienceSource === AudienceSource.SEGMENT
+    ) {
+      data.audienceTags = dto.audienceTags;
+    }
 
     if (dto.variables !== undefined) {
       const bindings = bindingsOf(dto.variables);
@@ -386,13 +483,187 @@ export class CampaignsService {
   }
 
   // -------------------------------------------------------------------------
+  // The recipient list
+  // -------------------------------------------------------------------------
+
+  /**
+   * Add numbers, by hand or from a spreadsheet.
+   *
+   * Duplicates are removed here rather than at send time: a number that
+   * already has a row would be sent twice, and a message a customer receives
+   * twice is a message they report. What was dropped comes back in the report
+   * so the screen can say so out loud.
+   */
+  async addRecipients(
+    claims: AuthClaims,
+    id: string,
+    dto: AddRecipientsDto,
+  ): Promise<{ campaign: CampaignView; recipients: RecipientImportReport }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.mustRecipientList(workspaceId, id);
+
+    const recipients = await this.ingest(workspaceId, id, dto.recipients);
+    const saved = await this.mustCampaign(workspaceId, id);
+
+    return { campaign: campaignView(saved), recipients };
+  }
+
+  /** A number added by mistake is removed as easily, until the send starts. */
+  async removeRecipient(
+    claims: AuthClaims,
+    id: string,
+    recipientId: string,
+  ): Promise<{ campaign: CampaignView; recipients: { total: number } }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.mustRecipientList(workspaceId, id);
+
+    const removed = await this.prisma.campaignRecipient.deleteMany({
+      where: { id: recipientId, campaignId: id, status: "PENDING" },
+    });
+
+    if (removed.count === 0) {
+      throw new NotFoundException(
+        "That recipient is not waiting to be sent, so it cannot be removed.",
+      );
+    }
+
+    const total = await this.syncTotal(id);
+    const saved = await this.mustCampaign(workspaceId, id);
+
+    return { campaign: campaignView(saved), recipients: { total } };
+  }
+
+  /**
+   * Normalise the rows, upsert their contacts, and write one recipient per
+   * number. Returns what landed and what did not, because the screen has to be
+   * able to say "three duplicates were removed" and mean it.
+   */
+  private async ingest(
+    workspaceId: string,
+    campaignId: string,
+    rows: RecipientInput[],
+  ): Promise<RecipientImportReport> {
+    const { entries, duplicates, invalid } = normaliseRecipients(rows);
+
+    const existing = await this.prisma.campaignRecipient.findMany({
+      where: { campaignId },
+      select: { waId: true },
+    });
+
+    const present = new Set(existing.map((row) => row.waId));
+    const already = entries.filter((entry) => present.has(entry.waId));
+    const fresh = entries.filter((entry) => !present.has(entry.waId));
+
+    const duplicateReport = {
+      count: duplicates.count + already.length,
+      phones: [
+        ...duplicates.phones,
+        ...already.map((entry) => entry.waId),
+      ].slice(0, REPORT_SAMPLE),
+    };
+
+    if (fresh.length === 0) {
+      return {
+        added: 0,
+        total: existing.length,
+        duplicates: duplicateReport,
+        invalid,
+      };
+    }
+
+    // One statement whether the number has written to us before or not; the
+    // unique key decides, so nothing is read just to be written back.
+    await this.prisma.contact.createMany({
+      data: fresh.map((entry) => ({
+        workspaceId,
+        waId: entry.waId,
+        profileName: entry.name,
+        phoneDisplay: entry.phoneDisplay,
+        email: entry.email,
+        externalId: entry.externalId,
+      })),
+      skipDuplicates: true,
+    });
+
+    const contacts = await this.prisma.contact.findMany({
+      where: { workspaceId, waId: { in: fresh.map((entry) => entry.waId) } },
+      select: {
+        id: true,
+        waId: true,
+        profileName: true,
+        phoneDisplay: true,
+        email: true,
+        externalId: true,
+      },
+    });
+
+    const byWaId = new Map(contacts.map((contact) => [contact.waId, contact]));
+
+    // A known contact keeps what it has: the name came from the customer's own
+    // profile, which outranks a spreadsheet column. Only blanks are filled.
+    const fills = fresh.flatMap((entry) => {
+      const contact = byWaId.get(entry.waId);
+
+      if (!contact) return [];
+
+      const data: Prisma.ContactUpdateInput = {};
+
+      if (!contact.profileName && entry.name) data.profileName = entry.name;
+      if (!contact.phoneDisplay && entry.phoneDisplay) {
+        data.phoneDisplay = entry.phoneDisplay;
+      }
+      if (!contact.email && entry.email) data.email = entry.email;
+      if (!contact.externalId && entry.externalId) {
+        data.externalId = entry.externalId;
+      }
+
+      return Object.keys(data).length > 0
+        ? [this.prisma.contact.update({ where: { id: contact.id }, data })]
+        : [];
+    });
+
+    if (fills.length > 0) await this.prisma.$transaction(fills);
+
+    const created = await this.prisma.campaignRecipient.createMany({
+      data: fresh.flatMap((entry) => {
+        const contact = byWaId.get(entry.waId);
+
+        return contact
+          ? [{ campaignId, contactId: contact.id, waId: entry.waId }]
+          : [];
+      }),
+      skipDuplicates: true,
+    });
+
+    const total = await this.syncTotal(campaignId);
+
+    return { added: created.count, total, duplicates: duplicateReport, invalid };
+  }
+
+  // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
 
   async start(claims: AuthClaims, id: string) {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    await this.mustCampaign(workspaceId, id);
+    const campaign = await this.mustCampaign(workspaceId, id);
+
+    if (campaign.audienceSource === AudienceSource.LIST) {
+      const recipients = await this.prisma.campaignRecipient.count({
+        where: { campaignId: id },
+      });
+
+      if (recipients === 0) {
+        throw new BadRequestException({
+          code: "NO_RECIPIENTS",
+          message:
+            "Add at least one phone number to this campaign before starting it.",
+        });
+      }
+    }
 
     if (!(await this.engine.begin(id))) {
       throw new ConflictException({
@@ -604,6 +875,38 @@ export class CampaignsService {
 
     return row;
   }
+
+  /** Only a list campaign carries numbers, and only until it starts. */
+  private async mustRecipientList(
+    workspaceId: string,
+    id: string,
+  ): Promise<CampaignRow> {
+    const row = await this.mustEditable(workspaceId, id);
+
+    if (row.audienceSource !== AudienceSource.LIST) {
+      throw new ConflictException({
+        code: "AUDIENCE_IS_SEGMENT",
+        message:
+          "This campaign sends to the contacts carrying its tags. Edit it and switch the audience to a list to add numbers.",
+      });
+    }
+
+    return row;
+  }
+
+  /** The audience size, written onto the row the list and the report read. */
+  private async syncTotal(campaignId: string): Promise<number> {
+    const total = await this.prisma.campaignRecipient.count({
+      where: { campaignId },
+    });
+
+    await this.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { totalCount: total },
+    });
+
+    return total;
+  }
 }
 
 function recipientView(row: {
@@ -611,7 +914,12 @@ function recipientView(row: {
   waId: string;
   status: string;
   errorReason: string | null;
-  contact: { profileName: string | null; phoneDisplay: string | null };
+  contact: {
+    profileName: string | null;
+    phoneDisplay: string | null;
+    email: string | null;
+    externalId: string | null;
+  };
   message: {
     status: string;
     sentAt: Date | null;
@@ -623,6 +931,8 @@ function recipientView(row: {
     id: row.id,
     waId: row.waId,
     contactName: row.contact.profileName ?? row.contact.phoneDisplay,
+    email: row.contact.email,
+    externalId: row.contact.externalId,
     status: row.status,
     errorReason: row.errorReason,
     delivery: row.message?.status ?? null,
@@ -630,6 +940,21 @@ function recipientView(row: {
     deliveredAt: iso(row.message?.deliveredAt ?? null),
     readAt: iso(row.message?.readAt ?? null),
   };
+}
+
+/** Why an import landed nothing, in the order that helps most. */
+function describeEmptyImport(report: RecipientImportReport): string {
+  const reasons: string[] = [];
+
+  if (report.duplicates.count > 0) {
+    reasons.push(`${report.duplicates.count} already in this campaign`);
+  }
+
+  if (report.invalid.count > 0) {
+    reasons.push(`${report.invalid.count} without a usable number`);
+  }
+
+  return `No new recipient to add${reasons.length > 0 ? ` — ${reasons.join(", ")}` : ""}.`;
 }
 
 /** A quote would break the row; a leading = would be read as a formula. */

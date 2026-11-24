@@ -58,8 +58,26 @@ export class CampaignsEngine {
 
     const campaign = await this.prisma.campaign.findUniqueOrThrow({
       where: { id },
-      select: { workspaceId: true, audienceTags: true },
+      select: { workspaceId: true, audienceTags: true, audienceSource: true },
     });
+
+    // A list campaign's rows were written as the numbers were added, so there
+    // is nothing to snapshot — only a count to confirm.
+    if (campaign.audienceSource === "LIST") {
+      const total = await this.prisma.campaignRecipient.count({ where: { campaignId: id } });
+
+      if (total === 0) {
+        await this.finish(id);
+        return true;
+      }
+
+      await this.prisma.campaign.update({
+        where: { id },
+        data: { totalCount: total },
+      });
+
+      return true;
+    }
 
     const contacts = await this.prisma.contact.findMany({
       where: {

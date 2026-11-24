@@ -10,6 +10,7 @@ import {
   Pause,
   Pencil,
   Play,
+  Plus,
   RefreshCw,
   Send,
   Trash2,
@@ -18,6 +19,13 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DataTable } from "@/components/workspace/data-table";
 import { PageHeader } from "@/components/workspace/page-header";
@@ -25,12 +33,14 @@ import { cn } from "@/lib/utils";
 
 import {
   ApiError,
+  addRecipients,
   cancelCampaign,
   deleteCampaign,
   fetchCampaign,
   fetchCampaignOptions,
   fetchRecipientsCsv,
   pauseCampaign,
+  removeRecipient,
   resumeCampaign,
   startCampaign,
   testCampaign,
@@ -38,21 +48,15 @@ import {
   type CampaignDetail as CampaignPayload,
   type CampaignOptions,
   type Recipient,
+  type RecipientImportReport,
 } from "../api";
+import { normalisePhone, type DraftRecipient } from "../recipients";
 import { CampaignForm } from "./campaign-form";
+import { RecipientEditor } from "./recipient-editor";
 import { StatusPill } from "./status-pill";
 
 /** The same interval the Inbox thread polls at while a send is in flight. */
 const POLL_MS = 3_000;
-
-const RECIPIENT_COLUMNS = [
-  { key: "wa_id", label: "Number" },
-  { key: "name", label: "Name" },
-  { key: "status", label: "Send" },
-  { key: "reason", label: "Reason" },
-  { key: "delivered", label: "Delivered" },
-  { key: "read", label: "Read" },
-];
 
 const FIELD =
   "h-10 w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
@@ -82,6 +86,9 @@ export function CampaignDetail({ id }: { id: string }) {
   const [testing, setTesting] = React.useState(false);
   const [testTo, setTestTo] = React.useState("");
   const [loadingMore, setLoadingMore] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
+  const [newRows, setNewRows] = React.useState<DraftRecipient[]>([]);
+  const [addingBusy, setAddingBusy] = React.useState(false);
 
   function apply(payload: CampaignPayload) {
     setCampaign(payload.campaign);
@@ -245,6 +252,73 @@ export function CampaignDetail({ id }: { id: string }) {
     }
   }
 
+  /**
+   * The first page again, from the top. Attaching numbers puts new rows in the
+   * list, and the page that was already loaded is no longer the whole story.
+   */
+  async function reloadRecipients() {
+    const payload = await fetchCampaign(id);
+
+    cursorRef.current = payload.recipients.nextCursor;
+    setCursor(payload.recipients.nextCursor);
+    setCampaign(payload.campaign);
+    setRecipients(payload.recipients.items);
+  }
+
+  async function saveRecipients() {
+    if (newRows.length === 0) return;
+
+    setAddingBusy(true);
+    setError(null);
+
+    try {
+      const added = await addRecipients(
+        id,
+        newRows.map((row) => ({
+          phone: row.phone,
+          name: row.name.trim() || undefined,
+          email: row.email.trim() || undefined,
+          identity: row.identity.trim() || undefined,
+        })),
+      );
+
+      setCampaign(added.campaign);
+      setAdding(false);
+      setNewRows([]);
+      toast.push({
+        title: importTitle(added.recipients),
+        description: importDetail(added.recipients),
+        tone: "success",
+      });
+      await reloadRecipients();
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setAddingBusy(false);
+    }
+  }
+
+  async function dropRecipient(recipient: Recipient) {
+    setBusy(recipient.id);
+    setError(null);
+
+    try {
+      const next = await removeRecipient(id, recipient.id);
+
+      setCampaign(next.campaign);
+      setRecipients((current) => current.filter((row) => row.id !== recipient.id));
+      toast.push({
+        title: `${recipient.waId} is out of the audience.`,
+        description: `The campaign now holds ${next.recipients.total} number${next.recipients.total === 1 ? "" : "s"}.`,
+        tone: "success",
+      });
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (loading && !campaign) {
     return (
       <div className="grid h-64 place-items-center rounded-xl border border-border bg-card">
@@ -291,6 +365,39 @@ export function CampaignDetail({ id }: { id: string }) {
       : Math.min(100, Math.round((settled / campaign.counts.total) * 100));
 
   const editable = campaign.status === "DRAFT" || campaign.status === "SCHEDULED";
+
+  // A list campaign sends to the rows on this page and to nobody else, so the
+  // rows can be extended or removed while the send has not started.
+  const listAudience = campaign.audienceSource === "LIST";
+  const canEditList = editable && listAudience;
+
+  const recipientColumns = [
+    { key: "wa_id", label: "Number" },
+    { key: "name", label: "Name" },
+    ...(listAudience
+      ? [
+          { key: "email", label: "Email" },
+          { key: "identity", label: "Identity" },
+        ]
+      : []),
+    { key: "status", label: "Send" },
+    { key: "reason", label: "Reason" },
+    { key: "delivered", label: "Delivered" },
+    { key: "read", label: "Read" },
+    ...(canEditList
+      ? [{ key: "action", label: "", className: "w-10" }]
+      : []),
+  ];
+
+  // The numbers already loaded, so the Add panel can say a re-import adds
+  // nothing twice instead of quietly doubling the audience.
+  const knownNumbers = new Set<string>();
+
+  for (const row of recipients) {
+    const waId = normalisePhone(row.waId);
+
+    if (waId) knownNumbers.add(waId);
+  }
 
   return (
     <div className="space-y-5">
@@ -369,6 +476,18 @@ export function CampaignDetail({ id }: { id: string }) {
                   Edit
                 </Button>
 
+                {canEditList ? (
+                  <Button
+                    disabled={busy !== null}
+                    onClick={() => setAdding(true)}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Plus />
+                    Add numbers
+                  </Button>
+                ) : null}
+
                 <Button
                   disabled={busy !== null}
                   onClick={() => setConfirmingDelete(true)}
@@ -432,9 +551,11 @@ export function CampaignDetail({ id }: { id: string }) {
       <div className="flex flex-wrap items-center gap-2">
         <StatusPill status={campaign.status} />
         <span className="text-[12.5px] text-muted-foreground">
-          {campaign.audienceTags.length > 0
-            ? `Audience: ${campaign.audienceTags.join(", ")}`
-            : "Audience: everyone"}
+          {listAudience
+            ? `Audience: ${campaign.counts.total} number${campaign.counts.total === 1 ? "" : "s"} added to this campaign`
+            : campaign.audienceTags.length > 0
+              ? `Audience: ${campaign.audienceTags.join(", ")}`
+              : "Audience: everyone"}
         </span>
         <span className="text-[12.5px] text-muted-foreground">
           · {whenOf(campaign)}
@@ -579,19 +700,35 @@ export function CampaignDetail({ id }: { id: string }) {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold text-foreground">Recipients</h2>
           <p className="text-[12px] text-muted-foreground">
-            Delivery and read are the message&apos;s own status, as Meta reported
-            it.
+            {listAudience
+              ? "The numbers this campaign sends to. A repeated number is folded into one row as it arrives."
+              : "Delivery and read are the message's own status, as Meta reported it."}
           </p>
         </div>
 
         <DataTable
-          columns={RECIPIENT_COLUMNS}
+          columns={recipientColumns}
           empty={
-            <p className="text-center text-[12.5px] leading-relaxed text-muted-foreground">
-              {campaign.status === "DRAFT" || campaign.status === "SCHEDULED"
-                ? "The audience is written when the campaign starts, so this list is empty until then."
-                : "No recipient was written for this campaign."}
-            </p>
+            <div className="space-y-2 text-center">
+              <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                {listAudience
+                  ? canEditList
+                    ? "No numbers yet. Add them one at a time, or import an Excel sheet or CSV."
+                    : "This campaign has no numbers in its audience."
+                  : "The audience is read from the tags when the campaign starts, so this list is empty until then."}
+              </p>
+              {canEditList ? (
+                <Button
+                  onClick={() => setAdding(true)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Plus />
+                  Add numbers
+                </Button>
+              ) : null}
+            </div>
           }
           rows={recipients.map((recipient) => [
             <span
@@ -603,6 +740,24 @@ export function CampaignDetail({ id }: { id: string }) {
             <span className="block max-w-40 truncate text-[13px]" key="name">
               {recipient.contactName ?? "—"}
             </span>,
+            ...(listAudience
+              ? [
+                  <span
+                    className="block max-w-48 truncate text-[12.5px] text-muted-foreground"
+                    key="email"
+                    title={recipient.email ?? undefined}
+                  >
+                    {recipient.email ?? "—"}
+                  </span>,
+                  <span
+                    className="block max-w-28 truncate text-[12.5px] text-muted-foreground"
+                    key="identity"
+                    title={recipient.externalId ?? undefined}
+                  >
+                    {recipient.externalId ?? "—"}
+                  </span>,
+                ]
+              : []),
             <span
               className={cn(
                 "inline-flex rounded-full border px-2 py-0.5 text-[11.5px] font-medium",
@@ -635,6 +790,24 @@ export function CampaignDetail({ id }: { id: string }) {
             >
               {clockOf(recipient.readAt)}
             </span>,
+            ...(canEditList
+              ? [
+                  <button
+                    aria-label={`Remove ${recipient.waId} from the audience`}
+                    className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-ring/40 focus-visible:ring-[3px] focus-visible:outline-none disabled:opacity-50"
+                    disabled={busy !== null}
+                    key="action"
+                    onClick={() => void dropRecipient(recipient)}
+                    type="button"
+                  >
+                    {busy === recipient.id ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-3.5" />
+                    )}
+                  </button>,
+                ]
+              : []),
           ])}
         />
 
@@ -653,14 +826,59 @@ export function CampaignDetail({ id }: { id: string }) {
         ) : null}
       </section>
 
+      <Sheet
+        onOpenChange={(open) => {
+          if (open) return;
+
+          setAdding(false);
+          setNewRows([]);
+        }}
+        open={adding}
+      >
+        <SheetContent className="w-full sm:max-w-xl" side="right">
+          <SheetHeader className="border-b border-border">
+            <SheetTitle>Add numbers</SheetTitle>
+            <SheetDescription>
+              Numbers added here join “{campaign.name}” straight away. A number
+              the campaign already has is dropped as it arrives, and the panel
+              says how many.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+            <RecipientEditor
+              action={{
+                label:
+                  newRows.length > 0
+                    ? `Add ${newRows.length} number${newRows.length === 1 ? "" : "s"}`
+                    : "Add to campaign",
+                busy: addingBusy,
+                disabled: newRows.length === 0,
+                onClick: () => void saveRecipients(),
+              }}
+              known={knownNumbers}
+              onChange={setNewRows}
+              rows={newRows}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {editing && options ? (
         <CampaignForm
           editing={campaign}
           onClose={() => setEditing(false)}
-          onSaved={(next) => {
+          onSaved={(next, imported) => {
             setEditing(false);
             setCampaign(next);
-            toast.push({ title: "The campaign is updated.", tone: "success" });
+            toast.push({
+              title: "The campaign is updated.",
+              description: imported ? importDetail(imported) : undefined,
+              tone: "success",
+            });
+            // The form may have attached numbers, so the page starts again at
+            // the top rather than showing a stale first page.
+            if (imported) void reloadRecipients();
           }}
           options={options}
         />
@@ -731,4 +949,32 @@ function readError(caught: unknown): string {
   return caught instanceof ApiError
     ? caught.message
     : "The campaign could not be read.";
+}
+
+/** The verdict an import earns: what landed, said in one line. */
+function importTitle(report: RecipientImportReport): string {
+  if (report.added === 0) {
+    return "No new number to add.";
+  }
+
+  return `${report.added} number${report.added === 1 ? "" : "s"} added.`;
+}
+
+/** What the import had to drop, and why the audience is smaller than the file. */
+function importDetail(report: RecipientImportReport): string | undefined {
+  const parts: string[] = [];
+
+  if (report.duplicates.count > 0) {
+    parts.push(
+      `${report.duplicates.count} duplicate${report.duplicates.count === 1 ? "" : "s"} removed automatically`,
+    );
+  }
+
+  if (report.invalid.count > 0) {
+    parts.push(
+      `${report.invalid.count} row${report.invalid.count === 1 ? "" : "s"} skipped`,
+    );
+  }
+
+  return parts.length > 0 ? `${parts.join(" · ")}.` : undefined;
 }

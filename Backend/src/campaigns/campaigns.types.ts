@@ -17,6 +17,7 @@ export const CAMPAIGN_SELECT = {
   templateName: true,
   templateLanguage: true,
   templateCategory: true,
+  audienceSource: true,
   audienceTags: true,
   variables: true,
   buttonUrls: true,

@@ -1,4 +1,8 @@
-import type { CampaignStatus, TemplateCategory } from "@prisma/client";
+import type {
+  AudienceSource,
+  CampaignStatus,
+  TemplateCategory,
+} from "@prisma/client";
 
 import { bindingsOf, type BindingMap } from "./campaign.values";
 import {
@@ -26,6 +30,7 @@ export interface CampaignView {
     language: string;
     category: TemplateCategory;
   };
+  audienceSource: AudienceSource;
   audienceTags: string[];
   variables: BindingMap;
   buttonUrls: Record<string, string>;
@@ -61,6 +66,7 @@ export function campaignView(
       language: row.template.language,
       category: row.template.category,
     },
+    audienceSource: row.audienceSource,
     audienceTags: row.audienceTags,
     variables: bindingsOf(row.variables),
     buttonUrls: buttonUrlsOf(row.buttonUrls),
@@ -84,6 +90,9 @@ export interface RecipientView {
   id: string;
   waId: string;
   contactName: string | null;
+  /** Imported with the list; shown to the agent, never sent to Meta. */
+  email: string | null;
+  externalId: string | null;
   status: string;
   errorReason: string | null;
   delivery: string | null;

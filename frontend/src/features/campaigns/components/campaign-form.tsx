@@ -17,15 +17,21 @@ import { cn } from "@/lib/utils";
 
 import {
   ApiError,
+  addRecipients,
   createCampaign,
   fetchAudience,
   updateCampaign,
   type Audience,
+  type AudienceSource,
   type Campaign,
   type CampaignOptions,
+  type RecipientImportReport,
+  type RecipientRow,
   type TokenBinding,
 } from "../api";
+import { normalisePhone, type DraftRecipient } from "../recipients";
 import { CampaignPreview } from "./campaign-preview";
+import { RecipientEditor } from "./recipient-editor";
 
 /** Typing a tag is not a reason to query; settling on one is. */
 const AUDIENCE_DELAY_MS = 350;
@@ -51,10 +57,14 @@ export function CampaignForm({
   /** Present when a draft is being changed rather than created. */
   editing?: Campaign;
   onClose: () => void;
-  onSaved: (campaign: Campaign) => void;
+  onSaved: (campaign: Campaign, recipients?: RecipientImportReport) => void;
 }) {
   const [name, setName] = React.useState(editing?.name ?? "");
   const [templateId, setTemplateId] = React.useState(editing?.template.id ?? "");
+  const [audienceSource, setAudienceSource] = React.useState<AudienceSource>(
+    editing?.audienceSource ?? "LIST",
+  );
+  const [recipients, setRecipients] = React.useState<DraftRecipient[]>([]);
   const [tags, setTags] = React.useState<string[]>(editing?.audienceTags ?? []);
   const [bindings, setBindings] = React.useState<Record<string, TokenBinding>>(
     editing?.variables ?? {},
@@ -82,6 +92,10 @@ export function CampaignForm({
   const tagKey = tags.join("\u0000");
 
   React.useEffect(() => {
+    // A list campaign is measured from its own rows, so the tag segment is not
+    // even asked for.
+    if (audienceSource !== "SEGMENT") return;
+
     let active = true;
     const requested = tagKey ? tagKey.split("\u0000") : [];
     const timer = setTimeout(() => {
@@ -103,7 +117,7 @@ export function CampaignForm({
       active = false;
       clearTimeout(timer);
     };
-  }, [tagKey]);
+  }, [tagKey, audienceSource]);
 
   function chooseTemplate(id: string) {
     const next = options.templates.find((entry) => entry.id === id);
@@ -131,6 +145,17 @@ export function CampaignForm({
     );
   }
 
+  // A list campaign is measured from its own rows, so the tag count is not in
+  // the answer: the numbers on screen are the ones that will be sent to.
+  const listTotal =
+    (editing?.audienceSource === "LIST" ? editing.counts.total : 0) +
+    recipients.length;
+
+  // Numbers already saved on this campaign are its audience; sending by tag
+  // instead would run twice over the same people, so the switch is refused.
+  const hasNumbers =
+    editing?.audienceSource === "LIST" && editing.counts.total > 0;
+
   const problems = problemsInForm({
     name,
     template,
@@ -139,9 +164,14 @@ export function CampaignForm({
     buttonUrls,
     marketing,
     optIn,
+    audienceSource,
+    listTotal,
   });
 
-  const sample = audience?.sample[0] ?? null;
+  const sample =
+    audienceSource === "LIST"
+      ? sampleOf(recipients[0])
+      : (audience?.sample[0] ?? null);
   const needle = query.trim().toLowerCase();
   const templates = options.templates.filter(
     (entry) =>
@@ -161,17 +191,37 @@ export function CampaignForm({
     try {
       const draft = {
         name: name.trim(),
-        audienceTags: tags,
+        audienceSource,
+        audienceTags: audienceSource === "SEGMENT" ? tags : [],
         variables: bindings,
         buttonUrls,
         optInConfirmed: optIn,
         scheduledAt: schedule ? new Date(schedule).toISOString() : null,
       };
-      const saved = editing
-        ? await updateCampaign(editing.id, draft)
-        : await createCampaign({ ...draft, templateId: template.id });
 
-      onSaved(saved.campaign);
+      if (editing) {
+        const saved = await updateCampaign(editing.id, draft);
+
+        // The numbers are added after the campaign is saved: they are their
+        // own rows, and the import reports what it had to drop.
+        if (audienceSource === "LIST" && recipients.length > 0) {
+          const added = await addRecipients(editing.id, rowsOf(recipients));
+
+          onSaved(added.campaign, added.recipients);
+          return;
+        }
+
+        onSaved(saved.campaign);
+        return;
+      }
+
+      const created = await createCampaign({
+        ...draft,
+        templateId: template.id,
+        ...(audienceSource === "LIST" ? { recipients: rowsOf(recipients) } : {}),
+      });
+
+      onSaved(created.campaign, created.recipients);
     } catch (caught) {
       setError(
         caught instanceof ApiError
@@ -301,44 +351,92 @@ export function CampaignForm({
                 Audience
               </h3>
 
-              <div className="flex flex-wrap gap-1.5">
-                <TagChip
-                  active={tags.length === 0}
-                  label="Everyone"
-                  onClick={() => setTags([])}
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                <SourceOption
+                  active={audienceSource === "LIST"}
+                  detail="Numbers you add here, or import from an Excel sheet or CSV."
+                  onClick={() => setAudienceSource("LIST")}
+                  title="Recipient list"
                 />
-                {options.tags.map((tag) => (
-                  <TagChip
-                    active={tags.includes(tag)}
-                    key={tag}
-                    label={tag}
-                    onClick={() => toggleTag(tag)}
-                  />
-                ))}
+                <SourceOption
+                  active={audienceSource === "SEGMENT"}
+                  // Those rows are the audience it sends to, so the switch is
+                  // refused until they are removed on the campaign page.
+                  detail={
+                    hasNumbers
+                      ? "Remove this campaign's numbers on its page before sending by tag."
+                      : "Every contact carrying the tags below, counted when it sends."
+                  }
+                  disabled={hasNumbers}
+                  onClick={() => setAudienceSource("SEGMENT")}
+                  title="Contact tags"
+                />
               </div>
 
-              <p
-                aria-live="polite"
-                className="text-[12.5px] leading-relaxed text-muted-foreground"
-              >
-                {audienceLoading && !audience ? (
-                  "Counting the contacts this reaches…"
-                ) : audience ? (
-                  <>
-                    <span className="font-medium text-foreground">
-                      {audience.total} contact{audience.total === 1 ? "" : "s"}
-                    </span>{" "}
-                    {tags.length === 0
-                      ? "— every contact in this workspace."
-                      : `tagged ${tags.join(", ")}.`}
-                    {sample
-                      ? ` First: ${sample.profileName ?? sample.phoneDisplay ?? sample.waId}.`
-                      : ""}
-                  </>
-                ) : (
-                  "The audience could not be counted. The campaign still sends to whatever matches when it starts."
-                )}
-              </p>
+              {audienceSource === "LIST" ? (
+                <div className="space-y-2 pt-1">
+                  {editing && editing.counts.total > 0 ? (
+                    <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                      This campaign already has {editing.counts.total} number
+                      {editing.counts.total === 1 ? "" : "s"}. Numbers added
+                      here are saved when the form is saved, and duplicates are
+                      removed for you.
+                    </p>
+                  ) : (
+                    <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                      A row each: name, email, phone with the country code, and
+                      an identity of your own. Only the phone number is needed
+                      to send — two rows with the same number are kept once.
+                    </p>
+                  )}
+
+                  <RecipientEditor
+                    onChange={setRecipients}
+                    rows={recipients}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap gap-1.5">
+                    <TagChip
+                      active={tags.length === 0}
+                      label="Everyone"
+                      onClick={() => setTags([])}
+                    />
+                    {options.tags.map((tag) => (
+                      <TagChip
+                        active={tags.includes(tag)}
+                        key={tag}
+                        label={tag}
+                        onClick={() => toggleTag(tag)}
+                      />
+                    ))}
+                  </div>
+
+                  <p
+                    aria-live="polite"
+                    className="text-[12.5px] leading-relaxed text-muted-foreground"
+                  >
+                    {audienceLoading && !audience ? (
+                      "Counting the contacts this reaches…"
+                    ) : audience ? (
+                      <>
+                        <span className="font-medium text-foreground">
+                          {audience.total} contact{audience.total === 1 ? "" : "s"}
+                        </span>{" "}
+                        {tags.length === 0
+                          ? "— every contact in this workspace."
+                          : `tagged ${tags.join(", ")}.`}
+                        {sample
+                          ? ` First: ${sample.profileName ?? sample.phoneDisplay ?? sample.waId}.`
+                          : ""}
+                      </>
+                    ) : (
+                      "The audience could not be counted. The campaign still sends to whatever matches when it starts."
+                    )}
+                  </p>
+                </div>
+              )}
             </section>
 
             {shape && shape.tokens.length > 0 ? (
@@ -642,6 +740,72 @@ function ModeButton({
 const FIELD =
   "h-10 w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
 
+/** One of the two audiences a campaign can have. They exclude each other. */
+function SourceOption({
+  title,
+  detail,
+  active,
+  disabled = false,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={active}
+      className={cn(
+        "rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none",
+        active
+          ? "border-brand/45 bg-brand-soft"
+          : "border-border bg-card hover:bg-secondary/50",
+        disabled && "cursor-not-allowed opacity-60 hover:bg-card",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      <span className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+        {title}
+        {active ? <Check className="size-3.5 text-brand" /> : null}
+      </span>
+      <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground">
+        {detail}
+      </span>
+    </button>
+  );
+}
+
+/** A staged row, described the way the audience count describes a contact. */
+function sampleOf(
+  row?: DraftRecipient,
+): { profileName: string | null; waId: string; phoneDisplay: string | null } | null {
+  if (!row) return null;
+
+  const waId = normalisePhone(row.phone);
+
+  if (!waId) return null;
+
+  return {
+    profileName: row.name.trim() || null,
+    waId,
+    phoneDisplay: row.phone.trim() || null,
+  };
+}
+
+/** The staged rows, in the shape the endpoint reads. */
+function rowsOf(rows: DraftRecipient[]): RecipientRow[] {
+  return rows.map((row) => ({
+    phone: row.phone,
+    name: row.name.trim() || undefined,
+    email: row.email.trim() || undefined,
+    identity: row.identity.trim() || undefined,
+  }));
+}
+
 /** An ISO instant as `datetime-local` wants it: local, to the minute. */
 function scheduleValue(iso: string): string {
   const date = new Date(iso);
@@ -664,6 +828,8 @@ function problemsInForm({
   buttonUrls,
   marketing,
   optIn,
+  audienceSource,
+  listTotal,
 }: {
   name: string;
   template: { category: string } | null;
@@ -672,11 +838,19 @@ function problemsInForm({
   buttonUrls: Record<string, string>;
   marketing: boolean;
   optIn: boolean;
+  audienceSource: AudienceSource;
+  listTotal: number;
 }): string[] {
   const problems: string[] = [];
 
   if (!name.trim()) problems.push("Give the campaign a name.");
   if (!template) problems.push("Choose an approved template.");
+
+  // A list campaign sends to its rows and to nobody else, so an empty list has
+  // nobody to send to.
+  if (audienceSource === "LIST" && listTotal === 0) {
+    problems.push("Add at least one number to the audience.");
+  }
 
   for (const token of shape?.tokens ?? []) {
     const binding = bindings[token];

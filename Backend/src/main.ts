@@ -43,6 +43,12 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix("api");
 
+  // A campaign list can carry thousands of rows, and the default 100 kB cap
+  // would refuse the very import the campaigns module exists for. Registering
+  // the parser here keeps the `rawBody` buffer the webhook's HMAC check needs,
+  // and stops Nest adding a second, capped one.
+  app.useBodyParser("json", { limit: "3mb" });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

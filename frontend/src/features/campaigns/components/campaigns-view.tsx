@@ -19,6 +19,7 @@ import {
   type Campaign,
   type CampaignOptions,
   type CampaignStatus,
+  type RecipientImportReport,
 } from "../api";
 import { CampaignForm } from "./campaign-form";
 import { STATUS_LABEL, StatusPill } from "./status-pill";
@@ -146,7 +147,7 @@ export function CampaignsView() {
             New campaign
           </Button>
         }
-        description="A campaign is an approved template sent to a segment. Sending needs a connected number and at least one approved template."
+        description="A campaign is an approved template sent to the numbers you add, or to the contacts carrying the tags you choose. Sending needs a connected number and at least one approved template."
         eyebrow={nav.group}
         title={nav.title}
       />
@@ -243,7 +244,7 @@ export function CampaignsView() {
                 </Button>
               }
               className="border-0 bg-transparent py-8"
-              description="Choose an approved template, a segment and when to send. Delivery and read counts arrive as Meta confirms them."
+              description="Choose an approved template, add your numbers or pick tags, and when to send. Delivery and read counts arrive as Meta confirms them."
               icon={Megaphone}
               title={
                 filter === "ALL"
@@ -272,14 +273,18 @@ export function CampaignsView() {
               className="block max-w-40 truncate text-[12.5px] text-muted-foreground"
               key="audience"
               title={
-                campaign.audienceTags.length > 0
-                  ? campaign.audienceTags.join(", ")
-                  : "Everyone"
+                campaign.audienceSource === "LIST"
+                  ? "A list of numbers added to this campaign"
+                  : campaign.audienceTags.length > 0
+                    ? campaign.audienceTags.join(", ")
+                    : "Everyone"
               }
             >
-              {campaign.audienceTags.length > 0
-                ? campaign.audienceTags.join(", ")
-                : "Everyone"}
+              {campaign.audienceSource === "LIST"
+                ? `${campaign.counts.total} number${campaign.counts.total === 1 ? "" : "s"}`
+                : campaign.audienceTags.length > 0
+                  ? campaign.audienceTags.join(", ")
+                  : "Everyone"}
             </span>,
             <StatusPill key="status" status={campaign.status} />,
             <span className="block text-right text-[13px] tabular-nums" key="sent">
@@ -307,13 +312,14 @@ export function CampaignsView() {
       {creating && options ? (
         <CampaignForm
           onClose={() => setCreating(false)}
-          onSaved={(campaign) => {
+          onSaved={(campaign, imported) => {
             setCreating(false);
             toast.push({
               title:
                 campaign.status === "SCHEDULED"
                   ? `“${campaign.name}” is scheduled.`
                   : `“${campaign.name}” is saved as a draft.`,
+              description: imported ? importSummary(imported) : undefined,
               tone: "success",
             });
             reload();
@@ -349,4 +355,25 @@ function readError(caught: unknown): string {
   return caught instanceof ApiError
     ? caught.message
     : "The campaigns could not be read.";
+}
+
+/** What the import did, in the one line a toast can hold. */
+function importSummary(report: RecipientImportReport): string {
+  const parts = [
+    `${report.added} number${report.added === 1 ? "" : "s"} added`,
+  ];
+
+  if (report.duplicates.count > 0) {
+    parts.push(
+      `${report.duplicates.count} duplicate${report.duplicates.count === 1 ? "" : "s"} removed`,
+    );
+  }
+
+  if (report.invalid.count > 0) {
+    parts.push(
+      `${report.invalid.count} row${report.invalid.count === 1 ? "" : "s"} skipped`,
+    );
+  }
+
+  return `${parts.join(" · ")}.`;
 }

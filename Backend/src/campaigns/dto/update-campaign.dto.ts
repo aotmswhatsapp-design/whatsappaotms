@@ -1,7 +1,9 @@
 import { Transform } from "class-transformer";
+import { AudienceSource } from "@prisma/client";
 import {
   ArrayMaxSize,
   IsArray,
+  IsEnum,
   IsISO8601,
   IsObject,
   IsOptional,
@@ -29,6 +31,15 @@ export class UpdateCampaignDto {
   @ArrayMaxSize(20, { message: "Pick at most 20 tags." })
   @IsString({ each: true })
   audienceTags?: string[];
+
+  /**
+   * Switching a tag campaign to a list is how an older draft gains numbers;
+   * the reverse is refused while recipient rows exist, because those rows are
+   * the audience the campaign would otherwise silently stop reaching.
+   */
+  @IsOptional()
+  @IsEnum(AudienceSource, { message: "Choose how the audience is picked." })
+  audienceSource?: AudienceSource;
 
   @IsOptional()
   @IsObject({ message: "Variables arrive as a map of token to binding." })

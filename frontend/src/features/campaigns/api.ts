@@ -21,6 +21,12 @@ export type CampaignStatus =
 
 export type RecipientStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED";
 
+/**
+ * Who a campaign reaches: the numbers its list holds, or the contacts carrying
+ * the tags. One or the other — a campaign never sends to both.
+ */
+export type AudienceSource = "LIST" | "SEGMENT";
+
 export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
 
 /**
@@ -50,6 +56,7 @@ export interface Campaign {
   name: string;
   status: CampaignStatus;
   template: { id: string; name: string; language: string; category: string };
+  audienceSource: AudienceSource;
   audienceTags: string[];
   variables: Record<string, TokenBinding>;
   buttonUrls: Record<string, string>;
@@ -84,6 +91,9 @@ export interface Recipient {
   id: string;
   waId: string;
   contactName: string | null;
+  /** Imported with the list; shown to the agent, never sent to Meta. */
+  email: string | null;
+  externalId: string | null;
   status: RecipientStatus;
   errorReason: string | null;
   /** The message's own status, so "sent" here and "read" there cannot drift. */
@@ -98,11 +108,33 @@ export interface CampaignDetail {
   recipients: { items: Recipient[]; nextCursor: string | null };
 }
 
+/** One line of the list, exactly as the server reads it. */
+export interface RecipientRow {
+  phone: string;
+  name?: string;
+  email?: string;
+  identity?: string;
+}
+
+/**
+ * What an import did: how many numbers landed, and what was dropped so the
+ * panel can say "three duplicates were removed" without guessing.
+ */
+export interface RecipientImportReport {
+  added: number;
+  total: number;
+  duplicates: { count: number; phones: string[] };
+  invalid: { count: number; rows: { phone: string; reason: string }[] };
+}
+
 /** What the form sends. The server validates every field again. */
 export interface CampaignDraft {
   name: string;
   templateId: string;
+  audienceSource: AudienceSource;
   audienceTags: string[];
+  /** Sent with the campaign when the audience is a list. */
+  recipients?: RecipientRow[];
   variables: Record<string, TokenBinding>;
   buttonUrls: Record<string, string>;
   optInConfirmed: boolean;
@@ -134,11 +166,16 @@ export function fetchAudience(tags: string[]): Promise<Audience> {
   return request<Audience>(`/v1/campaigns/audience${suffix}`, { method: "GET" });
 }
 
-export function createCampaign(draft: CampaignDraft): Promise<{ campaign: Campaign }> {
-  return request<{ campaign: Campaign }>("/v1/campaigns", {
-    method: "POST",
-    body: JSON.stringify(draft),
-  });
+export function createCampaign(
+  draft: CampaignDraft,
+): Promise<{ campaign: Campaign; recipients?: RecipientImportReport }> {
+  return request<{ campaign: Campaign; recipients?: RecipientImportReport }>(
+    "/v1/campaigns",
+    {
+      method: "POST",
+      body: JSON.stringify(draft),
+    },
+  );
 }
 
 export function updateCampaign(
@@ -153,6 +190,30 @@ export function updateCampaign(
 
 export function deleteCampaign(id: string): Promise<{ deleted: true }> {
   return request<{ deleted: true }>(`/v1/campaigns/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Add numbers to an existing campaign's list. Only a draft or a scheduled
+ * campaign accepts them — once a send starts, its audience is settled.
+ */
+export function addRecipients(
+  id: string,
+  recipients: RecipientRow[],
+): Promise<{ campaign: Campaign; recipients: RecipientImportReport }> {
+  return request<{ campaign: Campaign; recipients: RecipientImportReport }>(
+    `/v1/campaigns/${id}/recipients`,
+    { method: "POST", body: JSON.stringify({ recipients }) },
+  );
+}
+
+export function removeRecipient(
+  id: string,
+  recipientId: string,
+): Promise<{ campaign: Campaign; recipients: { total: number } }> {
+  return request<{ campaign: Campaign; recipients: { total: number } }>(
+    `/v1/campaigns/${id}/recipients/${recipientId}`,
+    { method: "DELETE" },
+  );
 }
 
 export function startCampaign(id: string): Promise<CampaignDetail> {

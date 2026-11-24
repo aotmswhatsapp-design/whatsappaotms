@@ -294,6 +294,12 @@ model Contact {
   waId         String    @map("wa_id")
   profileName  String?   @map("profile_name")
   phoneDisplay String?   @map("phone_display")
+  /// Optional, imported with a campaign list. Never used in a send: Meta's
+  /// template parameters are name and number only.
+  email        String?
+  /// The customer's own reference (membership, order, CRM id), imported with
+  /// the list so an agent can recognise the row without opening the CRM.
+  externalId   String?   @map("external_id")
   tags         String[]  @default([])
   lastSeenAt   DateTime? @map("last_seen_at")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -479,8 +485,9 @@ model MessageTemplate {
 // ---------------------------------------------------------------------------
 // Campaigns (PRD MODULE 4).
 //
-// A campaign is an approved template sent to a tag-defined audience. This is
-// NOT Meta's "Messaging campaigns in Meta Business Suite": that tool has no
+// A campaign is an approved template sent to an audience: either the tags a
+// contact carries, or a list of numbers the workspace typed or imported. This
+// is NOT Meta's "Messaging campaigns in Meta Business Suite": that tool has no
 // API, so a row here can never mirror one. Sends go through the Cloud API and
 // land in the recipient's own Inbox conversation, which is why the message
 // rows, not this table, carry delivery and read.
@@ -505,9 +512,18 @@ enum RecipientStatus {
   SKIPPED
 }
 
-/// One broadcast: an approved template, a tag audience, and a schedule.
-/// Counters are written only by the campaign runner, so they cannot disagree
-/// with the recipient rows.
+/// Where a campaign's audience comes from. `SEGMENT` is the live tag query:
+/// every contact matching the tags, measured again at start. `LIST` is the
+/// numbers the workspace typed or imported, which exist as recipient rows
+/// from the moment they are added.
+enum AudienceSource {
+  LIST
+  SEGMENT
+}
+
+/// One broadcast: an approved template, an audience and a schedule. Counters
+/// are written only by the campaign runner, so they cannot disagree with the
+/// recipient rows.
 model Campaign {
   id               String           @id @default(uuid()) @db.Uuid
   workspaceId      String           @map("workspace_id") @db.Uuid
@@ -518,6 +534,8 @@ model Campaign {
   templateName     String           @map("template_name")
   templateLanguage String           @map("template_language")
   templateCategory TemplateCategory @map("template_category")
+  audienceSource   AudienceSource   @default(SEGMENT) @map("audience_source")
+  /// Read only when `audienceSource` is SEGMENT; a list campaign ignores it.
   audienceTags     String[]         @default([]) @map("audience_tags")
   /// Token without braces -> how it is filled. Typed by `campaign.values.ts`.
   variables        Json             @default("{}")

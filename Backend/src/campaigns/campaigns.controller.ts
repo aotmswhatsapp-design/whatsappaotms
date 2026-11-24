@@ -19,6 +19,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { CampaignsService } from "./campaigns.service";
+import { AddRecipientsDto } from "./dto/add-recipients.dto";
 import { CreateCampaignDto } from "./dto/create-campaign.dto";
 import { AudienceQueryDto, ListCampaignsDto } from "./dto/list-campaigns.dto";
 import { TestCampaignDto } from "./dto/test-campaign.dto";
@@ -97,6 +98,31 @@ export class CampaignsController {
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     return this.campaigns.remove(claims, id);
+  }
+
+  /**
+   * POST /api/v1/campaigns/:id/recipients — add numbers to a draft's list,
+   * by hand or from a spreadsheet. Duplicates come back in the report.
+   */
+  @Post(":id/recipients")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  addRecipients(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: AddRecipientsDto,
+  ) {
+    return this.campaigns.addRecipients(claims, id, dto);
+  }
+
+  /** DELETE /api/v1/campaigns/:id/recipients/:recipientId — before the send. */
+  @Delete(":id/recipients/:recipientId")
+  removeRecipient(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("recipientId", ParseUUIDPipe) recipientId: string,
+  ) {
+    return this.campaigns.removeRecipient(claims, id, recipientId);
   }
 
   /** POST /api/v1/campaigns/:id/start — snapshot the audience and begin. */

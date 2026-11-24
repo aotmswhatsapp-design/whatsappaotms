@@ -1,15 +1,20 @@
-import { Transform } from "class-transformer";
+import { Transform, Type } from "class-transformer";
+import { AudienceSource } from "@prisma/client";
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsISO8601,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Length,
+  ValidateNested,
 } from "class-validator";
+
+import { MAX_IMPORT_ROWS, RecipientRowDto } from "./add-recipients.dto";
 
 /** A pasted name arrives with stray whitespace; it would be stored literally. */
 const trimmed = ({ value }: { value: unknown }) =>
@@ -31,6 +36,25 @@ export class CreateCampaignDto {
   @ArrayMaxSize(20, { message: "Pick at most 20 tags." })
   @IsString({ each: true })
   audienceTags?: string[];
+
+  /**
+   * Who this reaches. `LIST` — the default here, unlike the column default —
+   * is the numbers typed or imported in the panel; `SEGMENT` is the tag query
+   * that predates it. A campaign sends to one or the other, never to both.
+   */
+  @IsOptional()
+  @IsEnum(AudienceSource, { message: "Choose how the audience is picked." })
+  audienceSource?: AudienceSource;
+
+  /** The numbers of a `LIST` campaign, sent with the campaign in one call. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_IMPORT_ROWS, {
+    message: `One import carries at most ${MAX_IMPORT_ROWS} rows. Split the file and add the rest.`,
+  })
+  @ValidateNested({ each: true })
+  @Type(() => RecipientRowDto)
+  recipients?: RecipientRowDto[];
 
   /** Token without braces → how it is filled. Parsed by `bindingsOf`. */
   @IsOptional()
