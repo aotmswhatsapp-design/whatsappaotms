@@ -326,7 +326,7 @@ export function WhatsAppConnection() {
                 enabled: false,
                 appId: null,
                 configId: null,
-                graphVersion: "v23.0",
+                graphVersion: "v27.0",
               }
             }
             onConnected={handleEmbeddedConnected}

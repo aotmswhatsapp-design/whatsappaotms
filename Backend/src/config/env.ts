@@ -112,8 +112,8 @@ export const envSchema = z.object({
   /** Version the platform app calls: code exchange, subscribed_apps, debug_token. */
   META_GRAPH_VERSION: z
     .string()
-    .regex(/^v\d{1,2}\.\d$/, "META_GRAPH_VERSION looks like v23.0")
-    .default("v23.0"),
+    .regex(/^v\d{1,2}\.\d$/, "META_GRAPH_VERSION looks like v27.0")
+    .default("v27.0"),
   /**
    * The token typed into the app's single Webhooks panel. With a platform app
    * Meta verifies the callback URL once for the whole deployment, so there is

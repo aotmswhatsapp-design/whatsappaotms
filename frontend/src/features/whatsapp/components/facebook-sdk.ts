@@ -207,7 +207,11 @@ export function runEmbeddedSignup(input: {
         sdk.init({
           appId: input.appId,
           version: input.version,
-          xfbml: false,
+          // Meta's sample sets this; no `<fb:*>` markup exists in this app, so
+          // the parse pass finds nothing and costs one scan.
+          xfbml: true,
+          // No Facebook Login cookie: the dialog hands the server an OAuth code,
+          // so there is no `fbsr_` cookie worth setting.
           cookie: false,
         });
         initialisedFor = input.appId;

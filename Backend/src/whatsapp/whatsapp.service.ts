@@ -993,7 +993,7 @@ export class WhatsAppService {
   }
 
   private get graphVersion(): string {
-    return this.config.get<string>("META_GRAPH_VERSION") ?? "v23.0";
+    return this.config.get<string>("META_GRAPH_VERSION") ?? "v27.0";
   }
 
   /**
