@@ -45,19 +45,28 @@ const LIST_MAX = 640;
  * Realtime is polling because `EventSource` cannot carry the bearer token the
  * API requires; three seconds is below the point where a reply feels late.
  */
-export function InboxView() {
+export function InboxView({
+  initialConversationId,
+}: {
+  /** `/workspace/inbox?conversation=<id>`, from a run's `Open` link. */
+  initialConversationId?: string;
+}) {
   const [summary, setSummary] = React.useState<InboxSummary | null>(null);
   const [agents, setAgents] = React.useState<InboxAgent[]>([]);
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [thread, setThread] = React.useState<ThreadPayload | null>(null);
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(
+    initialConversationId ?? null,
+  );
 
   const [search, setSearch] = React.useState("");
   const [filters, setFilters] = React.useState<ConversationFilters>({});
 
   const [booted, setBooted] = React.useState(false);
   const [listLoading, setListLoading] = React.useState(true);
-  const [threadLoading, setThreadLoading] = React.useState(false);
+  const [threadLoading, setThreadLoading] = React.useState(
+    initialConversationId !== undefined,
+  );
   const [error, setError] = React.useState<string | null>(null);
 
   // The queue's width belongs to the divider, so it lives in state rather than
@@ -232,6 +241,21 @@ export function InboxView() {
     },
     [],
   );
+
+  // The link carries an id, not a loaded thread. It is opened from a timer
+  // rather than straight from the effect for the same reason the polls above
+  // are: opening sets the thread's own state, and React's lint rules reject a
+  // state update inside an effect body. `openConversation` is memoised with an
+  // empty list, so this runs once per linked id.
+  React.useEffect(() => {
+    if (!initialConversationId) return;
+
+    const timer = window.setTimeout(() => {
+      void openConversation(initialConversationId);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [initialConversationId, openConversation]);
 
   function handleSent(message: InboxMessage): void {
     setThread((current) =>

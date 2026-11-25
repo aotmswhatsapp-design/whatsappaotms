@@ -29,6 +29,8 @@ const MEDIA_KINDS: ReadonlySet<MessageKind> = new Set([
 export const CONVERSATION_SELECT = {
   id: true,
   status: true,
+  aiPausedAt: true,
+  aiPauseReason: true,
   unreadCount: true,
   lastInboundAt: true,
   lastMessageAt: true,
@@ -46,6 +48,7 @@ export const MESSAGE_SELECT = {
   wamid: true,
   direction: true,
   kind: true,
+  agentId: true,
   status: true,
   body: true,
   templateName: true,
@@ -100,6 +103,12 @@ export interface ConversationView {
   unreadCount: number;
   /** False once 24 hours have passed; the composer is disabled then. */
   windowOpen: boolean;
+  /**
+   * Set when a person replied, or when the agent handed the thread over. The
+   * thread header says who stopped it and offers resume.
+   */
+  aiPausedAt: string | null;
+  aiPauseReason: string | null;
 }
 
 /** One card from a contact message, as the bubble draws it. */
@@ -128,6 +137,12 @@ export interface MessageView {
   kind: MessageKind;
   status: MessageStatus;
   body: string | null;
+  /**
+   * The agent that wrote it, or null for every human and campaign send. The
+   * bubble's badge reads this and nothing else, so an AI reply never has to be
+   * inferred from its wording.
+   */
+  agentId: string | null;
   createdAt: string;
   sentAt: string | null;
   deliveredAt: string | null;
@@ -189,6 +204,8 @@ export function conversationView(row: ConversationSource): ConversationView {
     lastInboundAt: iso(row.lastInboundAt),
     unreadCount: row.unreadCount,
     windowOpen: windowOpen(row.lastInboundAt),
+    aiPausedAt: iso(row.aiPausedAt),
+    aiPauseReason: row.aiPauseReason,
   };
 }
 
@@ -203,6 +220,7 @@ export function messageView(
     kind: row.kind,
     status: row.status,
     body: row.body,
+    agentId: row.agentId,
     createdAt: row.createdAt.toISOString(),
     sentAt: iso(row.sentAt),
     deliveredAt: iso(row.deliveredAt),

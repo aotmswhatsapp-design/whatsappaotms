@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
+import { AgentsModule } from "./agents/agents.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuthModule } from "./auth/auth.module";
 import { BusinessModule } from "./business/business.module";
@@ -35,6 +36,7 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module";
       ],
     }),
     PrismaModule,
+    AgentsModule,
     AuthModule,
     WhatsAppModule,
     BusinessModule,

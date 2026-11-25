@@ -53,6 +53,14 @@ export interface Conversation {
   unreadCount: number;
   /** False after 24 hours without a customer message; the composer locks. */
   windowOpen: boolean;
+  /**
+   * Set when the agent stopped answering this thread: a person replied, the
+   * agent handed off, or someone turned it off. Null means an agent may
+   * answer here.
+   */
+  aiPausedAt: string | null;
+  /** Why, in one word — `human`, `manual`, `handoff`, `no-context`. A tooltip. */
+  aiPauseReason: string | null;
 }
 
 export interface InboxMessage {
@@ -61,6 +69,12 @@ export interface InboxMessage {
   kind: MessageKind;
   status: MessageStatus;
   body: string | null;
+  /**
+   * The agent that wrote it, or null for every human and campaign send. The
+   * badge reads this and nothing else, so an AI reply is never guessed from
+   * its wording.
+   */
+  agentId: string | null;
   createdAt: string;
   sentAt: string | null;
   deliveredAt: string | null;
@@ -335,4 +349,16 @@ export function addNote(
 
 export function removeConversation(id: string): Promise<{ deleted: true }> {
   return request(`/v1/inbox/conversations/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Hands one thread back to the agent. Answers 200 with `paused: false`; the
+ * caller applies the change locally and the poll confirms it.
+ */
+export function resumeAi(
+  conversationId: string,
+): Promise<{ paused: boolean }> {
+  return request(`/v1/inbox/conversations/${conversationId}/ai/resume`, {
+    method: "POST",
+  });
 }

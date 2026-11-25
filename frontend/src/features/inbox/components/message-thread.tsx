@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   ArrowLeft,
+  Bot,
   Check,
   CheckCheck,
   ChevronDown,
@@ -33,6 +34,7 @@ import { cn } from "@/lib/utils";
 import {
   ApiError,
   removeConversation,
+  resumeAi,
   sendReaction,
   updateConversation,
   type Conversation,
@@ -104,6 +106,14 @@ export function MessageThread({
   const toast = useToast();
   const scroller = React.useRef<HTMLDivElement>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const [aiBusy, setAiBusy] = React.useState(false);
+  /**
+   * The pause a resume just cleared, as `conversationId:aiPausedAt`. A poll
+   * that read the thread before the POST landed would otherwise put the pill
+   * back, so the stamp itself is remembered rather than its absence — a new
+   * pause writes a new stamp and the pill returns on its own.
+   */
+  const [clearedPause, setClearedPause] = React.useState<string | null>(null);
   const [quoted, setQuoted] = React.useState<InboxMessage | null>(null);
 
   const entries = React.useMemo<Entry[]>(() => {
@@ -206,6 +216,12 @@ export function MessageThread({
 
   const conversation = thread.conversation;
 
+  // The pill is hidden for the one pause this session cleared, whether that
+  // clearing has reached the server's own read yet or not.
+  const aiPaused =
+    conversation.aiPausedAt !== null &&
+    `${conversation.id}:${conversation.aiPausedAt}` !== clearedPause;
+
   async function patch(next: {
     status?: ConversationStatus;
     assignedToUserId?: string | null;
@@ -247,6 +263,44 @@ export function MessageThread({
       });
     } finally {
       setDeleting(false);
+    }
+  }
+
+  /**
+   * Hands the thread back to the agent. The pause itself arrives on its own —
+   * the server sets it on every human text send — and this is the only way to
+   * clear it.
+   */
+  async function resumeAgent(): Promise<void> {
+    if (!thread || aiBusy) return;
+
+    setAiBusy(true);
+
+    try {
+      await resumeAi(thread.conversation.id);
+
+      // Not `onChanged`: a poll can land during the request, and replacing the
+      // whole conversation with the click-time object would drag a newer
+      // status or assignee back. This hides the pill now; the next poll
+      // confirms it with the server's own answer.
+      setClearedPause(
+        `${thread.conversation.id}:${thread.conversation.aiPausedAt}`,
+      );
+
+      toast.push({
+        title: "The agent answers again",
+        description:
+          "The next message from this customer gets a reply from your material.",
+        tone: "success",
+      });
+    } catch (error) {
+      toast.push({
+        title: "Could not resume the agent",
+        description: errorText(error),
+        tone: "error",
+      });
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -329,6 +383,19 @@ export function MessageThread({
               name to a couple of characters. On a phone the same two controls
               are menu items instead. */}
           <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
+            {aiPaused ? (
+              <button
+                type="button"
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-warning/40 px-2.5 text-[11px] font-medium text-warning outline-none transition-colors hover:bg-warning/10 focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:opacity-40"
+                disabled={aiBusy}
+                onClick={() => void resumeAgent()}
+                title={pauseReason(conversation.aiPauseReason)}
+              >
+                <Bot aria-hidden="true" className="size-3.5" />
+                {aiBusy ? "Resuming…" : "AI paused · resume"}
+              </button>
+            ) : null}
+
             <Field>
               <select
                 aria-label="Conversation status"
@@ -451,6 +518,12 @@ export function MessageThread({
                     </span>
                   </DropdownMenuItem>
                 ))}
+                {aiPaused ? (
+                  <DropdownMenuItem onSelect={() => void resumeAgent()}>
+                    <Bot aria-hidden="true" />
+                    Resume the AI agent
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
               </div>
 
@@ -635,6 +708,14 @@ function Bubble({
           ) : null}
 
           <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+            {message.agentId ? (
+              <span
+                className="mr-0.5 rounded-sm border border-brand/35 px-1 text-[9px] leading-4 font-semibold tracking-wide text-brand uppercase"
+                title="The AI agent wrote this, not a person"
+              >
+                AI
+              </span>
+            ) : null}
             <time dateTime={message.createdAt}>{clockTime(message.createdAt)}</time>
             {outbound ? <Tick status={message.status} /> : null}
           </div>
@@ -882,6 +963,26 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
 
 function errorText(error: unknown): string {
   return error instanceof ApiError ? error.message : "Try again.";
+}
+
+/**
+ * Why the agent stopped, in a sentence. The column holds one word — `human`
+ * for a teammate's reply, `manual` for an API pause, `handoff` when the agent
+ * asked for one — and a tooltip should not be a database value.
+ */
+function pauseReason(reason: string | null): string {
+  switch (reason) {
+    case "human":
+      return "A teammate replied here, so the agent stepped back.";
+    case "manual":
+      return "Turned off from this thread.";
+    case "handoff":
+      return "The agent asked for a person on this thread.";
+    case "no-context":
+      return "The material had no answer, so the agent asked for a person.";
+    default:
+      return "The agent is not answering this thread.";
+  }
 }
 
 /**

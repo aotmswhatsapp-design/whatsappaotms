@@ -79,7 +79,9 @@ export class InboxSender {
     private readonly box: SecretBox,
   ) {}
 
-  async text(input: SendTarget & { body: string; quote: Quote | null }): Promise<MessageView> {
+  async text(
+    input: SendTarget & { body: string; quote: Quote | null; agentId?: string },
+  ): Promise<MessageView> {
     const row = await this.prisma.message.create({
       data: {
         workspaceId: input.workspaceId,
@@ -89,6 +91,7 @@ export class InboxSender {
         status: "QUEUED",
         body: input.body,
         contextWamid: input.quote?.wamid ?? null,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
       },
       select: MESSAGE_SELECT,
     });

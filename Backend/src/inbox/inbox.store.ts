@@ -25,6 +25,14 @@ export interface StoreAccount {
   phoneNumberId: string;
 }
 
+/** One inbound message this delivery actually inserted. */
+export interface StoredInbound {
+  conversationId: string;
+  messageId: string;
+  kind: MessageKind;
+  body: string | null;
+}
+
 /**
  * Writes deliveries into the inbox.
  *
@@ -40,12 +48,17 @@ export class InboxStore {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Never throws into the webhook: a storage failure must not make Meta retry. */
-  async record(account: StoreAccount, changes: ParsedChange[]): Promise<void> {
+  async record(
+    account: StoreAccount,
+    changes: ParsedChange[],
+  ): Promise<StoredInbound[]> {
+    const stored: StoredInbound[] = [];
+
     for (const change of changes) {
       if (change.phoneNumberId !== account.phoneNumberId) continue;
 
       try {
-        await this.applyChange(account, change);
+        stored.push(...(await this.applyChange(account, change)));
       } catch (error) {
         // No bodies, ever: this line reaches a hosting provider's log stream.
         this.logger.error(
@@ -55,9 +68,16 @@ export class InboxStore {
         );
       }
     }
+
+    return stored;
   }
 
-  private async applyChange(account: StoreAccount, change: ParsedChange) {
+  private async applyChange(
+    account: StoreAccount,
+    change: ParsedChange,
+  ): Promise<StoredInbound[]> {
+    const stored: StoredInbound[] = [];
+
     for (const contact of change.contacts) {
       await this.prisma.contact.upsert({
         where: {
@@ -79,19 +99,22 @@ export class InboxStore {
     }
 
     for (const message of change.messages) {
-      await this.storeMessage(account, change, message);
+      const row = await this.storeMessage(account, change, message);
+      if (row) stored.push(row);
     }
 
     for (const status of change.statuses) {
       await this.applyStatus(status.wamid, status.status, status.error);
     }
+
+    return stored;
   }
 
   private async storeMessage(
     account: StoreAccount,
     change: ParsedChange,
     message: ParsedMessage,
-  ) {
+  ): Promise<StoredInbound | null> {
     const name = change.contacts.find((row) => row.waId === message.from);
 
     const contact = await this.prisma.contact.upsert({
@@ -131,7 +154,7 @@ export class InboxStore {
     });
 
     // Meta retries a delivery whenever it is unsure we received it.
-    if (seen) return;
+    if (seen) return null;
 
     // An empty emoji is a removal of the customer's own reaction, not a new
     // message: keep the thread truthful by dropping the one it cancels.
@@ -145,10 +168,10 @@ export class InboxStore {
         },
       });
 
-      return;
+      return null;
     }
 
-    await this.prisma.message.create({
+    const saved = await this.prisma.message.create({
       data: {
         workspaceId: account.workspaceId,
         conversationId: conversation.id,
@@ -168,6 +191,7 @@ export class InboxStore {
           : {}),
         createdAt: message.timestamp,
       },
+      select: { id: true },
     });
 
     // An old retry must not drag the thread back to the top of the list.
@@ -189,6 +213,13 @@ export class InboxStore {
           : {}),
       },
     });
+
+    return {
+      conversationId: conversation.id,
+      messageId: saved.id,
+      kind: message.kind,
+      body: message.body,
+    };
   }
 
   private async applyStatus(

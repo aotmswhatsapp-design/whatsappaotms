@@ -53,6 +53,8 @@ model User {
 
   assignedConversations Conversation[] @relation("ConversationAssignee")
   notes                 InternalNote[] @relation("NoteAuthor")
+  /// Threads this user paused the agent on by replying to one.
+  aiPauses              Conversation[] @relation("AiPauseActor")
 
   @@map("users")
 }
@@ -77,6 +79,7 @@ model Workspace {
   messages      Message[]
   templates     MessageTemplate[]
   campaigns     Campaign[]
+  agents        Agent[]
 
   /// Cost and usage snapshots. Kept per workspace so no report can ever
   /// straddle two tenants.
@@ -204,6 +207,9 @@ model WhatsAppAccount {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   conversations Conversation[]
+  /// At most one of these may be active: the partial unique index
+  /// `agents_one_active_per_account` enforces it, not the service.
+  agents        Agent[]
 
   /// Every delivery looks a row up by the number Meta names in the payload.
   @@index([phoneNumberId])
@@ -326,6 +332,11 @@ model Conversation {
   contactId          String             @map("contact_id") @db.Uuid
   status             ConversationStatus @default(OPEN)
   assignedToUserId   String?            @map("assigned_to_user_id") @db.Uuid
+  /// Set the moment a human replies, or when the agent hands off. The agent
+  /// stops answering for this thread until it is cleared.
+  aiPausedAt         DateTime?          @map("ai_paused_at")
+  aiPausedByUserId   String?            @map("ai_paused_by_user_id") @db.Uuid
+  aiPauseReason      String?            @map("ai_pause_reason")
   lastInboundAt      DateTime?          @map("last_inbound_at")
   lastMessageAt      DateTime           @default(now()) @map("last_message_at")
   lastMessagePreview String?            @map("last_message_preview")
@@ -337,6 +348,7 @@ model Conversation {
   account    WhatsAppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   contact    Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
   assignedTo User?           @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  aiPausedBy User?           @relation("AiPauseActor", fields: [aiPausedByUserId], references: [id], onDelete: SetNull)
   messages   Message[]
   notes      InternalNote[]
 
@@ -384,6 +396,8 @@ model Message {
   /// Set by the campaign runner. Null for every other send, which is what
   /// keeps campaign insights a single indexed groupBy.
   campaignId     String?          @map("campaign_id") @db.Uuid
+  /// Which agent wrote it. Null for every human and campaign send.
+  agentId        String?          @map("agent_id") @db.Uuid
   sentAt         DateTime?        @map("sent_at")
   deliveredAt    DateTime?        @map("delivered_at")
   readAt         DateTime?        @map("read_at")
@@ -393,11 +407,13 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   /// Back-relation for the campaign that sent it, if any.
   recipient    CampaignRecipient?
+  agent        Agent?            @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
   @@index([contextWamid])
   @@index([campaignId])
+  @@index([agentId])
   @@map("messages")
 }
 
@@ -757,4 +773,145 @@ model AnalyticsSyncRun {
 
   @@index([workspaceId, startedAt])
   @@map("analytics_sync_runs")
+}
+
+// ---------------------------------------------------------------------------
+// AI agents
+// ---------------------------------------------------------------------------
+
+enum AgentSourceKind {
+  TEXT
+  FILE
+}
+
+enum AgentSourceStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum AgentRunKind {
+  REPLY
+  PLAYGROUND
+}
+
+enum AgentRunStatus {
+  QUEUED
+  CLAIMED
+  SENT
+  SKIPPED
+  FAILED
+}
+
+/// One prompt and one knowledge base, bound to the number that answers.
+/// "Training" is indexing: nothing here submits a fine-tune.
+model Agent {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  whatsappAccountId String   @map("whatsapp_account_id") @db.Uuid
+  name              String
+  description       String?
+  /// The instructions. Never a place for customer text: that arrives as a turn.
+  systemPrompt      String   @map("system_prompt")
+  model             String   @default("gpt-5.4-mini")
+  temperature       Float    @default(0.4)
+  maxReplyChars     Int      @default(900) @map("max_reply_chars")
+  escalateKeywords  String[] @default([]) @map("escalate_keywords")
+  isActive          Boolean  @default(false) @map("is_active")
+  createdByUserId   String?  @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  account   WhatsAppAccount   @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  sources   KnowledgeSource[]
+  runs      AgentRun[]
+  messages  Message[]
+
+  @@index([whatsappAccountId, isActive])
+  @@index([workspaceId, createdAt])
+  @@map("agents")
+}
+
+/// One upload or typed note. `storagePath` survives the chunks, so a source can
+/// be re-indexed against a new embedding model without asking for the file again.
+model KnowledgeSource {
+  id          String              @id @default(uuid()) @db.Uuid
+  agentId     String              @map("agent_id") @db.Uuid
+  kind        AgentSourceKind
+  title       String
+  mime        String?
+  size        Int?
+  storagePath String?             @map("storage_path")
+  /// The extracted text, kept verbatim. Re-embedding reads this, not the vendor.
+  text        String?
+  status      AgentSourceStatus   @default(PENDING)
+  error       String?
+  charCount   Int                 @default(0) @map("char_count")
+  chunkCount  Int                 @default(0) @map("chunk_count")
+  embedTokens Int                 @default(0) @map("embed_tokens")
+  /// Indexing attempts. A row that keeps failing is left FAILED, not looped.
+  attempts    Int                 @default(0)
+  indexedAt   DateTime?           @map("indexed_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  agent  Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  chunks KnowledgeChunk[]
+
+  @@index([agentId, createdAt])
+  @@map("knowledge_sources")
+}
+
+model KnowledgeChunk {
+  id        String   @id @default(uuid()) @db.Uuid
+  sourceId  String   @map("source_id") @db.Uuid
+  ord       Int
+  text      String
+  tokens    Int
+  /// Nullable because Prisma can neither read nor write a vector: the row is
+  /// created here and the vector is filled by raw SQL. A row with no embedding
+  /// is invisible to search, which is exactly right for a half-finished index.
+  embedding Unsupported("vector(1536)")?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  source KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, ord])
+  @@index([sourceId])
+  @@map("knowledge_chunks")
+}
+
+/// One claimable unit of AI work. A reply and a playground question are both
+/// runs, so the usage screen has one table to sum.
+model AgentRun {
+  id                String         @id @default(uuid()) @db.Uuid
+  workspaceId       String         @map("workspace_id") @db.Uuid
+  agentId           String         @map("agent_id") @db.Uuid
+  kind              AgentRunKind   @default(REPLY)
+  conversationId    String?        @map("conversation_id") @db.Uuid
+  /// Unique: a retried Meta delivery can never produce a second reply.
+  inboundMessageId  String?        @unique @map("inbound_message_id") @db.Uuid
+  outboundMessageId String?        @map("outbound_message_id") @db.Uuid
+  status            AgentRunStatus @default(QUEUED)
+  /// Why a run was left unsent, in one word: paused, superseded, window-closed,
+  /// no-context, no-agent, handoff.
+  reason            String?
+  tokensIn          Int            @default(0) @map("tokens_in")
+  tokensOut         Int            @default(0) @map("tokens_out")
+  embeddingTokens   Int            @default(0) @map("embedding_tokens")
+  latencyMs         Int?           @map("latency_ms")
+  error             String?
+  attempts          Int            @default(0)
+  claimedAt         DateTime?      @map("claimed_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([agentId, createdAt])
+  @@index([conversationId, createdAt])
+  @@map("agent_runs")
 }

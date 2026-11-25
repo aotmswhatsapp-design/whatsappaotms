@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
+import { ReplyIntake } from "../agents/reply.intake";
 import { SecretBox } from "../common/crypto/secret-box";
 import { parseDelivery } from "../inbox/inbox.payload";
 import { InboxStore } from "../inbox/inbox.store";
@@ -40,6 +41,7 @@ export class WhatsAppWebhookService {
     private readonly box: SecretBox,
     private readonly config: ConfigService,
     private readonly store: InboxStore,
+    private readonly intake: ReplyIntake,
   ) {}
 
   /**
@@ -224,7 +226,7 @@ export class WhatsAppWebhookService {
       });
 
       if (receivedMessage) {
-        await this.store.record(
+        const stored = await this.store.record(
           {
             id: account.id,
             workspaceId: account.workspaceId,
@@ -234,6 +236,22 @@ export class WhatsAppWebhookService {
         );
 
         this.logger.log(`Signed delivery stored for ${account.phoneNumberId}.`);
+
+        // A failed enqueue must never answer Meta with 500: a retry cannot fix
+        // a database write that already failed, and the message is visible to a
+        // person in the Inbox regardless.
+        try {
+          await this.intake.enqueue(
+            { id: account.id, workspaceId: account.workspaceId },
+            stored,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Could not queue an AI reply for ${account.phoneNumberId}: ${
+              error instanceof Error ? error.message : "unknown failure"
+            }`,
+          );
+        }
       }
 
       if (mine.length > 0) {
