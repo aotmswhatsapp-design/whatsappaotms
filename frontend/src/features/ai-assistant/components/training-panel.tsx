@@ -41,13 +41,17 @@ export function TrainingPanel({
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [fails, setFails] = React.useState(0);
 
-  const signature = React.useRef("");
+  /** `null` until the first response: an empty list is a signature too. */
+  const signature = React.useRef<string | null>(null);
   const report = React.useRef(onSourcesChanged);
 
   // Refreshed in an effect rather than during render: a ref written while
-  // rendering is a render the reader cannot trust. The fetch effect below is
-  // declared after this one, so it always sees the current callback.
+  // rendering is a render the reader cannot trust. Effects run in declaration
+  // order, so the fetch below starts with the current callback on mount; a
+  // request already in flight can still resolve with the one before it, which
+  // costs at most one skipped parent refresh.
   React.useEffect(() => {
     report.current = onSourcesChanged;
   }, [onSourcesChanged]);
@@ -65,12 +69,14 @@ export function TrainingPanel({
         const now = next.sources.map((row) => `${row.id}:${row.status}`).join(",");
 
         // A row finishing changes the ready count in the header, so tell the
-        // parent only when a status actually moved.
-        if (signature.current !== "" && signature.current !== now) {
+        // parent only when a status actually moved. The first response only
+        // records the signature: the parent has just rendered this list.
+        if (signature.current !== null && signature.current !== now) {
           report.current();
         }
 
         signature.current = now;
+        setFails(0);
       })
       .catch((caught: unknown) => {
         if (!active) return;
@@ -79,6 +85,8 @@ export function TrainingPanel({
             ? caught.message
             : "The training material could not be read.",
         );
+        // Counted so the poll below slows down instead of hammering a dead API.
+        setFails((count) => count + 1);
       });
 
     return () => {
@@ -94,10 +102,15 @@ export function TrainingPanel({
   React.useEffect(() => {
     if (!working) return;
 
-    const timer = window.setTimeout(() => setAttempt((count) => count + 1), 3_000);
+    // One timeout per fetch, never an interval. A successful fetch replaces
+    // `sources`, which re-arms this; a failed one changes only `fails`, which
+    // re-arms it more slowly — stopping on a dropped request would leave a
+    // PROCESSING row on screen forever with nothing left to fetch it.
+    const delay = Math.min(3_000 * 2 ** fails, 30_000);
+    const timer = window.setTimeout(() => setAttempt((count) => count + 1), delay);
 
     return () => window.clearTimeout(timer);
-  }, [working, sources]);
+  }, [working, sources, fails]);
 
   async function addNote() {
     if (saving) return;
@@ -172,8 +185,11 @@ export function TrainingPanel({
           value={title}
         />
 
+        <Label className="mt-3" htmlFor="note-body">
+          Note text
+        </Label>
         <textarea
-          className={cn(FIELD, "mt-2 min-h-[120px] resize-y py-2.5 leading-relaxed")}
+          className={cn(FIELD, "mt-1.5 min-h-[120px] resize-y py-2.5 leading-relaxed")}
           disabled={saving}
           id="note-body"
           maxLength={MAX_NOTE}

@@ -111,9 +111,12 @@ export function UploadDropzone({
         if (file) void send(file);
       }}
     >
+      {/* `hidden`, not `sr-only`: the button below is the control a person sees
+          and tabs to, and a second focusable file input would be a stop with no
+          name. A programmatic click still opens the picker. */}
       <input
         accept={ACCEPT}
-        className="sr-only"
+        className="hidden"
         disabled={busy}
         onChange={(event) => {
           const file = event.target.files?.[0];
