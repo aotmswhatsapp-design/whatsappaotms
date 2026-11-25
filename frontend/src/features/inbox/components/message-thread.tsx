@@ -107,6 +107,13 @@ export function MessageThread({
   const scroller = React.useRef<HTMLDivElement>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [aiBusy, setAiBusy] = React.useState(false);
+  /**
+   * The pause a resume just cleared, as `conversationId:aiPausedAt`. A poll
+   * that read the thread before the POST landed would otherwise put the pill
+   * back, so the stamp itself is remembered rather than its absence — a new
+   * pause writes a new stamp and the pill returns on its own.
+   */
+  const [clearedPause, setClearedPause] = React.useState<string | null>(null);
   const [quoted, setQuoted] = React.useState<InboxMessage | null>(null);
 
   const entries = React.useMemo<Entry[]>(() => {
@@ -209,6 +216,12 @@ export function MessageThread({
 
   const conversation = thread.conversation;
 
+  // The pill is hidden for the one pause this session cleared, whether that
+  // clearing has reached the server's own read yet or not.
+  const aiPaused =
+    conversation.aiPausedAt !== null &&
+    `${conversation.id}:${conversation.aiPausedAt}` !== clearedPause;
+
   async function patch(next: {
     status?: ConversationStatus;
     assignedToUserId?: string | null;
@@ -266,13 +279,13 @@ export function MessageThread({
     try {
       await resumeAi(thread.conversation.id);
 
-      // The three-second poll would land on this either way. Applying it now
-      // means the pill disappears under the click that cleared it.
-      onChanged({
-        ...thread.conversation,
-        aiPausedAt: null,
-        aiPauseReason: null,
-      });
+      // Not `onChanged`: a poll can land during the request, and replacing the
+      // whole conversation with the click-time object would drag a newer
+      // status or assignee back. This hides the pill now; the next poll
+      // confirms it with the server's own answer.
+      setClearedPause(
+        `${thread.conversation.id}:${thread.conversation.aiPausedAt}`,
+      );
 
       toast.push({
         title: "The agent answers again",
@@ -370,7 +383,7 @@ export function MessageThread({
               name to a couple of characters. On a phone the same two controls
               are menu items instead. */}
           <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
-            {conversation.aiPausedAt ? (
+            {aiPaused ? (
               <button
                 type="button"
                 className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-warning/40 px-2.5 text-[11px] font-medium text-warning outline-none transition-colors hover:bg-warning/10 focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:opacity-40"
@@ -505,7 +518,7 @@ export function MessageThread({
                     </span>
                   </DropdownMenuItem>
                 ))}
-                {conversation.aiPausedAt ? (
+                {aiPaused ? (
                   <DropdownMenuItem onSelect={() => void resumeAgent()}>
                     <Bot aria-hidden="true" />
                     Resume the AI agent
