@@ -42,6 +42,17 @@ export interface ClaimedRun {
 }
 
 /**
+ * What one run has paid for so far. Written as each call returns rather than
+ * at the end, so a run that fails after the spend still shows it.
+ */
+export interface RunUsage {
+  tokensIn?: number;
+  tokensOut?: number;
+  embeddingTokens?: number;
+  latencyMs?: number;
+}
+
+/**
  * Turns one queued run into one WhatsApp message, or into a recorded reason
  * why there is none.
  *
@@ -91,18 +102,18 @@ export class ReplyService {
         status: "CLAIMED",
         claimedAt: { lt: new Date(Date.now() - STALE_MS) },
       },
-      select: { id: true, attempts: true },
+      select: { id: true, attempts: true, claimedAt: true },
     });
 
     let recovered = 0;
 
     for (const row of stale) {
-      // Conditional on the row still being `CLAIMED`: between the read above
-      // and this write a slow worker can finish and record `SENT`, and an
-      // unconditional update by id would drag a completed run back into the
-      // queue and answer the customer twice.
+      // Conditional on the exact claim that went stale: between the read above
+      // and this write the sweep of another process can have requeued the row
+      // and a worker can have claimed it again, and matching on `CLAIMED`
+      // alone would drag that fresh claim back into the queue mid-answer.
       const result = await this.prisma.agentRun.updateMany({
-        where: { id: row.id, status: "CLAIMED" },
+        where: { id: row.id, status: "CLAIMED", claimedAt: row.claimedAt },
         data:
           row.attempts >= MAX_ATTEMPTS
             ? {
@@ -254,14 +265,28 @@ export class ReplyService {
       // ignore
     }
 
+    // Every paid call lands here the moment it returns, so a run that fails
+    // after the spend — a refused send, an empty answer — still records what
+    // it cost. `undefined` fields are left unwritten.
+    const spent: RunUsage = {};
+
     try {
       const { chunks, embedTokens } = await this.retrieval.search(
         agent.id,
         question,
       );
 
+      spent.embeddingTokens = embedTokens;
+
       if (chunks.length === 0) {
-        await this.handoff(run.id, conversation.id, target, agent.id, "no-context");
+        await this.handoff(
+          run.id,
+          conversation.id,
+          target,
+          agent.id,
+          "no-context",
+          { ...spent, latencyMs: Date.now() - started },
+        );
         return;
       }
 
@@ -283,13 +308,23 @@ export class ReplyService {
         maxTokens: MAX_TOKENS,
       });
 
+      spent.tokensIn = answer.tokensIn;
+      spent.tokensOut = answer.tokensOut;
+
       const body = cleanReply(answer.text, {
         maxChars: agent.maxReplyChars,
         context: chunks.map((chunk) => chunk.text).join("\n\n"),
       });
 
       if (!body) {
-        await this.handoff(run.id, conversation.id, target, agent.id, "no-context");
+        await this.handoff(
+          run.id,
+          conversation.id,
+          target,
+          agent.id,
+          "no-context",
+          { ...spent, latencyMs: Date.now() - started },
+        );
         return;
       }
 
@@ -334,6 +369,7 @@ export class ReplyService {
           status: "FAILED",
           error: sentenceOf(error),
           latencyMs: Date.now() - started,
+          ...spent,
         },
       });
     }
@@ -383,6 +419,7 @@ export class ReplyService {
     target: SendTarget,
     agentId: string,
     reason: string,
+    usage: RunUsage = {},
   ): Promise<void> {
     await this.pause(conversationId, reason);
 
@@ -401,6 +438,7 @@ export class ReplyService {
           reason,
           outboundMessageId: sent.id,
           error: null,
+          ...usage,
         },
       });
     } catch (error) {
@@ -408,7 +446,7 @@ export class ReplyService {
       // never received the line, which is worth recording.
       await this.prisma.agentRun.update({
         where: { id: runId },
-        data: { status: "SKIPPED", reason, error: sentenceOf(error) },
+        data: { status: "SKIPPED", reason, error: sentenceOf(error), ...usage },
       });
     }
   }

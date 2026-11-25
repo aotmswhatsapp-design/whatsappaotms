@@ -15,7 +15,7 @@ import { MediaStorage } from "../inbox/media.storage";
 import { AiError, ExtractError } from "./ai.errors";
 import { OpenAiProvider, toVector } from "./ai.openai";
 import { extractDocument, extensionOf } from "./extract";
-import { OpenAiMediaExtractor } from "./extract.media";
+import { OpenAiMediaExtractor, resolveMime } from "./extract.media";
 import {
   MAX_CHUNKS,
   estimateTokens,
@@ -304,10 +304,21 @@ export class KnowledgeService {
             `,
           ),
         );
+
+        // Renew the lease: `recoverStale` measures a live job by `updatedAt`,
+        // and a long document is several minutes of paid calls. Without this a
+        // busy source looks like a dead process and is handed to a second
+        // worker, which pays for the same embeddings twice.
+        await this.prisma.knowledgeSource.updateMany({
+          where: { id: source.id, status: "PROCESSING" },
+          data: { updatedAt: new Date() },
+        });
       }
 
-      await this.prisma.knowledgeSource.update({
-        where: { id: source.id },
+      // Conditional on still owning the row: if ownership was lost mid-job the
+      // newer attempt's status is the truth, and this one must not overwrite it.
+      const finished = await this.prisma.knowledgeSource.updateMany({
+        where: { id: source.id, status: "PROCESSING" },
         data: {
           text,
           charCount: text.length,
@@ -319,9 +330,11 @@ export class KnowledgeService {
         },
       });
 
-      this.logger.log(
-        `Indexed ${rows.length} chunks for source ${source.id} (${source.title}).`,
-      );
+      if (finished.count > 0) {
+        this.logger.log(
+          `Indexed ${rows.length} chunks for source ${source.id} (${source.title}).`,
+        );
+      }
     } catch (error) {
       await this.fail(source.id, error);
     }
@@ -373,7 +386,7 @@ export class KnowledgeService {
     }
 
     const bytes = await this.storage.download(source.storagePath);
-    const mime = source.mime ?? "";
+    const mime = resolveMime(source.mime, source.title);
 
     if (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/")) {
       return (await this.media.read({

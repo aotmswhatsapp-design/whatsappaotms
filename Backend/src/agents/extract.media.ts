@@ -45,6 +45,23 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 };
 
 /**
+ * The declared type when it says something, the extension when it does not.
+ *
+ * A browser that cannot name a type sends `application/octet-stream`, and an
+ * upload without a type sends nothing at all; in both cases the file's own
+ * extension is better evidence, and without this a valid `menu.png` would be
+ * handed to the document reader that has no branch for it.
+ */
+export function resolveMime(declared: string | null, name: string): string {
+  const base = (declared ?? "").toLowerCase().split(";")[0].trim();
+  const byName = MIME_BY_EXTENSION[extensionOf(name)] ?? "";
+
+  if (!base || base === "application/octet-stream") return byName || base;
+
+  return base.includes("/") ? base : byName || base;
+}
+
+/**
  * The one place an image or a voice note becomes text.
  *
  * Both halves are the same OpenAI key as the reply engine: vision is the
@@ -62,7 +79,7 @@ export class OpenAiMediaExtractor {
     /** The agent's model, so vision is read by the model that will answer. */
     model: string;
   }): Promise<{ text: string }> {
-    const mime = this.mimeOf(input);
+    const mime = resolveMime(input.mime, input.name);
 
     if (IMAGE_MIMES.has(mime) || mime.startsWith("image/")) {
       if (!IMAGE_MIMES.has(mime)) {
@@ -115,13 +132,5 @@ export class OpenAiMediaExtractor {
       "SOURCE_UNSUPPORTED",
       "That file type is not one the agent can read.",
     );
-  }
-
-  private mimeOf(input: { mime: string; name: string }): string {
-    const declared = input.mime.toLowerCase().split(";")[0].trim();
-
-    if (declared.includes("/")) return declared;
-
-    return MIME_BY_EXTENSION[extensionOf(input.name)] ?? "";
   }
 }
