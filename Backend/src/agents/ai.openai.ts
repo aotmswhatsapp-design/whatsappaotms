@@ -271,11 +271,22 @@ export class OpenAiProvider {
     let last: unknown = null;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      let response: Response;
+      let outcome: { ok: true; body: unknown } | { ok: false; response: Response };
 
       try {
-        response = await fetch(`${this.base}${path}`, build());
+        const response = await fetch(`${this.base}${path}`, build());
+
+        // The body is read inside the guard too: a download aborted after the
+        // headers arrive is a failed attempt, not an unclassified error that
+        // escapes the retry loop.
+        outcome = response.ok
+          ? { ok: true, body: await response.json() }
+          : { ok: false, response };
       } catch (error) {
+        // A missing key or a refused parameter reads the same on every attempt,
+        // so an AiError that is not retryable leaves the loop immediately.
+        if (error instanceof AiError && !error.retryable) throw error;
+
         last = error;
         if (attempt === attempts) break;
         this.logger.warn(
@@ -285,8 +296,9 @@ export class OpenAiProvider {
         continue;
       }
 
-      if (response.ok) return response.json();
+      if (outcome.ok) return outcome.body;
 
+      const response = outcome.response;
       const detail = await sentenceOf(response);
 
       if (response.status === 401 || response.status === 403) {
