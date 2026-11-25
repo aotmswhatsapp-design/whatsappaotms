@@ -442,20 +442,23 @@ export class KnowledgeService {
     if (spent.length > 0) {
       const ids = spent.map((row) => row.id);
 
-      await this.prisma.knowledgeSource.updateMany({
-        where: { id: { in: ids }, status: "PROCESSING", updatedAt: { lt: cut } },
-        data: {
-          status: "FAILED",
-          error: "Indexing was interrupted repeatedly and will not be retried automatically. Use Retry.",
-          chunkCount: 0,
-        },
-      });
-
-      // Only rows still FAILED lose their chunks: one that turned READY between
-      // the two statements has real chunks and keeps them.
-      await this.prisma.knowledgeChunk.deleteMany({
-        where: { sourceId: { in: ids }, source: { status: "FAILED" } },
-      });
+      // Both writes or neither: a row left FAILED with its chunks attached is
+      // the half-read file this branch exists to prevent. Within the
+      // transaction the delete sees the FAILED written just before it, so the
+      // relation filter also protects a row a live runner turned READY.
+      await this.prisma.$transaction([
+        this.prisma.knowledgeSource.updateMany({
+          where: { id: { in: ids }, status: "PROCESSING", updatedAt: { lt: cut } },
+          data: {
+            status: "FAILED",
+            error: "Indexing was interrupted repeatedly and will not be retried automatically. Use Retry.",
+            chunkCount: 0,
+          },
+        }),
+        this.prisma.knowledgeChunk.deleteMany({
+          where: { sourceId: { in: ids }, source: { status: "FAILED" } },
+        }),
+      ]);
     }
 
     await this.prisma.knowledgeSource.updateMany({
