@@ -246,19 +246,7 @@ export class KnowledgeService {
    * here would stop every other source behind it.
    */
   async index(sourceId: string): Promise<void> {
-    const source = await this.prisma.knowledgeSource.findUnique({
-      where: { id: sourceId },
-      select: {
-        id: true,
-        kind: true,
-        title: true,
-        mime: true,
-        storagePath: true,
-        text: true,
-        status: true,
-        agent: { select: { model: true } },
-      },
-    });
+    const source = await this.loadForIndex(sourceId);
 
     if (!source || source.status !== "PROCESSING") return;
 
@@ -339,6 +327,32 @@ export class KnowledgeService {
     }
   }
 
+  /**
+   * The lookup is a database call like any other. If it rejects, the source is
+   * recorded as failed rather than escaping a method that promised not to
+   * throw and leaving a claimed row stranded in PROCESSING.
+   */
+  private async loadForIndex(sourceId: string) {
+    try {
+      return await this.prisma.knowledgeSource.findUnique({
+        where: { id: sourceId },
+        select: {
+          id: true,
+          kind: true,
+          title: true,
+          mime: true,
+          storagePath: true,
+          text: true,
+          status: true,
+          agent: { select: { model: true } },
+        },
+      });
+    } catch (error) {
+      await this.fail(sourceId, error);
+      return null;
+    }
+  }
+
   private async readSource(source: {
     id: string;
     kind: "TEXT" | "FILE";
@@ -387,16 +401,22 @@ export class KnowledgeService {
 
     this.logger.warn(`Source ${sourceId} failed: ${message}`);
 
-    await this.prisma.knowledgeChunk
-      .deleteMany({ where: { sourceId } })
-      .catch(() => undefined);
-
-    await this.prisma.knowledgeSource
-      .update({
-        where: { id: sourceId },
-        data: { status: "FAILED", error: message, chunkCount: 0 },
-      })
-      .catch(() => undefined);
+    // One transaction: a row marked FAILED with its chunks still attached would
+    // answer from a half-read file. If the cleanup itself cannot be written,
+    // the row stays PROCESSING and stale recovery hands it another attempt.
+    await this.prisma
+      .$transaction([
+        this.prisma.knowledgeChunk.deleteMany({ where: { sourceId } }),
+        this.prisma.knowledgeSource.update({
+          where: { id: sourceId },
+          data: { status: "FAILED", error: message, chunkCount: 0 },
+        }),
+      ])
+      .catch((failure: unknown) => {
+        this.logger.warn(
+          `Could not record the failure for source ${sourceId}: ${failure instanceof Error ? failure.message : "unknown error"}`,
+        );
+      });
   }
 
   /**
@@ -407,17 +427,36 @@ export class KnowledgeService {
   async recoverStale(): Promise<void> {
     const cut = new Date(Date.now() - STALE_MS);
 
-    await this.prisma.knowledgeSource.updateMany({
+    // A row that has spent its attempts is finished with, and its chunks must
+    // go with it — the failed branch of `fail`, for a process that died before
+    // it could run.
+    const spent = await this.prisma.knowledgeSource.findMany({
       where: {
         status: "PROCESSING",
         updatedAt: { lt: cut },
         attempts: { gte: MAX_ATTEMPTS - 1 },
       },
-      data: {
-        status: "FAILED",
-        error: "Indexing was interrupted repeatedly and will not be retried automatically. Use Retry.",
-      },
+      select: { id: true },
     });
+
+    if (spent.length > 0) {
+      const ids = spent.map((row) => row.id);
+
+      await this.prisma.knowledgeSource.updateMany({
+        where: { id: { in: ids }, status: "PROCESSING", updatedAt: { lt: cut } },
+        data: {
+          status: "FAILED",
+          error: "Indexing was interrupted repeatedly and will not be retried automatically. Use Retry.",
+          chunkCount: 0,
+        },
+      });
+
+      // Only rows still FAILED lose their chunks: one that turned READY between
+      // the two statements has real chunks and keeps them.
+      await this.prisma.knowledgeChunk.deleteMany({
+        where: { sourceId: { in: ids }, source: { status: "FAILED" } },
+      });
+    }
 
     await this.prisma.knowledgeSource.updateMany({
       where: { status: "PROCESSING", updatedAt: { lt: cut } },
