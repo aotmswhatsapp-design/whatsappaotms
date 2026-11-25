@@ -174,7 +174,10 @@ export class CampaignsService {
       }),
       this.prisma.campaignRecipient.findMany({
         where: { campaignId: id },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        // Newest first. A number added to a campaign is appended at the end of
+        // the chronological list, so an ascending first page hid it behind
+        // "Load more" — the count rose while the table looked unchanged.
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: RECIPIENT_PAGE + 1,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         select: {

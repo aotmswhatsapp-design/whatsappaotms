@@ -81,6 +81,7 @@ export const plans: PricingPlan[] = [
     description: "For teams sending campaigns and answering a live inbox daily.",
     features: [
       "WhatsApp + Instagram",
+      "700 Conversations per month",
       "Owner + 5 agents included",
       "200 AI generated messages",
       "Visual flow builder for WhatsApp journeys (lead capture, follow-ups, COD flows)",
@@ -113,6 +114,7 @@ export const plans: PricingPlan[] = [
     description: "Every module, plus the controls an operations team asks for.",
     features: [
       "Owner + 15 agents included",
+      "2400 Conversations per month",
       "500 AI generated messages",
       "AI-assisted flow builder with intent-based routing",
       "Al content writer, reply suggestions & flow blueprints",

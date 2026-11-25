@@ -29,6 +29,8 @@ import { MessageThread } from "./message-thread";
 
 /** How often the open thread asks for new messages. */
 const THREAD_POLL_MS = 3_000;
+/** The queue and the header refresh on their own beat; both are heavier queries. */
+const QUEUE_POLL_MS = 5_000;
 const SEARCH_DEBOUNCE_MS = 300;
 
 /** Bounds for the queue pane. Narrower clips the preview; wider starves the thread. */
@@ -168,6 +170,28 @@ export function InboxView() {
       window.clearTimeout(timer);
     };
   }, [selectedId]);
+
+  // Nothing is pushed to the browser, so the queue and the unread counters
+  // refresh themselves while the page is open. Without this, a message from a
+  // customer who is not the open thread — and every new conversation — only
+  // appeared after a reload.
+  React.useEffect(() => {
+    let active = true;
+    let timer = 0;
+
+    const tick = async (): Promise<void> => {
+      await Promise.all([refreshList(), refreshSummary()]);
+
+      if (active) timer = window.setTimeout(tick, QUEUE_POLL_MS);
+    };
+
+    timer = window.setTimeout(tick, QUEUE_POLL_MS);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [refreshList, refreshSummary]);
 
   const openConversation = React.useCallback(
     async (id: string): Promise<void> => {

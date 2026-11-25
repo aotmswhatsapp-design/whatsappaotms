@@ -282,16 +282,6 @@ export function ConversationList({
                               {conversation.contact.name ??
                                 displayPhone(conversation.contact.waId)}
                             </span>
-                            <span
-                              className={cn(
-                                "ml-auto shrink-0 text-[10px] tabular-nums",
-                                unread
-                                  ? "font-semibold text-brand"
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              {relativeTime(conversation.lastMessageAt)}
-                            </span>
                           </span>
 
                           <span className="mt-1 flex items-center gap-1.5">
@@ -327,6 +317,21 @@ export function ConversationList({
                                   : "Closed"}
                               </span>
                             ) : null}
+                          </span>
+
+                          {/* The time gets its own line. On the name row it
+                              competed for width with the name and read as part
+                              of it; here it sits under the preview, aligned to
+                              the row's edge the way WhatsApp stacks it. */}
+                          <span
+                            className={cn(
+                              "mt-0.5 block text-right text-[10px] tabular-nums",
+                              unread
+                                ? "font-semibold text-brand"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {relativeTime(conversation.lastMessageAt)}
                           </span>
                         </span>
                       </button>
