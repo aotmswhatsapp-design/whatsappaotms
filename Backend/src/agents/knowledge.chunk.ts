@@ -24,14 +24,17 @@ export function splitText(raw: string): string[] {
 
   while (start < text.length) {
     const hard = Math.min(start + CHUNK_CHARS, text.length);
-    const end =
+    const end = wholePointAt(
+      text,
       hard < text.length
         ? (boundaryOf(
             text,
             Math.max(start + CHUNK_CHARS - BOUNDARY_LOOKBACK, start + 1),
             hard,
           ) ?? hard)
-        : hard;
+        : hard,
+      -1,
+    );
 
     const piece = text.slice(start, end).trim();
     if (piece.length > 0) chunks.push(piece);
@@ -39,10 +42,25 @@ export function splitText(raw: string): string[] {
     if (end >= text.length) break;
 
     // Always forward: a boundary found far back would otherwise loop forever.
-    start = Math.max(end - OVERLAP_CHARS, start + 1);
+    start = wholePointAt(text, Math.max(end - OVERLAP_CHARS, start + 1), 1);
   }
 
   return chunks;
+}
+
+/**
+ * A cut placed between a high and a low surrogate would store half a character
+ * at each end of two chunks, so it moves one unit in the asked-for direction.
+ */
+function wholePointAt(text: string, at: number, direction: 1 | -1): number {
+  if (at <= 0 || at >= text.length) return at;
+
+  const before = text.charCodeAt(at - 1);
+  const after = text.charCodeAt(at);
+  const inside =
+    before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
+
+  return inside ? at + direction : at;
 }
 
 /** A paragraph, then a sentence, then a line, then nothing. */
