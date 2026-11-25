@@ -373,6 +373,24 @@ export function MessageThread({
                 </>
               ) : null}
               <WindowCountdown lastInboundAt={conversation.lastInboundAt} />
+              {/* Who answers here. The thread binds to one agent on its first
+                  inbound message and keeps it, so the header names that agent
+                  rather than the number's. While AI is paused the controls say
+                  so, and naming an agent that is not answering would misread. */}
+              {!aiPaused && conversation.agent ? (
+                <>
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground/50">
+                    ·
+                  </span>
+                  <span
+                    className="flex min-w-0 items-center gap-1"
+                    title={`${conversation.agent.name} answers this conversation`}
+                  >
+                    <Bot aria-hidden="true" className="size-3 shrink-0" />
+                    <span className="truncate">{conversation.agent.name}</span>
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
 
@@ -968,7 +986,8 @@ function errorText(error: unknown): string {
 /**
  * Why the agent stopped, in a sentence. The column holds one word — `human`
  * for a teammate's reply, `manual` for an API pause, `handoff` when the agent
- * asked for one — and a tooltip should not be a database value.
+ * asked for one, `unavailable` when it could not be reached — and a tooltip
+ * should not be a database value.
  */
 function pauseReason(reason: string | null): string {
   switch (reason) {
@@ -980,6 +999,8 @@ function pauseReason(reason: string | null): string {
       return "The agent asked for a person on this thread.";
     case "no-context":
       return "The material had no answer, so the agent asked for a person.";
+    case "unavailable":
+      return "The AI service failed on this message, so the agent asked for a person.";
     default:
       return "The agent is not answering this thread.";
   }

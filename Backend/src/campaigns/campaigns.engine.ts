@@ -1,7 +1,8 @@
 import { HttpException, Injectable, Logger } from "@nestjs/common";
-import type { RecipientStatus } from "@prisma/client";
+import type { Prisma, RecipientStatus } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import { Deliverer } from "./campaigns.delivery";
 import {
   CAMPAIGN_SELECT,
@@ -11,6 +12,14 @@ import {
 
 /** How many recipients one pass may send. */
 const BATCH = 10;
+
+/** The account columns a send needs, and nothing else. */
+const SEND_SELECT = {
+  id: true,
+  phoneNumberId: true,
+  graphVersion: true,
+  accessTokenCipher: true,
+} satisfies Prisma.WhatsAppAccountSelect;
 
 /** A claim older than this is assumed dead and offered again. */
 const STALE_CLAIM_MS = 60_000;
@@ -164,11 +173,24 @@ export class CampaignsEngine {
    * first bad number is worse than one that reports forty good sends.
    */
   async drain(campaign: CampaignRow): Promise<void> {
-    const account = await this.accountFor(campaign.workspaceId);
+    const account = await this.accountFor(
+      campaign.workspaceId,
+      campaign.whatsappAccountId,
+    );
 
     if (!account) {
       await this.stopForNoChannel(campaign.id);
       return;
+    }
+
+    // Pin the number on the first send. A default switched mid-broadcast would
+    // otherwise split one audience across two senders, and every recipient
+    // after the switch would be answered on a different thread.
+    if (campaign.whatsappAccountId !== account.id) {
+      await this.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { whatsappAccountId: account.id },
+      });
     }
 
     const batch = await this.claim(campaign.id);
@@ -232,17 +254,25 @@ export class CampaignsEngine {
     });
   }
 
-  /** The workspace's single number, or null when nothing is connected. */
-  async accountFor(workspaceId: string): Promise<SendAccount | null> {
-    return this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: {
-        id: true,
-        phoneNumberId: true,
-        graphVersion: true,
-        accessTokenCipher: true,
-      },
-    });
+  /**
+   * The number a campaign sends from: the one it is already pinned to, or the
+   * workspace's default while it is not pinned yet. Null when nothing is
+   * connected.
+   */
+  async accountFor(
+    workspaceId: string,
+    pinnedId: string | null = null,
+  ): Promise<SendAccount | null> {
+    if (pinnedId) {
+      const pinned = await this.prisma.whatsAppAccount.findFirst({
+        where: { id: pinnedId, workspaceId },
+        select: SEND_SELECT,
+      });
+
+      if (pinned) return pinned;
+    }
+
+    return defaultAccount(this.prisma, workspaceId, SEND_SELECT);
   }
 
   /**

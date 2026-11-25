@@ -3,11 +3,13 @@ import { Body, Controller, Get, Patch, UseGuards } from "@nestjs/common";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
+import { Roles } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { BusinessService } from "./business.service";
 import { UpdateBusinessProfileDto } from "./dto/update-business-profile.dto";
 
 @Controller("v1/business")
-@UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class BusinessController {
   constructor(private readonly business: BusinessService) {}
 
@@ -26,6 +28,7 @@ export class BusinessController {
    * read path write-free.
    */
   @Patch("profile")
+  @Roles("OWNER")
   update(
     @CurrentUser() claims: AuthClaims,
     @Body() dto: UpdateBusinessProfileDto,

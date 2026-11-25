@@ -8,6 +8,7 @@ import type { ConversationStatus, Prisma } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateNoteDto } from "./dto/create-note.dto";
 import type { ListConversationsDto } from "./dto/list-conversations.dto";
@@ -102,6 +103,14 @@ export class InboxService {
 
     if (query.status) where.status = query.status;
 
+    if (query.accountId) {
+      if (!isUuid(query.accountId)) {
+        throw new BadRequestException("Unknown number filter.");
+      }
+
+      where.accountId = query.accountId;
+    }
+
     const assignee = query.assignee?.trim();
 
     if (assignee === "me") {
@@ -142,15 +151,12 @@ export class InboxService {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
     const [account, grouped, totals] = await Promise.all([
-      this.prisma.whatsAppAccount.findUnique({
-        where: { workspaceId },
-        select: {
-          phoneNumberId: true,
-          displayPhoneNumber: true,
-          verifiedName: true,
-          source: true,
-          webhookVerifiedAt: true,
-        },
+      defaultAccount(this.prisma, workspaceId, {
+        phoneNumberId: true,
+        displayPhoneNumber: true,
+        verifiedName: true,
+        source: true,
+        webhookVerifiedAt: true,
       }),
       this.prisma.conversation.groupBy({
         by: ["status"],
@@ -666,6 +672,7 @@ export class InboxService {
       where: { id, workspaceId },
       select: {
         id: true,
+        accountId: true,
         lastInboundAt: true,
         contact: { select: { waId: true } },
       },
@@ -675,8 +682,13 @@ export class InboxService {
       throw new NotFoundException("That conversation does not exist.");
     }
 
-    const account = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
+    // The number that received the thread answers it. Reading the workspace's
+    // default here would send number A's reply from number B the moment a
+    // workspace connects a second number, and Meta would show the customer a
+    // separate thread for it. The workspace filter keeps the pair honest even
+    // if a row were ever mis-linked.
+    const account = await this.prisma.whatsAppAccount.findFirst({
+      where: { id: conversation.accountId, workspaceId },
       select: SEND_ACCOUNT_SELECT,
     });
 

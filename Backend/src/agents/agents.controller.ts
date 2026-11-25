@@ -16,6 +16,8 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
+import { Roles } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { AgentsService } from "./agents.service";
 import { AskAgentDto } from "./dto/ask-agent.dto";
 import { CreateAgentDto } from "./dto/create-agent.dto";
@@ -28,7 +30,7 @@ import { UpdateAgentDto } from "./dto/update-agent.dto";
  * answers without touching the wire.
  */
 @Controller("v1/agents")
-@UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class AgentsController {
   constructor(private readonly agents: AgentsService) {}
 
@@ -40,6 +42,7 @@ export class AgentsController {
 
   /** POST /api/v1/agents — a draft agent. It is not active until activated. */
   @Post()
+  @Roles("OWNER")
   create(@CurrentUser() claims: AuthClaims, @Body() dto: CreateAgentDto) {
     return this.agents.create(claims, dto);
   }
@@ -61,6 +64,7 @@ export class AgentsController {
    * guard, and only `POST /activate` checks that a source is ready.
    */
   @Patch(":id")
+  @Roles("OWNER")
   update(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -71,6 +75,7 @@ export class AgentsController {
 
   /** DELETE /api/v1/agents/:id — the agent, its sources and its runs. */
   @Delete(":id")
+  @Roles("OWNER")
   remove(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -79,12 +84,19 @@ export class AgentsController {
   }
 
   /**
-   * POST /api/v1/agents/:id/activate — the one active agent for this number.
+   * POST /api/v1/agents/:id/activate — put this agent on duty for the number.
+   *
+   * Several agents may be on duty at once: a new conversation is routed to the
+   * one whose description fits it. Turning one on no longer switches another
+   * off, which is why a second agent needs a description.
    *
    * 409 `AGENT_UNTRAINED` while no source is READY: an active agent that knows
-   * nothing would answer every message with a handoff.
+   * nothing would answer every message with a handoff. 409 `AGENT_UNDESCRIBED`
+   * when another agent is already on duty and this one has no description to be
+   * routed by.
    */
   @Post(":id/activate")
+  @Roles("OWNER")
   @HttpCode(200)
   activate(
     @CurrentUser() claims: AuthClaims,
@@ -101,6 +113,7 @@ export class AgentsController {
    * off does too.
    */
   @Post(":id/deactivate")
+  @Roles("OWNER")
   @HttpCode(200)
   deactivate(
     @CurrentUser() claims: AuthClaims,
@@ -114,6 +127,7 @@ export class AgentsController {
    * and records a PLAYGROUND run so the usage screen sees it.
    */
   @Post(":id/ask")
+  @Roles("OWNER")
   @HttpCode(200)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   ask(

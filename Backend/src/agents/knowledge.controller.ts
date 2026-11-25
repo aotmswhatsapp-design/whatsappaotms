@@ -19,6 +19,8 @@ import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import type { UploadedMedia } from "../inbox/inbox.sender";
+import { Roles } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { AddTextSourceDto } from "./dto/add-text-source.dto";
 import { KnowledgeService, MAX_SOURCE_BYTES } from "./knowledge.service";
 
@@ -28,7 +30,7 @@ import { KnowledgeService, MAX_SOURCE_BYTES } from "./knowledge.service";
  * list while the runner works.
  */
 @Controller("v1/agents/:id/sources")
-@UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}
 
@@ -43,6 +45,7 @@ export class KnowledgeController {
 
   /** POST /api/v1/agents/:id/sources/text — a typed note or pasted policy. */
   @Post("text")
+  @Roles("OWNER")
   addText(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -59,6 +62,7 @@ export class KnowledgeController {
    * must still index.
    */
   @Post("file")
+  @Roles("OWNER")
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor("file", { limits: { fileSize: MAX_SOURCE_BYTES } }),
@@ -78,6 +82,7 @@ export class KnowledgeController {
 
   /** DELETE /api/v1/agents/:id/sources/:sourceId — the row, chunks and bytes. */
   @Delete(":sourceId")
+  @Roles("OWNER")
   remove(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -88,6 +93,7 @@ export class KnowledgeController {
 
   /** POST /api/v1/agents/:id/sources/:sourceId/retry — back to PENDING. */
   @Post(":sourceId/retry")
+  @Roles("OWNER")
   @HttpCode(200)
   retry(
     @CurrentUser() claims: AuthClaims,

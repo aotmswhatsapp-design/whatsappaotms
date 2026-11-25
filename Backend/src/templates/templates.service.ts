@@ -13,6 +13,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import { SecretBox } from "../common/crypto/secret-box";
 import { MediaStorage } from "../inbox/media.storage";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import {
   MetaGraph,
   MetaRequestError,
@@ -313,9 +314,10 @@ export class TemplatesService {
       });
     }
 
-    const account = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: { verifiedName: true, businessName: true, phoneNumberId: true },
+    const account = await defaultAccount(this.prisma, workspaceId, {
+      verifiedName: true,
+      businessName: true,
+      phoneNumberId: true,
     });
 
     const folder =
@@ -641,7 +643,7 @@ export class TemplatesService {
     const at = new Date();
 
     await this.prisma.whatsAppAccount.update({
-      where: { workspaceId },
+      where: { id: target.id },
       data: { insightsEnabledAt: at },
     });
 
@@ -843,21 +845,20 @@ export class TemplatesService {
    * connection rather than an empty account.
    */
   private async target(workspaceId: string): Promise<{
+    id: string;
     version: string;
     businessAccountId: string;
     token: string;
     appId: string | null;
     insightsEnabledAt: Date | null;
   } | null> {
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: {
-        graphVersion: true,
-        businessAccountId: true,
-        accessTokenCipher: true,
-        appId: true,
-        insightsEnabledAt: true,
-      },
+    const row = await defaultAccount(this.prisma, workspaceId, {
+      id: true,
+      graphVersion: true,
+      businessAccountId: true,
+      accessTokenCipher: true,
+      appId: true,
+      insightsEnabledAt: true,
     });
 
     if (!row) return null;
@@ -867,6 +868,7 @@ export class TemplatesService {
     if (!token) throw new BadRequestException(NO_TOKEN);
 
     return {
+      id: row.id,
       version: row.graphVersion,
       businessAccountId: row.businessAccountId,
       token,

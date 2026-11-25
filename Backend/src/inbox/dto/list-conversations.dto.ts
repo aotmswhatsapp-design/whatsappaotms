@@ -23,6 +23,15 @@ export class ListConversationsDto {
   @MaxLength(64)
   assignee?: string;
 
+  /**
+   * One number's threads, when the workspace has more than one. Absent means
+   * every number, which is the only answer a single-number workspace needs.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  accountId?: string;
+
   /** A bounded page: the list is a queue, not an archive. */
   @IsOptional()
   @Type(() => Number)

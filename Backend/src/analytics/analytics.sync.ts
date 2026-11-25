@@ -15,6 +15,7 @@ import {
 import { SecretBox } from "../common/crypto/secret-box";
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import {
   MetaGraph,
   MetaRequestError,
@@ -211,16 +212,13 @@ export class AnalyticsSyncService {
       );
     }
 
-    const account = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: {
-        id: true,
-        graphVersion: true,
-        businessAccountId: true,
-        accessTokenCipher: true,
-        currency: true,
-        insightsEnabledAt: true,
-      },
+    const account = await defaultAccount(this.prisma, workspaceId, {
+      id: true,
+      graphVersion: true,
+      businessAccountId: true,
+      accessTokenCipher: true,
+      currency: true,
+      insightsEnabledAt: true,
     });
 
     if (!account) {
@@ -300,7 +298,7 @@ export class AnalyticsSyncService {
       if (read && read !== currency) {
         currency = read;
         await this.prisma.whatsAppAccount.update({
-          where: { workspaceId },
+          where: { id: account.id },
           data: { currency: read },
         });
       }

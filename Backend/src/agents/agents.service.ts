@@ -10,6 +10,7 @@ import type { AgentRunKind, AgentRunStatus } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { MediaStorage } from "../inbox/media.storage";
 import { AiError } from "./ai.errors";
@@ -23,6 +24,7 @@ import { RetrievalService } from "./retrieval.service";
 import {
   HANDOFF_MESSAGE,
   cleanReply,
+  declined,
   messagesOf,
   systemPrompt,
 } from "./reply.prompt";
@@ -119,9 +121,9 @@ export class AgentsService {
         orderBy: { createdAt: "asc" },
         include: { _count: { select: { sources: true } } },
       }),
-      this.prisma.whatsAppAccount.findUnique({
-        where: { workspaceId },
-        select: { displayPhoneNumber: true, phoneNumberId: true },
+      defaultAccount(this.prisma, workspaceId, {
+        displayPhoneNumber: true,
+        phoneNumberId: true,
       }),
     ]);
 
@@ -144,10 +146,7 @@ export class AgentsService {
   async create(claims: AuthClaims, dto: CreateAgentDto): Promise<{ agent: AgentView }> {
     const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
 
-    const account = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: { id: true },
-    });
+    const account = await defaultAccount(this.prisma, workspaceId, { id: true });
 
     if (!account) {
       throw new ConflictException({
@@ -220,6 +219,13 @@ export class AgentsService {
     // the "one READY source" rule.
     const { isActive: _ignored, ...changes } = dto;
 
+    // Clearing the description of an agent that is already on duty beside
+    // another one would leave the router with nothing to tell them apart, so
+    // the rule activation enforces also applies to the edit that removes it.
+    if (agent.isActive && changes.description !== undefined) {
+      await this.requireDescription(agent, changes.description);
+    }
+
     const row = await this.prisma.agent.update({
       where: { id: agent.id },
       data: {
@@ -277,13 +283,14 @@ export class AgentsService {
       });
     }
 
-    await this.prisma.$transaction([
-      this.prisma.agent.updateMany({
-        where: { whatsappAccountId: agent.whatsappAccountId, isActive: true, id: { not: agent.id } },
-        data: { isActive: false },
-      }),
-      this.prisma.agent.update({ where: { id: agent.id }, data: { isActive: true } }),
-    ]);
+    // Several agents may work one number: a new thread is routed to the one
+    // whose description fits it, and keeps that one.
+    await this.requireDescription(agent, agent.description);
+
+    await this.prisma.agent.update({
+      where: { id: agent.id },
+      data: { isActive: true },
+    });
 
     const row = await this.prisma.agent.findUniqueOrThrow({
       where: { id: agent.id },
@@ -375,6 +382,32 @@ export class AgentsService {
         maxTokens: 400,
       });
 
+      const citations = chunks.map((chunk) => ({
+        sourceId: chunk.sourceId,
+        title: chunk.title,
+        score: Math.round(chunk.score * 1000) / 1000,
+        text: chunk.text.slice(0, 400),
+      }));
+      const tokens = {
+        input: result.tokensIn,
+        output: result.tokensOut,
+        embedding: embedTokens,
+      };
+
+      // The prompt answers `[handoff]` when the material does not cover the
+      // question. The playground has no thread to hand to a person, so it shows
+      // the fixed line and records the same reason a real reply would.
+      if (declined(result.text)) {
+        await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
+          tokensIn: result.tokensIn,
+          tokensOut: result.tokensOut,
+          embeddingTokens: embedTokens,
+          latencyMs: Date.now() - started,
+        });
+
+        return { answer: HANDOFF_MESSAGE, citations, tokens, reason: "no-context" };
+      }
+
       const answer = cleanReply(result.text, {
         maxChars: full.maxReplyChars,
         context: chunks.map((chunk) => chunk.text).join("\n\n"),
@@ -387,21 +420,7 @@ export class AgentsService {
         latencyMs: Date.now() - started,
       });
 
-      return {
-        answer,
-        citations: chunks.map((chunk) => ({
-          sourceId: chunk.sourceId,
-          title: chunk.title,
-          score: Math.round(chunk.score * 1000) / 1000,
-          text: chunk.text.slice(0, 400),
-        })),
-        tokens: {
-          input: result.tokensIn,
-          output: result.tokensOut,
-          embedding: embedTokens,
-        },
-        reason: null,
-      };
+      return { answer, citations, tokens, reason: null };
     } catch (error) {
       await this.recordFailure(agent.id, workspaceId, {
         embeddingTokens: embedTokens,
@@ -494,6 +513,34 @@ export class AgentsService {
     }
 
     return { paused: false };
+  }
+
+  /**
+   * A second agent on duty needs a description: it is the only thing the
+   * router can match a message against, and two undescribed agents would be
+   * chosen between at random.
+   */
+  private async requireDescription(
+    agent: { id: string; whatsappAccountId: string },
+    description: string | null,
+  ): Promise<void> {
+    if (description?.trim()) return;
+
+    const onDuty = await this.prisma.agent.count({
+      where: {
+        whatsappAccountId: agent.whatsappAccountId,
+        isActive: true,
+        id: { not: agent.id },
+      },
+    });
+
+    if (onDuty === 0) return;
+
+    throw new ConflictException({
+      code: "AGENT_UNDESCRIBED",
+      message:
+        "Describe what this agent handles before it shares a number with another one — that description is how new conversations are routed.",
+    });
   }
 
   private requireProvider(): void {

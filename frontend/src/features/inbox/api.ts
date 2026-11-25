@@ -47,6 +47,11 @@ export interface Conversation {
   status: ConversationStatus;
   contact: InboxContact;
   assignedTo: { id: string; name: string | null; email: string } | null;
+  /**
+   * The agent that answers this thread: the one that answered first, and the
+   * only one that may answer again. Null until an agent has replied.
+   */
+  agent: { id: string; name: string } | null;
   lastMessageAt: string;
   lastMessagePreview: string | null;
   lastInboundAt: string | null;
@@ -59,7 +64,8 @@ export interface Conversation {
    * answer here.
    */
   aiPausedAt: string | null;
-  /** Why, in one word — `human`, `manual`, `handoff`, `no-context`. A tooltip. */
+  /** Why, in one word — `human`, `manual`, `handoff`, `no-context`,
+      `unavailable`. A tooltip. */
   aiPauseReason: string | null;
 }
 

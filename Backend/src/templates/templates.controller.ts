@@ -18,6 +18,8 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
+import { Roles } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { CreateTemplateDto } from "./dto/create-template.dto";
 import { MAX_IMAGE_BYTES } from "./template-media";
 import { TemplatesService, type UploadedTemplateImage } from "./templates.service";
@@ -27,7 +29,7 @@ import { TemplatesService, type UploadedTemplateImage } from "./templates.servic
  * one customer can never read or submit into another's Meta account.
  */
 @Controller("v1/templates")
-@UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class TemplatesController {
   constructor(private readonly templates: TemplatesService) {}
 
@@ -48,6 +50,7 @@ export class TemplatesController {
    * carrying Meta's own sentence when it refused the template itself.
    */
   @Post()
+  @Roles("ADMIN")
   @HttpCode(201)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   create(@CurrentUser() claims: AuthClaims, @Body() dto: CreateTemplateDto) {
@@ -60,6 +63,7 @@ export class TemplatesController {
    * call names, plus a signed URL the builder paints immediately.
    */
   @Post("media")
+  @Roles("ADMIN")
   @HttpCode(201)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @UseInterceptors(
@@ -116,6 +120,7 @@ export class TemplatesController {
    * for the WABA. One-way, which is why the screen asks before calling it.
    */
   @Post("insights")
+  @Roles("ADMIN")
   @HttpCode(200)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   enableInsights(@CurrentUser() claims: AuthClaims) {

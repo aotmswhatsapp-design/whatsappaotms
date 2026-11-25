@@ -14,13 +14,15 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
+import { Roles } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
 import { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
 import { CreateQrCodeDto, UpdateQrCodeDto } from "./dto/qr-code.dto";
 import { WhatsAppService } from "./whatsapp.service";
 
 @Controller("v1/whatsapp")
-@UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class WhatsAppController {
   constructor(private readonly whatsapp: WhatsAppService) {}
 
@@ -33,6 +35,7 @@ export class WhatsAppController {
    * A tighter ceiling than the global one because each call reaches Meta.
    */
   @Post("connect")
+  @Roles("OWNER")
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   connect(
@@ -59,6 +62,7 @@ export class WhatsAppController {
    * is no per-field breakdown to render because the customer typed nothing.
    */
   @Post("embedded-signup")
+  @Roles("OWNER")
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   embeddedSignup(
@@ -90,6 +94,7 @@ export class WhatsAppController {
 
   /** POST /api/v1/whatsapp/verify-token/rotate — new token, handshake reset. */
   @Post("verify-token/rotate")
+  @Roles("OWNER")
   @HttpCode(200)
   rotateVerifyToken(@CurrentUser() claims: AuthClaims) {
     return this.whatsapp.rotateVerifyToken(claims);
@@ -108,6 +113,7 @@ export class WhatsAppController {
   }
 
   @Post("qr-codes")
+  @Roles("OWNER")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   createQrCode(
     @CurrentUser() claims: AuthClaims,
@@ -118,6 +124,7 @@ export class WhatsAppController {
 
   /** PATCH, not PUT: the prefilled message is the only field being replaced. */
   @Patch("qr-codes/:code")
+  @Roles("OWNER")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   updateQrCode(
     @CurrentUser() claims: AuthClaims,
@@ -128,6 +135,7 @@ export class WhatsAppController {
   }
 
   @Delete("qr-codes/:code")
+  @Roles("OWNER")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   deleteQrCode(@CurrentUser() claims: AuthClaims, @Param("code") code: string) {
     return this.whatsapp.removeQrCode(claims, code);
@@ -152,6 +160,7 @@ export class WhatsAppController {
 
   /** DELETE /api/v1/whatsapp/connection — forget the stored credentials. */
   @Delete("connection")
+  @Roles("OWNER")
   disconnect(@CurrentUser() claims: AuthClaims) {
     return this.whatsapp.disconnect(claims);
   }

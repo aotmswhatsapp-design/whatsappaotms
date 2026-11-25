@@ -50,6 +50,8 @@ model User {
   owned       Workspace[]       @relation("WorkspaceOwner")
   /// One per workspace this user has connected a number in.
   whatsapp    WhatsAppAccount[]
+  /// Invitations this user sent, kept after acceptance as an audit trail.
+  sentInvitations WorkspaceInvitation[] @relation("InvitationsSent")
 
   assignedConversations Conversation[] @relation("ConversationAssignee")
   notes                 InternalNote[] @relation("NoteAuthor")
@@ -70,10 +72,13 @@ model Workspace {
 
   owner   User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members WorkspaceMember[]
+  /// Pending and accepted invitations. Acceptance becomes a membership; the
+  /// row stays behind so the team screen can say who invited whom.
+  invitations WorkspaceInvitation[]
 
   /// Tenant data. Every conversation, message and contact is scoped here so
   /// one agent's inbox cannot read another workspace's threads.
-  whatsapp      WhatsAppAccount?
+  whatsapp      WhatsAppAccount[]
   contacts      Contact[]
   conversations Conversation[]
   messages      Message[]
@@ -128,6 +133,35 @@ model WorkspaceMember {
   @@map("workspace_members")
 }
 
+/// One invitation to join a workspace, by email.
+///
+/// The link carries a random token and the database keeps only its SHA-256, so
+/// a leaked table cannot be replayed as invitations. Acceptance requires the
+/// signed-in account's email to match, which is what stops a forwarded link
+/// from adding the wrong person. A partial unique index
+/// (`workspace_invitations_one_pending_per_email`) allows one pending row per
+/// address per workspace — re-inviting replaces rather than stacks.
+model WorkspaceInvitation {
+  id              String        @id @default(uuid()) @db.Uuid
+  workspaceId     String        @map("workspace_id") @db.Uuid
+  /// Lower-cased at write time, so matching at acceptance is exact.
+  email           String
+  /// ADMIN or AGENT. Ownership is not transferable through an invitation.
+  role            WorkspaceRole
+  tokenHash       String        @unique @map("token_hash")
+  invitedByUserId String        @map("invited_by_user_id") @db.Uuid
+  expiresAt       DateTime      @map("expires_at")
+  acceptedAt      DateTime?     @map("accepted_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation("InvitationsSent", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([email])
+  @@map("workspace_invitations")
+}
+
 enum WhatsAppStatus {
   VERIFIED
   FAILED
@@ -158,8 +192,20 @@ model WhatsAppAccount {
   id                 String         @id @default(uuid()) @db.Uuid
   /// Who connected it. Kept as an audit trail; tenancy is `workspaceId`.
   userId             String         @map("user_id") @db.Uuid
-  workspaceId        String         @unique @map("workspace_id") @db.Uuid
-  phoneNumberId      String         @map("phone_number_id")
+  /// Not unique: a workspace may connect several numbers. A number, however,
+  /// belongs to exactly one workspace — `phoneNumberId` is unique, because that
+  /// is the key Meta names in every delivery and two owners would mean two
+  /// agents answering the same customer.
+  workspaceId        String         @map("workspace_id") @db.Uuid
+  /// A name the workspace gives this number, so two of them can be told apart
+  /// without reading the digits. Null means the screen shows the number itself.
+  label              String?
+  /// The number a workspace answers from when nothing names another: the one a
+  /// campaign, a template submission or a report reads. At most one per
+  /// workspace, enforced by the partial unique index
+  /// `whatsapp_accounts_one_default_per_workspace`, not by the service.
+  isDefault          Boolean        @default(false) @map("is_default")
+  phoneNumberId      String         @unique @map("phone_number_id")
   businessAccountId  String         @map("business_account_id")
   graphVersion       String         @map("graph_version")
   /// The Meta app that issued the access token. Template image uploads are
@@ -207,12 +253,14 @@ model WhatsAppAccount {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   conversations Conversation[]
-  /// At most one of these may be active: the partial unique index
-  /// `agents_one_active_per_account` enforces it, not the service.
+  /// Several of these may be on duty at once: a new thread is routed to the
+  /// one whose description fits it, and keeps that one for the whole thread.
   agents        Agent[]
 
-  /// Every delivery looks a row up by the number Meta names in the payload.
-  @@index([phoneNumberId])
+  /// A delivery is looked up by the number alone, which is why the column is
+  /// unique rather than indexed.
+  /// The default-account lookup reads by workspace, which is not unique.
+  @@index([workspaceId])
   @@map("whatsapp_accounts")
 }
 
@@ -337,6 +385,11 @@ model Conversation {
   aiPausedAt         DateTime?          @map("ai_paused_at")
   aiPausedByUserId   String?            @map("ai_paused_by_user_id") @db.Uuid
   aiPauseReason      String?            @map("ai_pause_reason")
+  /// The agent that answers this thread. Written on the first inbound message
+  /// and kept, because two agents on one number must never take turns inside
+  /// one conversation. Cleared — never cascaded — when that agent is deleted,
+  /// which frees the thread to be bound again.
+  agentId            String?            @map("agent_id") @db.Uuid
   lastInboundAt      DateTime?          @map("last_inbound_at")
   lastMessageAt      DateTime           @default(now()) @map("last_message_at")
   lastMessagePreview String?            @map("last_message_preview")
@@ -349,6 +402,7 @@ model Conversation {
   contact    Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
   assignedTo User?           @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   aiPausedBy User?           @relation("AiPauseActor", fields: [aiPausedByUserId], references: [id], onDelete: SetNull)
+  agent      Agent?          @relation("ConversationAgent", fields: [agentId], references: [id], onDelete: SetNull)
   messages   Message[]
   notes      InternalNote[]
 
@@ -356,6 +410,7 @@ model Conversation {
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, status, lastMessageAt])
   @@index([assignedToUserId])
+  @@index([agentId])
   @@map("conversations")
 }
 
@@ -543,6 +598,12 @@ enum AudienceSource {
 model Campaign {
   id               String           @id @default(uuid()) @db.Uuid
   workspaceId      String           @map("workspace_id") @db.Uuid
+  /// Which number the run sends from. Null until the first send pins it, which
+  /// is also the state of a campaign drafted before a workspace could hold more
+  /// than one number. Not a foreign key on purpose: disconnecting a number must
+  /// not erase the campaigns it ran, the same rule `template_daily_stats`
+  /// follows.
+  whatsappAccountId String?         @map("whatsapp_account_id") @db.Uuid
   name             String
   status           CampaignStatus   @default(DRAFT)
   templateId       String           @map("template_id") @db.Uuid
@@ -818,16 +879,20 @@ model Agent {
   temperature       Float    @default(0.4)
   maxReplyChars     Int      @default(900) @map("max_reply_chars")
   escalateKeywords  String[] @default([]) @map("escalate_keywords")
+  /// On duty: eligible for routing. Several agents may be on duty on one
+  /// number, and a thread stays with whichever one answered it first.
   isActive          Boolean  @default(false) @map("is_active")
   createdByUserId   String?  @map("created_by_user_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  account   WhatsAppAccount   @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
-  sources   KnowledgeSource[]
-  runs      AgentRun[]
-  messages  Message[]
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  account       WhatsAppAccount   @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  sources       KnowledgeSource[]
+  runs          AgentRun[]
+  messages      Message[]
+  /// Threads this agent answers. Ownership is set once per conversation.
+  conversations Conversation[] @relation("ConversationAgent")
 
   @@index([whatsappAccountId, isActive])
   @@index([workspaceId, createdAt])

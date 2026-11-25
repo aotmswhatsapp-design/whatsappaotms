@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -13,6 +14,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
+import { defaultAccount } from "./default-account";
 import type { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
 import type { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
 import type { CreateQrCodeDto, UpdateQrCodeDto } from "./dto/qr-code.dto";
@@ -93,6 +95,10 @@ const NO_TRACE: HandshakeTrace = {
 
 export interface PublicAccount {
   phoneNumberId: string;
+  /** What the workspace calls this number; null means the screen shows digits. */
+  label: string | null;
+  /** The number readers that name none resolve to. At most one is true. */
+  isDefault: boolean;
   businessAccountId: string;
   graphVersion: string;
   /**
@@ -280,6 +286,8 @@ const UNREADABLE_SECRET =
 const ACCOUNT_SELECT = {
   /// Never disclosed; selected so the handshake trace can be looked up by it.
   id: true,
+  label: true,
+  isDefault: true,
   phoneNumberId: true,
   businessAccountId: true,
   graphVersion: true,
@@ -541,13 +549,11 @@ export class WhatsAppService {
       };
     }
 
-    // Reconnecting to the same number keeps the handshake it already passed:
-    // rotating our own token behind the customer's back would silently turn a
-    // working webhook into a 403 until they visit Meta again.
-    const previous = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: { phoneNumberId: true, verifyTokenCipher: true, appId: true },
-    });
+    // One row per number, and a number answers for one workspace. `previous` is
+    // this number's own row: reconnecting keeps the handshake it already
+    // passed, since rotating our own token behind the customer's back would
+    // silently turn a working webhook into a 403 until they visit Meta again.
+    const previous = await this.heldNumber(phoneId, workspaceId);
 
     const verifyToken =
       (previous ? this.openOrNull(previous.verifyTokenCipher) : null) ??
@@ -573,16 +579,15 @@ export class WhatsAppService {
       accessTokenCipher: this.box.seal(token),
       verifyTokenCipher: this.box.seal(verifyToken),
       appSecretCipher: this.box.seal(input.appSecret),
-      // A different number means a different delivery target, so the handshake
-      // proven for the old one no longer counts.
-      ...(previous && previous.phoneNumberId !== phoneId
-        ? { webhookVerifiedAt: null }
-        : {}),
     } as const;
 
+    // `webhookVerifiedAt` is deliberately absent: a created row starts with
+    // none, and an updated one keeps the handshake it already passed.
+    const isDefault = await this.seedsDefault(workspaceId, previous !== null);
+
     const row = await this.prisma.whatsAppAccount.upsert({
-      where: { workspaceId },
-      create: { userId, workspaceId, ...values },
+      where: { phoneNumberId: phoneId },
+      create: { userId, workspaceId, isDefault, ...values },
       update: values,
       select: ACCOUNT_SELECT,
     });
@@ -701,9 +706,13 @@ export class WhatsAppService {
       webhookVerifiedAt: verifiedAt,
     } as const;
 
+    const previous = await this.heldNumber(input.phoneNumberId, workspaceId);
+
+    const isDefault = await this.seedsDefault(workspaceId, previous !== null);
+
     const row = await this.prisma.whatsAppAccount.upsert({
-      where: { workspaceId },
-      create: { userId, workspaceId, ...values },
+      where: { phoneNumberId: input.phoneNumberId },
+      create: { userId, workspaceId, isDefault, ...values },
       update: values,
       select: ACCOUNT_SELECT,
     });
@@ -720,10 +729,7 @@ export class WhatsAppService {
   async connection(claims: AuthClaims): Promise<ConnectionPayload> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: ACCOUNT_SELECT,
-    });
+    const row = await defaultAccount(this.prisma, workspaceId, ACCOUNT_SELECT);
 
     if (!row) {
       return { account: null, stage: "details", callbackUrl: this.callbackUrl };
@@ -746,10 +752,7 @@ export class WhatsAppService {
   async profileFor(claims: AuthClaims): Promise<BusinessProfilePayload> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: PROFILE_SELECT,
-    });
+    const row = await defaultAccount(this.prisma, workspaceId, PROFILE_SELECT);
 
     if (!row) {
       return { connected: false, live: false, problem: null, profile: null };
@@ -798,10 +801,7 @@ export class WhatsAppService {
   async qrCodes(claims: AuthClaims): Promise<QrCodeListPayload> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: PROFILE_SELECT,
-    });
+    const row = await defaultAccount(this.prisma, workspaceId, PROFILE_SELECT);
 
     if (!row) return { connected: false, limit: QR_LIMIT, codes: [] };
 
@@ -1006,10 +1006,7 @@ export class WhatsAppService {
   ): Promise<{ version: string; phoneNumberId: string; token: string }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: PROFILE_SELECT,
-    });
+    const row = await defaultAccount(this.prisma, workspaceId, PROFILE_SELECT);
 
     if (!row) {
       throw new BadRequestException(
@@ -1040,14 +1037,55 @@ export class WhatsAppService {
     return new BadGatewayException(blame(error, version, node).detail);
   }
 
+  /**
+   * Removes the number the workspace answers from — not every number it owns.
+   *
+   * With one number those are the same act, so nothing changes. With several,
+   * deleting all of them would be a data loss no screen warned about: the rest
+   * stay connected and the oldest is promoted in the removed row's place.
+   */
   async disconnect(claims: AuthClaims): Promise<{ removed: boolean }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const { count } = await this.prisma.whatsAppAccount.deleteMany({
-      where: { workspaceId },
+    const target = await defaultAccount(this.prisma, workspaceId, { id: true });
+
+    if (!target) return { removed: false };
+
+    await this.prisma.whatsAppAccount.deleteMany({
+      where: { id: target.id, workspaceId },
     });
 
-    return { removed: count > 0 };
+    await this.promoteDefault(workspaceId);
+
+    return { removed: true };
+  }
+
+  /**
+   * Fills the gap `disconnect` leaves. A workspace whose default is gone has
+   * none until here, and every reader that names no number would already fall
+   * back to the oldest row — this writes that choice down, so the stored state
+   * and the resolved state cannot disagree.
+   */
+  private async promoteDefault(workspaceId: string): Promise<void> {
+    const current = await this.prisma.whatsAppAccount.findFirst({
+      where: { workspaceId, isDefault: true },
+      select: { id: true },
+    });
+
+    if (current) return;
+
+    const next = await this.prisma.whatsAppAccount.findFirst({
+      where: { workspaceId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+
+    if (!next) return;
+
+    await this.prisma.whatsAppAccount.update({
+      where: { id: next.id },
+      data: { isDefault: true },
+    });
   }
 
   /**
@@ -1059,9 +1097,9 @@ export class WhatsAppService {
   ): Promise<{ rotated: boolean; verifyToken: string | null }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: { id: true, source: true },
+    const row = await defaultAccount(this.prisma, workspaceId, {
+      id: true,
+      source: true,
     });
 
     if (!row) return { rotated: false, verifyToken: null };
@@ -1095,10 +1133,7 @@ export class WhatsAppService {
   ): Promise<StatusPayload> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: STATUS_SELECT,
-    });
+    const row = await defaultAccount(this.prisma, workspaceId, STATUS_SELECT);
 
     if (!row) return { state: "none", reason: null, number: null };
 
@@ -1179,9 +1214,58 @@ export class WhatsAppService {
     });
   }
 
+  /**
+   * The row for a number, whoever holds it — refused when that is a different
+   * workspace.
+   *
+   * A number used to be unique per workspace, so two workspaces could register
+   * the same one. The webhook looks a delivery up by the number and stores it
+   * per matching row, which meant both inboxes received the message and both
+   * agents answered it. `phoneNumberId` is unique now, and this is the check
+   * that turns the index into a sentence instead of a P2002.
+   */
+  private async heldNumber(
+    phoneNumberId: string,
+    workspaceId: string,
+  ): Promise<{ appId: string | null; verifyTokenCipher: string } | null> {
+    const row = await this.prisma.whatsAppAccount.findUnique({
+      where: { phoneNumberId },
+      select: { workspaceId: true, appId: true, verifyTokenCipher: true },
+    });
+
+    if (row && row.workspaceId !== workspaceId) {
+      throw new ConflictException({
+        code: "NUMBER_TAKEN",
+        message:
+          "This WhatsApp number is already connected to another workspace. Disconnect it there before connecting it here.",
+      });
+    }
+
+    return row;
+  }
+
+  /**
+   * Whether a row about to be written should carry the default flag.
+   *
+   * Only the first number a workspace connects becomes the default. Connecting
+   * a second one must not move what campaigns, template submissions and reports
+   * already answer from — switching the default is a deliberate act, not a side
+   * effect of connecting.
+   */
+  private async seedsDefault(
+    workspaceId: string,
+    numberExists: boolean,
+  ): Promise<boolean> {
+    if (numberExists) return false;
+
+    return (await this.prisma.whatsAppAccount.count({ where: { workspaceId } })) === 0;
+  }
+
   private toPublic(row: AccountRow, trace: HandshakeTrace = NO_TRACE): PublicAccount {
     return {
       phoneNumberId: row.phoneNumberId,
+      label: row.label,
+      isDefault: row.isDefault,
       businessAccountId: row.businessAccountId,
       graphVersion: row.graphVersion,
       appId: row.appId,

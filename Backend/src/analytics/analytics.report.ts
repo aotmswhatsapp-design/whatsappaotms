@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type {
   AnalyticsCostState,
@@ -49,9 +50,9 @@ export class AnalyticsReportService {
     const category = this.readCategory(query.category);
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
-    const channel = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: { currency: true, insightsEnabledAt: true },
+    const channel = await defaultAccount(this.prisma, workspaceId, {
+      currency: true,
+      insightsEnabledAt: true,
     });
 
     if (!channel) return disconnected();

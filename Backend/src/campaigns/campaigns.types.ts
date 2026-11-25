@@ -12,6 +12,7 @@ import type { MessageStatus, Prisma } from "@prisma/client";
 export const CAMPAIGN_SELECT = {
   id: true,
   workspaceId: true,
+  whatsappAccountId: true,
   name: true,
   status: true,
   templateName: true,

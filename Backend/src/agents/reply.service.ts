@@ -4,11 +4,13 @@ import type { Agent } from "@prisma/client";
 import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
 import { windowOpen } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
+import { AgentRouter } from "./agent.router";
 import { AiError } from "./ai.errors";
 import { OpenAiProvider } from "./ai.openai";
 import {
   HANDOFF_MESSAGE,
   cleanReply,
+  declined,
   matchesEscalation,
   messagesOf,
   systemPrompt,
@@ -58,7 +60,9 @@ export interface RunUsage {
  *
  * Every exit writes a terminal status, so the Activity tab can always say what
  * happened: `SENT`, or `SKIPPED` with `paused`, `superseded`, `window-closed`,
- * `no-agent`, `no-context` or `handoff`, or `FAILED` with the vendor's sentence.
+ * `no-agent`, `no-context`, `handoff` or `unavailable`. `FAILED` is left for a
+ * run that could not be attempted at all — a failure while answering is a
+ * handoff, because the customer is owed a person rather than silence.
  */
 @Injectable()
 export class ReplyService {
@@ -67,6 +71,7 @@ export class ReplyService {
     private readonly sender: InboxSender,
     private readonly retrieval: RetrievalService,
     private readonly provider: OpenAiProvider,
+    private readonly router: AgentRouter,
   ) {}
 
   /**
@@ -169,6 +174,8 @@ export class ReplyService {
       select: {
         id: true,
         workspaceId: true,
+        accountId: true,
+        agentId: true,
         aiPausedAt: true,
         lastInboundAt: true,
         contact: { select: { waId: true } },
@@ -194,14 +201,10 @@ export class ReplyService {
       account: conversation.account,
     };
 
-    const agent: Agent = row.agent;
-
-    // Cheapest first: three of these are one column and a comparison.
-    if (!agent.isActive) {
-      await this.skip(run.id, "no-agent");
-      return;
-    }
-
+    // Cheapest first: two of these are one column and a comparison. The agent
+    // gate is not one of them — who answers is decided below, and a run queued
+    // with an agent that has since been switched off can still be routed to
+    // one that is answering.
     if (conversation.aiPausedAt) {
       await this.skip(run.id, "paused");
       return;
@@ -251,10 +254,78 @@ export class ReplyService {
       return;
     }
 
+    // Who answers. A thread keeps the agent that already owns it — the common
+    // path, and it asks nobody — and only a thread that is new, or whose agent
+    // was switched off, is decided here. The decision waits until now because
+    // it can cost a model call, and the webhook must never wait for one.
+    const routing = await this.router.choose({
+      whatsappAccountId: conversation.accountId,
+      agentId: conversation.agentId,
+      question,
+    });
+
+    // What routing cost travels with every terminal status below: an attempt
+    // that skips or fails still spent it.
+    const routed: RunUsage = {};
+    if (routing.tokensIn !== undefined) routed.tokensIn = routing.tokensIn;
+    if (routing.tokensOut !== undefined) routed.tokensOut = routing.tokensOut;
+
+    if (!routing.agentId) {
+      await this.skip(run.id, "no-agent", routed);
+      return;
+    }
+
+    let agent: Agent = row.agent;
+
+    if (routing.agentId !== agent.id) {
+      const next = await this.prisma.agent.findUnique({
+        where: { id: routing.agentId },
+      });
+
+      if (!next) {
+        await this.skip(run.id, "no-agent", routed);
+        return;
+      }
+
+      agent = next;
+
+      // The run records the agent that answered, not the one it was queued
+      // with: the Activity tab is the record of what actually happened.
+      await this.prisma.agentRun
+        .update({ where: { id: run.id }, data: { agentId: next.id } })
+        .catch(() => undefined);
+    }
+
+    // Bind the thread, but never over another answer's decision: the write is
+    // conditional on the owner this attempt read, so a concurrent first reply
+    // cannot be overwritten by a later one.
+    if (conversation.agentId !== agent.id) {
+      await this.prisma.conversation
+        .updateMany({
+          where: { id: conversation.id, agentId: conversation.agentId },
+          data: { agentId: agent.id },
+        })
+        .catch(() => undefined);
+    }
+
+    // The router only names active agents, but one can still be switched off
+    // between its read and this line.
+    if (!agent.isActive) {
+      await this.skip(run.id, "no-agent", routed);
+      return;
+    }
+
     // Before the model: a complaint must never depend on what a model decides
     // to say about it.
     if (matchesEscalation(question, agent.escalateKeywords)) {
-      await this.handoff(run.id, conversation.id, target, agent.id, "handoff");
+      await this.handoff(
+        run.id,
+        conversation.id,
+        target,
+        agent.id,
+        "handoff",
+        routed,
+      );
       return;
     }
 
@@ -268,7 +339,12 @@ export class ReplyService {
     // Every paid call lands here the moment it returns, so a run that fails
     // after the spend — a refused send, an empty answer — still records what
     // it cost. `undefined` fields are left unwritten.
-    const spent: RunUsage = {};
+    const spent: RunUsage = { ...routed };
+
+    // Set once the customer actually has the answer. A failure after this
+    // point is bookkeeping, and must never become a handoff — the customer
+    // would read a real reply followed by "I can't answer that".
+    let delivered: string | null = null;
 
     try {
       const { chunks, embedTokens } = await this.retrieval.search(
@@ -308,8 +384,26 @@ export class ReplyService {
         maxTokens: MAX_TOKENS,
       });
 
-      spent.tokensIn = answer.tokensIn;
-      spent.tokensOut = answer.tokensOut;
+      // The answer's own count plus what routing cost, because this object is
+      // what every exit below writes and a handoff still bought both calls.
+      spent.tokensIn = answer.tokensIn + (routed.tokensIn ?? 0);
+      spent.tokensOut = answer.tokensOut + (routed.tokensOut ?? 0);
+
+      // The model said the material does not cover the question. That used to
+      // be sent as a reply — a promise of a person nobody told — and the thread
+      // stayed live. It is a handoff: one fixed sentence, a paused thread, and
+      // a place in the team's queue.
+      if (declined(answer.text)) {
+        await this.handoff(
+          run.id,
+          conversation.id,
+          target,
+          agent.id,
+          "no-context",
+          { ...spent, latencyMs: Date.now() - started },
+        );
+        return;
+      }
 
       const body = cleanReply(answer.text, {
         maxChars: agent.maxReplyChars,
@@ -335,14 +429,14 @@ export class ReplyService {
         agentId: agent.id,
       });
 
+      delivered = sent.id;
+
       await this.prisma.agentRun.update({
         where: { id: run.id },
         data: {
           status: "SENT",
           outboundMessageId: sent.id,
-          tokensIn: answer.tokensIn,
-          tokensOut: answer.tokensOut,
-          embeddingTokens: embedTokens,
+          ...spent,
           latencyMs: Date.now() - started,
           reason: null,
           error: null,
@@ -352,8 +446,29 @@ export class ReplyService {
       // A call that failed after the vendor charged for it still carries its
       // tokens; the failing call's own count wins over whatever came before.
       if (error instanceof AiError) {
-        if (error.usage.tokensIn !== undefined) spent.tokensIn = error.usage.tokensIn;
-        if (error.usage.tokensOut !== undefined) spent.tokensOut = error.usage.tokensOut;
+        if (error.usage.tokensIn !== undefined)
+          spent.tokensIn = error.usage.tokensIn + (routed.tokensIn ?? 0);
+        if (error.usage.tokensOut !== undefined)
+          spent.tokensOut = error.usage.tokensOut + (routed.tokensOut ?? 0);
+      }
+
+      // The reply is already in the customer's thread. Record that it went out
+      // and why the write failed, rather than sending a second, contradictory
+      // message as a handoff.
+      if (delivered) {
+        await this.prisma.agentRun
+          .update({
+            where: { id: run.id },
+            data: {
+              status: "SENT",
+              outboundMessageId: delivered,
+              error: sentenceOf(error),
+              latencyMs: Date.now() - started,
+              ...spent,
+            },
+          })
+          .catch(() => undefined);
+        return;
       }
 
       // The window can close between the gate and the send.
@@ -373,15 +488,19 @@ export class ReplyService {
           .catch(() => undefined);
       }
 
-      await this.prisma.agentRun.update({
-        where: { id: run.id },
-        data: {
-          status: "FAILED",
-          error: sentenceOf(error),
-          latencyMs: Date.now() - started,
-          ...spent,
-        },
-      });
+      // Nothing answered, so worse than a wrong answer would have been: the
+      // customer gets the fixed line and the thread becomes a person's work.
+      // The vendor's sentence is kept on the run — that is the only place it
+      // will be read.
+      await this.handoff(
+        run.id,
+        conversation.id,
+        target,
+        agent.id,
+        "unavailable",
+        { ...spent, latencyMs: Date.now() - started },
+        sentenceOf(error),
+      );
     }
   }
 
@@ -430,6 +549,8 @@ export class ReplyService {
     agentId: string,
     reason: string,
     usage: RunUsage = {},
+    /** Why the AI could not answer, when it failed rather than found nothing. */
+    note?: string,
   ): Promise<void> {
     await this.pause(conversationId, reason);
 
@@ -447,7 +568,7 @@ export class ReplyService {
           status: "SKIPPED",
           reason,
           outboundMessageId: sent.id,
-          error: null,
+          error: note ?? null,
           ...usage,
         },
       });
@@ -456,15 +577,30 @@ export class ReplyService {
       // never received the line, which is worth recording.
       await this.prisma.agentRun.update({
         where: { id: runId },
-        data: { status: "SKIPPED", reason, error: sentenceOf(error), ...usage },
+        data: {
+          status: "SKIPPED",
+          reason,
+          error: note ? `${note}; ${sentenceOf(error)}` : sentenceOf(error),
+          ...usage,
+        },
       });
     }
   }
 
+  /**
+   * A handoff is a person's work now, so the thread also moves to PENDING —
+   * that is the filter a team works from, and the AI-paused chip alone assumes
+   * somebody is scanning every open conversation. Resuming does not move it
+   * back: a human turned the agent on again and keeps whatever status they set.
+   */
   private async pause(conversationId: string, reason: string): Promise<void> {
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { aiPausedAt: new Date(), aiPauseReason: reason },
+      data: {
+        aiPausedAt: new Date(),
+        aiPauseReason: reason,
+        status: "PENDING",
+      },
     });
   }
 

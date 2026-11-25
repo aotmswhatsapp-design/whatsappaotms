@@ -186,7 +186,7 @@ export function AiView() {
       toast.push({
         title: next ? "Answering automatically" : "No longer answering",
         description: next
-          ? "A new message on this number gets a reply from the material."
+          ? "New conversations can be sent to this agent, answered from its own material."
           : "The material stays indexed. Turn it back on whenever you like.",
         tone: "success",
       });
@@ -237,6 +237,9 @@ export function AiView() {
   const shown = agent && agent.id === selectedId ? agent : null;
   const untrained = (shown?.readySourceCount ?? 0) === 0;
   const blocked = shown !== null && untrained && !shown.isActive;
+  // More than one on duty means every new conversation is routed by
+  // description rather than answered by the same agent every time.
+  const onDuty = agents?.filter((row) => row.isActive).length ?? 0;
 
   const creator = (
     <form
@@ -377,7 +380,7 @@ export function AiView() {
                     {row.name}
                   </span>
                   <span className="block text-[11px] tabular-nums">
-                    {row.isActive ? "answering" : `${row.readySourceCount} ready`}
+                    {row.isActive ? "on duty" : `${row.readySourceCount} ready`}
                   </span>
                 </span>
               </button>
@@ -391,6 +394,12 @@ export function AiView() {
                 <p className="truncate text-[13.5px] font-medium text-foreground">
                   {channel?.display ?? channel?.phoneNumberId ?? "No number connected"}
                 </p>
+                {onDuty > 1 ? (
+                  <p className="mt-1 max-w-[22rem] text-[11px] leading-relaxed text-muted-foreground">
+                    {onDuty} agents are on duty. A new conversation goes to the
+                    one whose description fits it, and keeps that agent.
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex flex-col items-end gap-1">

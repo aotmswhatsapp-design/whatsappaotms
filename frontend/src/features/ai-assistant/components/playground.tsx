@@ -140,7 +140,7 @@ export function Playground({ agent }: { agent: Agent }) {
             {entry.result.reason === "no-context" ? (
               <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-warning/45 bg-warning/10 px-2.5 py-1 text-[11.5px] font-medium text-foreground">
                 <TriangleAlert className="size-3.5" aria-hidden="true" />
-                Nothing in the material cleared the floor
+                Nothing in the material answered this
               </p>
             ) : null}
 

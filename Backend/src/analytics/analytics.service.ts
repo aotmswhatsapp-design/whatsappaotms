@@ -3,6 +3,7 @@ import { BadGatewayException, BadRequestException, Injectable, Logger } from "@n
 import type { AuthClaims } from "../auth/auth.types";
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import {
   MetaGraph,
   MetaRequestError,
@@ -196,13 +197,10 @@ export class AnalyticsService {
     businessAccountId: string;
     token: string;
   } | null> {
-    const row = await this.prisma.whatsAppAccount.findUnique({
-      where: { workspaceId },
-      select: {
-        graphVersion: true,
-        businessAccountId: true,
-        accessTokenCipher: true,
-      },
+    const row = await defaultAccount(this.prisma, workspaceId, {
+      graphVersion: true,
+      businessAccountId: true,
+      accessTokenCipher: true,
     });
 
     if (!row) return null;

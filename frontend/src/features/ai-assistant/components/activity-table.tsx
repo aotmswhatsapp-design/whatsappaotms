@@ -44,6 +44,7 @@ const REASONS: Record<string, string> = {
   superseded: "A newer message arrived first",
   "window-closed": "The 24-hour window had closed",
   "no-context": "Nothing in the material matched",
+  unavailable: "The AI service failed",
   "no-agent": "No active agent on the number",
   handoff: "Handed to a person",
 };

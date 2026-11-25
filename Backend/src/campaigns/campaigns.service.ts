@@ -9,6 +9,7 @@ import { AudienceSource, type Prisma } from "@prisma/client";
 import type { AuthClaims } from "../auth/auth.types";
 import { problemsIn, shapeOf } from "../inbox/template-send";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { bindingsOf, problemsInBindings } from "./campaign.values";
 import { Deliverer } from "./campaigns.delivery";
@@ -83,9 +84,10 @@ export class CampaignsService {
         WHERE workspace_id = ${workspaceId}::uuid
         ORDER BY tag
       `,
-      this.prisma.whatsAppAccount.findUnique({
-        where: { workspaceId },
-        select: { phoneNumberId: true, displayPhoneNumber: true, verifiedName: true },
+      defaultAccount(this.prisma, workspaceId, {
+        phoneNumberId: true,
+        displayPhoneNumber: true,
+        verifiedName: true,
       }),
     ]);
 
@@ -779,7 +781,10 @@ export class CampaignsService {
   async test(claims: AuthClaims, id: string, dto: TestCampaignDto) {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
     const campaign = await this.mustCampaign(workspaceId, id);
-    const account = await this.engine.accountFor(workspaceId);
+    const account = await this.engine.accountFor(
+      workspaceId,
+      campaign.whatsappAccountId,
+    );
 
     if (!account) {
       throw new ConflictException({

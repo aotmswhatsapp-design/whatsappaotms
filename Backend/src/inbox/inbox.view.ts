@@ -41,6 +41,9 @@ export const CONVERSATION_SELECT = {
   assignedTo: {
     select: { id: true, fullName: true, email: true },
   },
+  agent: {
+    select: { id: true, name: true },
+  },
 } satisfies Prisma.ConversationSelect;
 
 export const MESSAGE_SELECT = {
@@ -97,6 +100,11 @@ export interface ConversationView {
     phone: string | null;
   };
   assignedTo: { id: string; name: string | null; email: string } | null;
+  /**
+   * The agent that owns this thread: the one that answered it first, and the
+   * only one that may answer it again. Null until an agent has replied.
+   */
+  agent: { id: string; name: string } | null;
   lastMessageAt: string;
   lastMessagePreview: string | null;
   lastInboundAt: string | null;
@@ -198,6 +206,9 @@ export function conversationView(row: ConversationSource): ConversationView {
           name: row.assignedTo.fullName,
           email: row.assignedTo.email,
         }
+      : null,
+    agent: row.agent
+      ? { id: row.agent.id, name: row.agent.name }
       : null,
     lastMessageAt: row.lastMessageAt.toISOString(),
     lastMessagePreview: row.lastMessagePreview,

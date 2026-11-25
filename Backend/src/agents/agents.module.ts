@@ -8,6 +8,7 @@ import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AgentsController } from "./agents.controller";
 import { AgentsRunner } from "./agents.runner";
 import { AgentsService } from "./agents.service";
+import { AgentRouter } from "./agent.router";
 import { AiController } from "./ai.controller";
 import { OpenAiMediaExtractor } from "./extract.media";
 import { KnowledgeController } from "./knowledge.controller";
@@ -30,6 +31,7 @@ import { ReplyService } from "./reply.service";
     AgentsService,
     KnowledgeService,
     RetrievalService,
+    AgentRouter,
     ReplyIntake,
     ReplyService,
     AgentsRunner,

@@ -34,24 +34,57 @@ export class ReplyIntake {
 
     if (answerable.length === 0) return 0;
 
-    const agent = await this.prisma.agent.findFirst({
-      where: { whatsappAccountId: account.id, isActive: true },
-      select: { id: true },
-    });
+    // Who answers is decided in the worker, not here: choosing between several
+    // active agents is a model call, and this runs inside Meta's request. The
+    // thread's current owner is named on the run so it starts as the honest
+    // guess; the oldest active agent is the placeholder for a thread nobody
+    // owns yet, and the router overwrites both the run and the thread if it
+    // picks someone else.
+    const conversationIds = [...new Set(answerable.map((row) => row.conversationId))];
+
+    const [conversations, agents] = await Promise.all([
+      this.prisma.conversation.findMany({
+        where: { id: { in: conversationIds }, workspaceId: account.workspaceId },
+        select: { id: true, agentId: true },
+      }),
+      this.prisma.agent.findMany({
+        where: { whatsappAccountId: account.id },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, isActive: true },
+      }),
+    ]);
+
+    const fallback = agents.find((agent) => agent.isActive)?.id ?? null;
 
     // Without an active agent the message is still stored and still visible in
     // the Inbox. There is simply nobody to answer it.
-    if (!agent) return 0;
+    if (!fallback) return 0;
+
+    const owner = new Map(conversations.map((row) => [row.id, row.agentId]));
+
+    const runs = answerable.flatMap((row) => {
+      // A conversation the lookup did not return is one this delivery may not
+      // touch; its message is still stored, it simply gets no answer here.
+      if (!owner.has(row.conversationId)) return [];
+
+      const agentId = owner.get(row.conversationId) ?? fallback;
+
+      return [
+        {
+          workspaceId: account.workspaceId,
+          agentId,
+          kind: "REPLY" as const,
+          conversationId: row.conversationId,
+          inboundMessageId: row.messageId,
+          status: "QUEUED" as const,
+        },
+      ];
+    });
+
+    if (runs.length === 0) return 0;
 
     const created = await this.prisma.agentRun.createMany({
-      data: answerable.map((row) => ({
-        workspaceId: account.workspaceId,
-        agentId: agent.id,
-        kind: "REPLY" as const,
-        conversationId: row.conversationId,
-        inboundMessageId: row.messageId,
-        status: "QUEUED" as const,
-      })),
+      data: runs,
       skipDuplicates: true,
     });
 
