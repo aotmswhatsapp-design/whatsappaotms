@@ -524,9 +524,11 @@ is not duplicated for a third bucket.
 
 ## Screens
 
-**`/workspace/chatbot`** — the placeholder becomes the agent screen: a header
-with the number, the active agent and an activation switch; then four tabs
-mirroring the four things an operator does.
+**`/workspace/ai`** — the placeholder at `src/app/(app)/workspace/ai/page.tsx`
+becomes the agent screen: a header with the number, the active agent and an
+activation switch; then four tabs mirroring the four things an operator does.
+`/workspace/chatbot` is the keyword-flow module and is left alone: that one
+answers by rule, this one answers by reading.
 
 - **Prompt** — name, instructions, model, temperature, reply cap, escalation
   keywords, saved as one form. The instructions field is the whole product, so
@@ -543,8 +545,8 @@ mirroring the four things an operator does.
   it, and from phase 4 a cost figure beside them with the sentence that cost is
   an estimate and tokens are the record.
 
-`frontend/src/features/chatbot/` holds all of it: `api.ts`, `types.ts`,
-`chatbot-view.tsx`, and `components/{agent-form,training-panel,source-list,playground,activity-table,upload-dropzone}.tsx`.
+`frontend/src/features/ai-assistant/` holds all of it: `api.ts`, `types.ts`,
+`ai-view.tsx`, and `components/{agent-form,training-panel,source-list,playground,activity-table,upload-dropzone}.tsx`.
 The page is a thin server component passing ids, like the campaigns routes. A
 tab appears when its phase lands — Playground with phase 1, Activity with
 phase 2 — so the screen never shows a tab that can only answer 503.
