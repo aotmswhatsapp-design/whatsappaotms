@@ -67,8 +67,9 @@ interface AgentProvider {
 }
 
 interface MediaExtractor {
-  /** Image bytes or an audio file, in; text out. One implementation, for now. */
-  read(input: { bytes: Buffer; mime: string; name: string }): Promise<{ text: string }>;
+  /** Image bytes or an audio file, in; text out. One implementation, for now.
+   *  `model` is the agent's own, so vision is read by the model that will answer. */
+  read(input: { bytes: Buffer; mime: string; name: string; model: string }): Promise<{ text: string }>;
 }
 ```
 
@@ -265,7 +266,7 @@ One dispatch on MIME, one row per source, and the extracted text is kept.
 | --- | --- | --- |
 | `.txt .md .csv` | decode as UTF-8 | A CSV keeps its shape by joining each row's cells with a separator |
 | `.docx` | `mammoth` → raw text | Maintained, pure JS, no LibreOffice |
-| `.xlsx .xls` | `exceljs` → rows joined per sheet | Chosen over the npm `xlsx` build, which carries published advisories that were fixed only off npm, and these are untrusted uploads |
+| `.xlsx` | `exceljs` → rows joined per sheet | Chosen over the npm `xlsx` build, which carries published advisories that were fixed only off npm, and these are untrusted uploads. The legacy binary `.xls` is refused with a sentence asking for `.xlsx`, because `exceljs` reads only the zipped format |
 | `.pdf` | `pdfjs-dist` text layer | No canvas needed for text; a PDF with no text layer fails with a sentence asking for page images, because rendering pages requires a canvas this deployment does not have |
 | image | vision, the bytes as an `image_url` data URI | The same chat call the reply engine makes; 20 MB ceiling |
 | audio | `whisper-1`, multipart, `response_format=json` | 25 MB ceiling, the same as any WhatsApp send |
@@ -472,13 +473,14 @@ for `no-context`. The conversation's own status is never touched.
 | `PATCH` | `/agents/:id` | Prompt, description, model, temperature, keywords, reply cap |
 | `DELETE` | `/agents/:id` | Removes sources too; conversations stay |
 | `POST` | `/agents/:id/activate` | Transactional: this one active, its siblings inactive. Refused until one source is `READY` |
+| `POST` | `/agents/:id/deactivate` | The activation switch's off position: one update, no precondition |
 | `POST` | `/agents/:id/sources/text` | `{ title, body }` — a typed note, indexed like a file |
 | `POST` | `/agents/:id/sources/file` | Multipart, 25 MB ceiling, one file |
 | `GET` | `/agents/:id/sources` | Status, counts, failure reason per row |
 | `DELETE` | `/agents/:id/sources/:sourceId` | Chunks and stored object go with it |
 | `POST` | `/agents/:id/sources/:sourceId/retry` | Re-extracts from the stored original |
 | `POST` | `/agents/:id/ask` | Playground: `{ question }` → answer, citations, tokens; nothing is sent, but the call is recorded as a `PLAYGROUND` run so it is metered |
-| `GET` | `/agents/:id/runs?kind=&status=` | Activity, newest first, paginated |
+| `GET` | `/agents/:id/runs?kind=&status=` | Activity, newest first, paginated, with the token totals of the same filter |
 | `POST` | `/conversations/:id/ai/pause` | Manual pause, reason `manual` |
 | `POST` | `/conversations/:id/ai/resume` | Clears the pause |
 
@@ -504,6 +506,7 @@ is a video upload before phase 3, and a format nobody listed at any point.
 Backend/src/agents/
   agents.module.ts            wires the providers and the storage factory
   agents.controller.ts        CRUD, activate, ask, runs
+  ai.controller.ts            conversation pause and resume
   agents.service.ts           activation transaction, delete/dispose, views
   knowledge.controller.ts     sources: text, file, list, delete, retry
   knowledge.service.ts        ingest orchestration, status transitions
@@ -536,7 +539,7 @@ answers by rule, this one answers by reading.
   keywords, saved as one form. The instructions field is the whole product, so
   it is the largest element on the tab and carries the standing rules as
   placeholder text.
-- **Training** — a drop zone accepting the seven formats by extension, a typed
+- **Training** — a drop zone accepting the listed formats by extension, a typed
   note composer, and one row per source: title, kind icon, size, chunk count,
   status pill with the failure reason inline, retry and delete.
 - **Playground** — a question box, the answer, and the citations that produced
@@ -555,7 +558,9 @@ phase 2 — so the screen never shows a tab that can only answer 503.
 
 **Inbox** — three small touches, no redesign: an `AI` badge on a bubble with an
 `agentId`, an **AI paused · resume** control in the thread header, and the pause
-reason as that control's tooltip.
+reason as that control's tooltip. A run's `Open` link is
+`/workspace/inbox?conversation=<id>`, so the inbox opens on the thread the agent
+answered.
 
 ## Configuration
 
