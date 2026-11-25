@@ -166,6 +166,7 @@ export function CampaignForm({
     optIn,
     audienceSource,
     listTotal,
+    schedule,
   });
 
   const sample =
@@ -830,6 +831,7 @@ function problemsInForm({
   optIn,
   audienceSource,
   listTotal,
+  schedule,
 }: {
   name: string;
   template: { category: string } | null;
@@ -840,6 +842,8 @@ function problemsInForm({
   optIn: boolean;
   audienceSource: AudienceSource;
   listTotal: number;
+  /** `datetime-local` text, empty when the campaign is saved as a draft. */
+  schedule: string;
 }): string[] {
   const problems: string[] = [];
 
@@ -878,6 +882,19 @@ function problemsInForm({
 
   if (marketing && !optIn) {
     problems.push("Confirm that these contacts agreed to marketing messages.");
+  }
+
+  // The server refuses a schedule that is not in the future, and it is the
+  // server that answers 400. Checking here keeps a doomed payload from being
+  // sent: a time picked a minute ago is a draft, not an error.
+  if (schedule) {
+    const at = new Date(schedule);
+
+    if (Number.isNaN(at.getTime())) {
+      problems.push("Give the schedule a valid date and time.");
+    } else if (at.getTime() <= Date.now()) {
+      problems.push("A schedule has to be in the future.");
+    }
   }
 
   return problems;

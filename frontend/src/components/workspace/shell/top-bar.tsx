@@ -26,7 +26,10 @@ export function WorkspaceTopBar({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "k") return;
+      // Not every keydown carries a key: on-screen keyboards, assistive tools
+      // and synthesised events can dispatch one with `key` undefined, and
+      // `undefined.toLowerCase()` threw before the shortcut was even examined.
+      if ((event.key ?? "").toLowerCase() !== "k") return;
       if (!event.metaKey && !event.ctrlKey) return;
       event.preventDefault();
       setPaletteOpen((open) => !open);
