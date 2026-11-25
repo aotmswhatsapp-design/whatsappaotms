@@ -202,8 +202,39 @@ export function AiView() {
     }
   }
 
+  /**
+   * Arrow keys move between tabs without taking the whole tablist out of the
+   * Tab sequence: one tab is reachable, and the roving `tabIndex` follows the
+   * selection.
+   */
+  function onTabKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const index = TABS.findIndex((entry) => entry.value === tab);
+    let next: number | null = null;
+
+    if (event.key === "ArrowLeft") {
+      next = (index + TABS.length - 1) % TABS.length;
+    } else if (event.key === "ArrowRight") {
+      next = (index + 1) % TABS.length;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = TABS.length - 1;
+    }
+
+    if (next === null) return;
+
+    event.preventDefault();
+
+    const entry = TABS[next];
+    if (!entry) return;
+
+    setTab(entry.value);
+    document.getElementById(`agent-tab-${entry.value}`)?.focus();
+  }
+
   const shown = agent && agent.id === selectedId ? agent : null;
   const untrained = (shown?.readySourceCount ?? 0) === 0;
+  const blocked = shown !== null && untrained && !shown.isActive;
 
   const creator = (
     <form
@@ -360,32 +391,51 @@ export function AiView() {
                 </p>
               </div>
 
-              <label
-                className="flex items-center gap-2 text-[12.5px] font-medium text-foreground"
-                title={
-                  untrained
-                    ? "Add material on the Training tab and wait for it to be ready."
-                    : shown?.isActive
-                      ? "Turn off to stop automatic replies. The material stays indexed."
-                      : "Turn on to answer new messages from the material."
-                }
-              >
-                <Switch
-                  checked={shown?.isActive ?? false}
-                  disabled={!shown || busy || (untrained && !shown.isActive)}
-                  onCheckedChange={(next) => void toggle(next)}
-                />
-                {shown?.isActive ? "Answering automatically" : "Not answering"}
-              </label>
+              <div className="flex flex-col items-end gap-1">
+                <label
+                  className="flex items-center gap-2 text-[12.5px] font-medium text-foreground"
+                  title={
+                    untrained
+                      ? "Add material on the Training tab and wait for it to be ready."
+                      : shown?.isActive
+                        ? "Turn off to stop automatic replies. The material stays indexed."
+                        : "Turn on to answer new messages from the material."
+                  }
+                >
+                  <Switch
+                    aria-describedby={
+                      blocked ? "agent-untrained-note" : undefined
+                    }
+                    checked={shown?.isActive ?? false}
+                    disabled={!shown || busy || blocked}
+                    onCheckedChange={(next) => void toggle(next)}
+                  />
+                  {shown?.isActive ? "Answering automatically" : "Not answering"}
+                </label>
+
+                {blocked ? (
+                  <p
+                    className="max-w-[15rem] text-right text-[11px] leading-relaxed text-muted-foreground"
+                    id="agent-untrained-note"
+                  >
+                    Add material on the Training tab. An agent with nothing
+                    indexed would hand every message back.
+                  </p>
+                ) : null}
+              </div>
             </section>
 
             <div
               aria-label="Agent sections"
               className="flex flex-wrap gap-1"
+              onKeyDown={onTabKeyDown}
               role="tablist"
             >
               {TABS.map((entry) => (
                 <button
+                  aria-controls={
+                    tab === entry.value ? `agent-panel-${entry.value}` : undefined
+                  }
                   aria-selected={tab === entry.value}
                   className={cn(
                     "rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none",
@@ -393,9 +443,11 @@ export function AiView() {
                       ? "bg-secondary text-foreground shadow-xs"
                       : "text-muted-foreground hover:text-foreground",
                   )}
+                  id={`agent-tab-${entry.value}`}
                   key={entry.value}
                   onClick={() => setTab(entry.value)}
                   role="tab"
+                  tabIndex={tab === entry.value ? 0 : -1}
                   type="button"
                 >
                   {entry.label}
@@ -407,23 +459,42 @@ export function AiView() {
               <div className="grid h-56 place-items-center rounded-xl border border-border bg-card">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
               </div>
-            ) : tab === "PROMPT" ? (
-              <AgentForm
-                agent={shown}
-                key={shown.id}
-                onSaved={(next) => {
-                  setAgent(next);
-                  setAgents((current) =>
-                    current
-                      ? current.map((row) => (row.id === next.id ? next : row))
-                      : current,
-                  );
-                }}
-              />
-            ) : tab === "TRAINING" ? (
-              <TrainingPanel agent={shown} key={shown.id} onSourcesChanged={reload} />
             ) : (
-              <Playground agent={shown} key={shown.id} />
+              <div
+                aria-labelledby={`agent-tab-${tab}`}
+                id={`agent-panel-${tab}`}
+                role="tabpanel"
+              >
+                {tab === "PROMPT" ? (
+                  <AgentForm
+                    agent={shown}
+                    key={shown.id}
+                    onSaved={(next) => {
+                      // A save that lands after the selection moved on must not
+                      // replace the agent being looked at: `shown` would go null
+                      // and nothing would re-fetch it.
+                      setAgent((current) =>
+                        current?.id === next.id ? next : current,
+                      );
+                      setAgents((current) =>
+                        current
+                          ? current.map((row) =>
+                              row.id === next.id ? next : row,
+                            )
+                          : current,
+                      );
+                    }}
+                  />
+                ) : tab === "TRAINING" ? (
+                  <TrainingPanel
+                    agent={shown}
+                    key={shown.id}
+                    onSourcesChanged={reload}
+                  />
+                ) : (
+                  <Playground agent={shown} key={shown.id} />
+                )}
+              </div>
             )}
           </div>
         </div>
