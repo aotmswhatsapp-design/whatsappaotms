@@ -266,24 +266,26 @@ One dispatch on MIME, one row per source, and the extracted text is kept.
 | `.txt .md .csv` | decode as UTF-8 | A CSV keeps its shape by joining each row's cells with a separator |
 | `.docx` | `mammoth` → raw text | Maintained, pure JS, no LibreOffice |
 | `.xlsx .xls` | `exceljs` → rows joined per sheet | Chosen over the npm `xlsx` build, which carries published advisories that were fixed only off npm, and these are untrusted uploads |
-| `.pdf` | `pdf-parse` text layer | Pure JS, no canvas; a page that yields no text is rendered to an image and read by vision instead |
+| `.pdf` | `pdfjs-dist` text layer | No canvas needed for text; a PDF with no text layer fails with a sentence asking for page images, because rendering pages requires a canvas this deployment does not have |
 | image | vision, the bytes as an `image_url` data URI | The same chat call the reply engine makes; 20 MB ceiling |
 | audio | `whisper-1`, multipart, `response_format=json` | 25 MB ceiling, the same as any WhatsApp send |
 | video | **not indexed until phase 3** | Needs frame and audio extraction first; the upload is accepted and `FAILED` with a sentence saying so, never silently dropped |
 
-`pdf-parse`, `mammoth` and `exceljs` are the only new dependencies: three pure-JS
+`pdfjs-dist`, `mammoth` and `exceljs` are the only new dependencies: pure-JS
 packages, none with a native build, so the Render build stays
-`npm ci && npm run build`. Versions are pinned exactly: `pdf-parse@2.4.5`,
+`npm ci && npm run build`. Versions are pinned exactly: `pdfjs-dist@3.11.174`,
 `mammoth@1.13.0`, `exceljs@4.4.0`.
 
-The PDF package is not a free choice. `unpdf` is the more modern extractor and
-was the first candidate, but it is ESM-only — its `package.json` carries
-`exports` and no `main`, and this backend compiles to CommonJS with
-`moduleResolution: "node"`, so it is neither resolvable by TypeScript nor
-`require`-able at runtime. `pdf-parse` 2.x ships `main` pointing at a `.cjs`
-build with matching `.d.cts` types, which is the one shape that works here
-without restructuring the build. That constraint — a CJS entry, or nothing —
-applies to every dependency this module adds.
+The PDF package is not a free choice, and it took three attempts to land. The
+constraint is that this backend compiles to CommonJS with `moduleResolution:
+"node"`, so a dependency must publish a `main` and root type declarations or it
+is neither `require`-able nor resolvable. `unpdf` is ESM-only (`exports`, no
+`main`). `pdf-parse` 2.x resolves, but it wraps pdf.js v5, which reaches for a
+browser global on import. `pdfjs-dist@3.11.174` is the newest release that still
+publishes a UMD `main` plus `types` at the root and runs in Node without a
+canvas. Only `getDocument(...).getTextContent()` is called — no rendering, no
+fonts, no worker thread. That constraint — a CJS entry or nothing — applies to
+every dependency this module adds.
 
 **Media path.** An image is sent to the agent's own model as an `image_url` data
 URI with the instruction to transcribe every word it can read and describe what
@@ -608,8 +610,9 @@ env var.
 ## Known gaps
 
 A customer's image or voice note gets no reply — the engine answers text only,
-so media reaches the inbox and a human takes it. Video training waits for phase
-3. There is no per-conversation reset of the assistant's memory beyond the
+so media reaches the inbox and a human takes it. Video training waits for phase 3, and a scanned PDF cannot be read at all until a
+page renderer exists — both fail with a sentence saying so rather than indexing
+nothing. There is no per-conversation reset of the assistant's memory beyond the
 10-message window, no suggested replies and no conversation summaries from PRD
 Module 8, no multi-number routing because `WhatsAppAccount.workspaceId` is
 unique, and no spend ceiling: usage is recorded, never refused, until someone
