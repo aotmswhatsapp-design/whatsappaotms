@@ -65,6 +65,17 @@ export class OpenAiMediaExtractor {
     const mime = this.mimeOf(input);
 
     if (IMAGE_MIMES.has(mime) || mime.startsWith("image/")) {
+      if (!IMAGE_MIMES.has(mime)) {
+        throw new ExtractError(
+          "SOURCE_UNSUPPORTED",
+          `Vision cannot read ${mime}. Upload a PNG, JPEG, WEBP or GIF.`,
+        );
+      }
+
+      if (input.bytes.length === 0) {
+        throw new ExtractError("SOURCE_EMPTY", "That file was empty.");
+      }
+
       const result = await this.provider.describeImage({
         bytes: input.bytes,
         mime,
@@ -87,6 +98,10 @@ export class OpenAiMediaExtractor {
           "SOURCE_UNSUPPORTED",
           `Whisper cannot read ${mime}. Convert the recording to mp3, m4a, ogg or wav and upload that.`,
         );
+      }
+
+      if (input.bytes.length === 0) {
+        throw new ExtractError("SOURCE_EMPTY", "That file was empty.");
       }
 
       return this.provider.transcribe({
