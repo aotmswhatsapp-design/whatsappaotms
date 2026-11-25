@@ -6,6 +6,7 @@ import { InboxModule } from "../inbox/inbox.module";
 import { MEDIA_BUCKET, MediaStorage } from "../inbox/media.storage";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AgentsController } from "./agents.controller";
+import { AgentsRunner } from "./agents.runner";
 import { AgentsService } from "./agents.service";
 import { OpenAiMediaExtractor } from "./extract.media";
 import { KnowledgeController } from "./knowledge.controller";
@@ -30,6 +31,7 @@ import { ReplyService } from "./reply.service";
     RetrievalService,
     ReplyIntake,
     ReplyService,
+    AgentsRunner,
     OpenAiProvider,
     OpenAiMediaExtractor,
     MediaStorage,
