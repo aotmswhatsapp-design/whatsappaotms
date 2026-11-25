@@ -109,31 +109,41 @@ const LINK =
 /** Punctuation a sentence leaves behind a link. */
 const TRAIL = /[.,;:!?'"”’)\]]+$/;
 
-/** A link reduced to the host a customer would land on. */
-function hostOf(token: string): string {
+/** A link reduced to the destination a customer would land on. */
+function destinationOf(token: string): string {
   return token
     .toLowerCase()
     .replace(/^mailto:/, "")
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "")
-    .replace(/[/?#].*$/, "")
     .replace(TRAIL, "");
 }
 
 function stripUnknownLinks(text: string, context: string): string {
-  // Exact hosts, not substrings: `not-evil.com` in the material must not
-  // authorise `evil.com`.
-  const known = new Set<string>();
-  for (const match of context.matchAll(LINK)) known.add(hostOf(match[0]));
+  // Exact destinations, not substrings: `not-evil.com` in the material must
+  // not authorise `evil.com`, and a path the material never names is invented
+  // even when the host is real.
+  const allowed = new Set<string>();
+
+  for (const match of context.matchAll(LINK)) {
+    const destination = destinationOf(match[0]);
+    if (destination.length === 0) continue;
+
+    allowed.add(destination);
+
+    // A link to the bare host of a named page is that page's own site.
+    const slash = destination.indexOf("/");
+    if (slash > 0) allowed.add(destination.slice(0, slash));
+  }
 
   return text
     .replace(LINK, (match) => {
       // A sentence that ends in a real link would otherwise be compared with
       // its full stop attached, fail, and lose the link.
       const trail = TRAIL.exec(match)?.[0] ?? "";
-      const token = match.slice(0, match.length - trail.length);
+      const destination = destinationOf(match.slice(0, match.length - trail.length));
 
-      return known.has(hostOf(token)) ? match : "";
+      return destination.length > 0 && allowed.has(destination) ? match : "";
     })
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\(\s*\)/g, "")
