@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -95,6 +96,8 @@ export interface AskResult {
  */
 @Injectable()
 export class AgentsService {
+  private readonly logger = new Logger(AgentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly workspaces: WorkspacesService,
@@ -326,33 +329,39 @@ export class AgentsService {
     this.requireProvider();
 
     const started = Date.now();
-    const { chunks, embedTokens } = await this.retrieval.search(agent.id, dto.question);
+    let embedTokens = 0;
 
-    if (chunks.length === 0) {
-      await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
-        embeddingTokens: embedTokens,
-        latencyMs: Date.now() - started,
+    // Retrieval embeds the question, so it fails the same ways the chat call
+    // does: inside the guard, where the error is mapped and the run is metered.
+    try {
+      const found = await this.retrieval.search(agent.id, dto.question);
+      const chunks = found.chunks;
+      embedTokens = found.embedTokens;
+
+      if (chunks.length === 0) {
+        await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
+          embeddingTokens: embedTokens,
+          latencyMs: Date.now() - started,
+        });
+
+        return {
+          answer: HANDOFF_MESSAGE,
+          citations: [],
+          tokens: { input: 0, output: 0, embedding: embedTokens },
+          reason: "no-context",
+        };
+      }
+
+      const company = await this.prisma.businessProfile.findFirst({
+        where: { workspaceId },
+        select: { companyName: true },
       });
 
-      return {
-        answer: HANDOFF_MESSAGE,
-        citations: [],
-        tokens: { input: 0, output: 0, embedding: embedTokens },
-        reason: "no-context",
-      };
-    }
+      const full = await this.prisma.agent.findUniqueOrThrow({
+        where: { id: agent.id },
+        select: { systemPrompt: true, temperature: true, maxReplyChars: true, model: true },
+      });
 
-    const company = await this.prisma.businessProfile.findFirst({
-      where: { workspaceId },
-      select: { companyName: true },
-    });
-
-    const full = await this.prisma.agent.findUniqueOrThrow({
-      where: { id: agent.id },
-      select: { systemPrompt: true, temperature: true, maxReplyChars: true, model: true },
-    });
-
-    try {
       const result = await this.provider.chat({
         model: full.model,
         system: systemPrompt({
@@ -394,7 +403,7 @@ export class AgentsService {
         reason: null,
       };
     } catch (error) {
-      await this.record(agent.id, workspaceId, "FAILED", null, {
+      await this.recordFailure(agent.id, workspaceId, {
         embeddingTokens: embedTokens,
         latencyMs: Date.now() - started,
         error: error instanceof Error ? error.message : "The model call failed.",
@@ -523,6 +532,24 @@ export class AgentsService {
         error: numbers.error ?? null,
       },
     });
+  }
+
+  /**
+   * A run that has to be recorded, on a path that is already failing: an
+   * insert that rejects must not replace the provider error the caller needs.
+   */
+  private async recordFailure(
+    agentId: string,
+    workspaceId: string,
+    numbers: { embeddingTokens: number; latencyMs: number; error: string },
+  ): Promise<void> {
+    try {
+      await this.record(agentId, workspaceId, "FAILED", null, numbers);
+    } catch (failure) {
+      this.logger.warn(
+        `Could not record the failed run for agent ${agentId}: ${failure instanceof Error ? failure.message : "unknown error"}`,
+      );
+    }
   }
 
   /** `MediaStorage` is injected by the module; this keeps the call site short. */
