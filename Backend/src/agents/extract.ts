@@ -1,7 +1,10 @@
+import { Logger } from "@nestjs/common";
 import * as ExcelJS from "exceljs";
 import mammoth from "mammoth";
 
 import { ExtractError } from "./ai.errors";
+
+const logger = new Logger("Extract");
 
 /**
  * Turning an uploaded file into text.
@@ -41,11 +44,15 @@ export async function extractDocument(file: {
     case "csv":
       return expectText(csvToText(decode(file.bytes)), "That CSV was empty.");
 
-    case "docx":
-      return expectText(await docxText(file.bytes), "That document was empty.");
+    case "docx": {
+      const text = await readable(() => docxText(file.bytes), file.name);
+      return expectText(text, "That document was empty.");
+    }
 
-    case "xlsx":
-      return expectText(await sheetText(file.bytes), "That workbook was empty.");
+    case "xlsx": {
+      const text = await readable(() => sheetText(file.bytes), file.name);
+      return expectText(text, "That workbook was empty.");
+    }
 
     case "xls":
       throw new ExtractError(
@@ -53,8 +60,10 @@ export async function extractDocument(file: {
         "The old .xls format cannot be read. Open it in Excel and save it as .xlsx, then upload that.",
       );
 
-    case "pdf":
-      return expectText(await pdfText(file.bytes), "That PDF was empty.");
+    case "pdf": {
+      const text = await readable(() => pdfText(file.bytes), file.name);
+      return expectText(text, "That PDF was empty.");
+    }
 
     default:
       throw new ExtractError(
@@ -75,6 +84,32 @@ function expectText(text: string, sentence: string): string {
   if (trimmed.length === 0) throw new ExtractError("SOURCE_EMPTY", sentence);
 
   return trimmed;
+}
+
+/**
+ * A parser's own failure — corrupt bytes, a password, a format the library
+ * cannot read after all — is a refusal about the file, not a bug in this
+ * module. The detail goes to the log, where an operator can act on it; the
+ * caller gets a code the upload route can turn into a sentence.
+ */
+async function readable(
+  run: () => Promise<string>,
+  name: string,
+): Promise<string> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ExtractError) throw error;
+
+    logger.warn(
+      `Could not read ${name}: ${error instanceof Error ? error.message : "unknown failure"}`,
+    );
+
+    throw new ExtractError(
+      "SOURCE_UNSUPPORTED",
+      "That file could not be read. It may be corrupt, password-protected, or not really the format its name says.",
+    );
+  }
 }
 
 /**
@@ -133,12 +168,11 @@ async function docxText(bytes: Buffer): Promise<string> {
 async function sheetText(bytes: Buffer): Promise<string> {
   const workbook = new ExcelJS.Workbook();
 
-  // exceljs bundles its own copy of @types/node, so the `Buffer` it declares is
-  // a structurally different type from this project's. The bytes are the same;
-  // the cast exists only to satisfy that duplicate declaration.
-  await workbook.xlsx.load(
-    bytes as unknown as Parameters<typeof workbook.xlsx.load>[0],
-  );
+  // exceljs declares `interface Buffer extends ArrayBuffer {}` of its own, so
+  // the parameter is an ArrayBuffer rather than Node's Buffer. A fresh view
+  // hands it exactly that, with no assertion and no reliance on the two
+  // `Buffer` declarations lining up.
+  await workbook.xlsx.load(new Uint8Array(bytes).buffer);
 
   const sheets: string[] = [];
 
@@ -170,18 +204,20 @@ async function sheetText(bytes: Buffer): Promise<string> {
 async function pdfText(bytes: Buffer): Promise<string> {
   const pdfjs = await import("pdfjs-dist");
 
-  const document = await pdfjs
-    .getDocument({
-      data: new Uint8Array(bytes),
-      isEvalSupported: false,
-      useSystemFonts: false,
-      disableFontFace: true,
-    })
-    .promise;
+  // The loading task is what owns the worker, so it is the thing to destroy —
+  // and it must be destroyed even when loading itself rejects.
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(bytes),
+    isEvalSupported: false,
+    useSystemFonts: false,
+    disableFontFace: true,
+  });
 
   const pages: string[] = [];
 
   try {
+    const document = await task.promise;
+
     for (let number = 1; number <= document.numPages; number += 1) {
       const page = await document.getPage(number);
       const content = await page.getTextContent();
@@ -197,7 +233,7 @@ async function pdfText(bytes: Buffer): Promise<string> {
       page.cleanup();
     }
   } finally {
-    await document.destroy();
+    await task.destroy();
   }
 
   if (pages.length === 0) {
