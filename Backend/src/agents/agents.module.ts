@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { AuthModule } from "../auth/auth.module";
+import { InboxModule } from "../inbox/inbox.module";
 import { MEDIA_BUCKET, MediaStorage } from "../inbox/media.storage";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AgentsController } from "./agents.controller";
@@ -15,12 +16,13 @@ import { ReplyIntake } from "./reply.intake";
 import { ReplyService } from "./reply.service";
 
 /**
- * AuthModule supplies the guard, WorkspacesModule the tenant, and everything
- * else is this module's own. The agents run in this process on a timer, so
- * there is no client to share and no queue to reach.
+ * AuthModule supplies the guard, WorkspacesModule the tenant, and InboxModule
+ * the sender `ReplyService` answers through. Everything else is this module's
+ * own. The agents run in this process on a timer, so there is no client to
+ * share and no queue to reach.
  */
 @Module({
-  imports: [AuthModule, WorkspacesModule],
+  imports: [AuthModule, WorkspacesModule, InboxModule],
   controllers: [AgentsController, KnowledgeController],
   providers: [
     AgentsService,

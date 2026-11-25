@@ -16,8 +16,13 @@ import {
 } from "./reply.prompt";
 import { RetrievalService } from "./retrieval.service";
 
-/** A candidate a stuck process left behind is resumed, not lost. */
-const STALE_MS = 90_000;
+/**
+ * When a claim is old enough to be treated as abandoned. One answering run can
+ * spend six minutes inside the provider — retrieval embeds with three
+ * 60-second attempts, then chat with three more — so a shorter window would
+ * requeue a worker that is still alive and let two of them answer the same run.
+ */
+const STALE_MS = 600_000;
 
 /** After this many interruptions the run is left FAILED rather than looped. */
 const MAX_ATTEMPTS = 2;
@@ -89,9 +94,15 @@ export class ReplyService {
       select: { id: true, attempts: true },
     });
 
+    let recovered = 0;
+
     for (const row of stale) {
-      await this.prisma.agentRun.update({
-        where: { id: row.id },
+      // Conditional on the row still being `CLAIMED`: between the read above
+      // and this write a slow worker can finish and record `SENT`, and an
+      // unconditional update by id would drag a completed run back into the
+      // queue and answer the customer twice.
+      const result = await this.prisma.agentRun.updateMany({
+        where: { id: row.id, status: "CLAIMED" },
         data:
           row.attempts >= MAX_ATTEMPTS
             ? {
@@ -100,13 +111,36 @@ export class ReplyService {
               }
             : { status: "QUEUED", claimedAt: null, attempts: { increment: 1 } },
       });
+
+      recovered += result.count;
     }
 
-    return stale.length;
+    return recovered;
   }
 
-  /** Never throws: the runner's only job is to keep ticking. */
+  /**
+   * Never throws: the runner's only job is to keep ticking.
+   *
+   * `attempt` records a terminal status on every path it controls, but the
+   * reads and early skips before it are unguarded — a rejected `findUnique`
+   * would leave the run `CLAIMED` until the sweep, and the sweep is minutes
+   * away. This boundary turns any such rejection into a recorded failure.
+   */
   async answer(run: ClaimedRun): Promise<void> {
+    try {
+      await this.attempt(run);
+    } catch (error) {
+      await this.prisma.agentRun
+        .update({
+          where: { id: run.id },
+          data: { status: "FAILED", error: sentenceOf(error) },
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  /** The gates, the model call and the send, in cheapest-first order. */
+  private async attempt(run: ClaimedRun): Promise<void> {
     const started = Date.now();
 
     const row = await this.prisma.agentRun.findUnique({
@@ -162,15 +196,20 @@ export class ReplyService {
       return;
     }
 
+    // A burst of three messages is one answer, for the last of them. Siblings a
+    // second worker already claimed still outrank this run, and the `id`
+    // tie-break covers one delivery whose rows share a `createdAt`.
     const newer = await this.prisma.agentRun.count({
       where: {
         conversationId: conversation.id,
-        status: "QUEUED",
-        createdAt: { gt: row.createdAt },
+        status: { in: ["QUEUED", "CLAIMED"] },
+        OR: [
+          { createdAt: { gt: row.createdAt } },
+          { createdAt: row.createdAt, id: { gt: row.id } },
+        ],
       },
     });
 
-    // A burst of three messages is one answer, for the third.
     if (newer > 0) {
       await this.skip(run.id, "superseded");
       return;
@@ -233,7 +272,7 @@ export class ReplyService {
           chunks,
           maxReplyChars: agent.maxReplyChars,
         }),
-        messages: messagesOf(await this.historyOf(conversation.id)),
+        messages: messagesOf(await this.turnsOf(conversation.id, question)),
         temperature: agent.temperature,
         maxTokens: MAX_TOKENS,
       });
@@ -292,6 +331,23 @@ export class ReplyService {
         },
       });
     }
+  }
+
+  /**
+   * History plus the message being answered. History is `TEXT` only, but a
+   * `BUTTON` or `INTERACTIVE` tap is queued as a question too, and a model
+   * shown the material without that line answers something nobody asked.
+   */
+  private async turnsOf(
+    conversationId: string,
+    question: string,
+  ): Promise<Turn[]> {
+    const turns = await this.historyOf(conversationId);
+    const last = turns[turns.length - 1];
+
+    if (last?.role === "user" && last.body.trim() === question) return turns;
+
+    return [...turns, { role: "user", body: question }];
   }
 
   /** The last few text turns, oldest first, with the customer as `user`. */
