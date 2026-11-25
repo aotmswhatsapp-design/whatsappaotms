@@ -20,18 +20,20 @@ import {
   fetchAgents,
 } from "./api";
 import type { Agent, Channel } from "./types";
+import { ActivityTable } from "./components/activity-table";
 import { AgentForm } from "./components/agent-form";
 import { Playground } from "./components/playground";
 import { TrainingPanel } from "./components/training-panel";
 
 const nav = getNavItem("/workspace/ai");
 
-type Tab = "PROMPT" | "TRAINING" | "PLAYGROUND";
+type Tab = "PROMPT" | "TRAINING" | "PLAYGROUND" | "ACTIVITY";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "PROMPT", label: "Prompt" },
   { value: "TRAINING", label: "Training" },
   { value: "PLAYGROUND", label: "Playground" },
+  { value: "ACTIVITY", label: "Activity" },
 ];
 
 /**
@@ -491,8 +493,10 @@ export function AiView() {
                     key={shown.id}
                     onSourcesChanged={reload}
                   />
-                ) : (
+                ) : tab === "PLAYGROUND" ? (
                   <Playground agent={shown} key={shown.id} />
+                ) : (
+                  <ActivityTable agent={shown} key={shown.id} />
                 )}
               </div>
             )}
