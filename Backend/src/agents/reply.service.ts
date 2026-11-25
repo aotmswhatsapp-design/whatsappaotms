@@ -199,10 +199,12 @@ export class ReplyService {
     // A burst of three messages is one answer, for the last of them. A newer
     // sibling suppresses this run while it is waiting, being worked on, or
     // already answered — `SENT` included, or a newest message that finished
-    // first would let every older sibling answer too. A newer sibling that
-    // `FAILED` is left out on purpose: the burst then still gets one answer
-    // from the oldest survivor instead of silence. The `id` tie-break covers
-    // one delivery whose rows share a `createdAt`.
+    // first would let every older sibling answer too. `FAILED` is left out, so
+    // a newest run that failed does not suppress siblings that have not looked
+    // yet — but a sibling that already skipped stays skipped, so the burst can
+    // end up unanswered when the newest run fails after the others are done.
+    // That is the vendor failing, which would have failed the older runs too.
+    // The `id` tie-break covers one delivery whose rows share a `createdAt`.
     const newer = await this.prisma.agentRun.count({
       where: {
         conversationId: conversation.id,
