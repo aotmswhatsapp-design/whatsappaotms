@@ -108,7 +108,11 @@ export class OpenAiProvider {
     const text = body.choices?.[0]?.message?.content?.trim() ?? "";
 
     if (text.length === 0) {
-      throw new AiError("AI_UNAVAILABLE", "The model returned an empty reply.");
+      // Billed all the same: the tokens are why this row is worth a look.
+      throw new AiError("AI_UNAVAILABLE", "The model returned an empty reply.", false, {
+        tokensIn: body.usage?.prompt_tokens ?? 0,
+        tokensOut: body.usage?.completion_tokens ?? 0,
+      });
     }
 
     return {

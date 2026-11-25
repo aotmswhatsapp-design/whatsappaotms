@@ -18,6 +18,12 @@ export class AiError extends Error {
     message: string,
     /** A second attempt could succeed: timeouts, 429, 5xx. */
     readonly retryable = false,
+    /**
+     * What the vendor charged for an answer it then refused to hand over — an
+     * empty completion is billed like any other. Recording it keeps the usage
+     * figures honest on exactly the rows a person is most likely to inspect.
+     */
+    readonly usage: { tokensIn?: number; tokensOut?: number } = {},
   ) {
     super(message);
     this.name = "AiError";

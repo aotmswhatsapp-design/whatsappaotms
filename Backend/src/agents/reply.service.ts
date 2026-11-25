@@ -349,9 +349,19 @@ export class ReplyService {
         },
       });
     } catch (error) {
+      // A call that failed after the vendor charged for it still carries its
+      // tokens; the failing call's own count wins over whatever came before.
+      if (error instanceof AiError) {
+        if (error.usage.tokensIn !== undefined) spent.tokensIn = error.usage.tokensIn;
+        if (error.usage.tokensOut !== undefined) spent.tokensOut = error.usage.tokensOut;
+      }
+
       // The window can close between the gate and the send.
       if (error instanceof ConflictException) {
-        await this.skip(run.id, "window-closed");
+        await this.skip(run.id, "window-closed", {
+          ...spent,
+          latencyMs: Date.now() - started,
+        });
         return;
       }
 
@@ -458,10 +468,14 @@ export class ReplyService {
     });
   }
 
-  private async skip(runId: string, reason: string): Promise<void> {
+  private async skip(
+    runId: string,
+    reason: string,
+    usage: RunUsage = {},
+  ): Promise<void> {
     await this.prisma.agentRun.update({
       where: { id: runId },
-      data: { status: "SKIPPED", reason },
+      data: { status: "SKIPPED", reason, ...usage },
     });
   }
 }
