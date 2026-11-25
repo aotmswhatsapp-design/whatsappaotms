@@ -12,6 +12,7 @@ import { KnowledgeService } from "./knowledge.service";
 import { OpenAiProvider } from "./ai.openai";
 import { RetrievalService } from "./retrieval.service";
 import { ReplyIntake } from "./reply.intake";
+import { ReplyService } from "./reply.service";
 
 /**
  * AuthModule supplies the guard, WorkspacesModule the tenant, and everything
@@ -26,6 +27,7 @@ import { ReplyIntake } from "./reply.intake";
     KnowledgeService,
     RetrievalService,
     ReplyIntake,
+    ReplyService,
     OpenAiProvider,
     OpenAiMediaExtractor,
     MediaStorage,
