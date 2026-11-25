@@ -29,6 +29,8 @@ const MEDIA_KINDS: ReadonlySet<MessageKind> = new Set([
 export const CONVERSATION_SELECT = {
   id: true,
   status: true,
+  aiPausedAt: true,
+  aiPauseReason: true,
   unreadCount: true,
   lastInboundAt: true,
   lastMessageAt: true,
@@ -101,6 +103,12 @@ export interface ConversationView {
   unreadCount: number;
   /** False once 24 hours have passed; the composer is disabled then. */
   windowOpen: boolean;
+  /**
+   * Set when a person replied, or when the agent handed the thread over. The
+   * thread header says who stopped it and offers resume.
+   */
+  aiPausedAt: string | null;
+  aiPauseReason: string | null;
 }
 
 /** One card from a contact message, as the bubble draws it. */
@@ -196,6 +204,8 @@ export function conversationView(row: ConversationSource): ConversationView {
     lastInboundAt: iso(row.lastInboundAt),
     unreadCount: row.unreadCount,
     windowOpen: windowOpen(row.lastInboundAt),
+    aiPausedAt: iso(row.aiPausedAt),
+    aiPauseReason: row.aiPauseReason,
   };
 }
 

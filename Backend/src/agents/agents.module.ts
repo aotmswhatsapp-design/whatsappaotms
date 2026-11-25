@@ -8,6 +8,7 @@ import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AgentsController } from "./agents.controller";
 import { AgentsRunner } from "./agents.runner";
 import { AgentsService } from "./agents.service";
+import { AiController } from "./ai.controller";
 import { OpenAiMediaExtractor } from "./extract.media";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeService } from "./knowledge.service";
@@ -24,7 +25,7 @@ import { ReplyService } from "./reply.service";
  */
 @Module({
   imports: [AuthModule, WorkspacesModule, InboxModule],
-  controllers: [AgentsController, KnowledgeController],
+  controllers: [AgentsController, KnowledgeController, AiController],
   providers: [
     AgentsService,
     KnowledgeService,

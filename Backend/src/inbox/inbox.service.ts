@@ -248,19 +248,37 @@ export class InboxService {
     id: string,
     dto: SendTextDto,
   ): Promise<{ message: MessageView }> {
-    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
     const { conversationId, waId, account } = await this.forSending(workspaceId, id);
 
-    return {
-      message: await this.sender.text({
+    const message = await this.sender.text({
+      workspaceId,
+      conversationId,
+      waId,
+      account,
+      body: dto.body,
+      quote: await this.quoteOf(conversationId, dto.quotedMessageId),
+    });
+
+    // A human reply is a takeover. Two conditions keep it honest: only the
+    // first human reply stamps the pause (`aiPausedAt: null`), and only when
+    // this number actually has an agent answering — otherwise every thread in
+    // a workspace without AI would show an "AI paused" badge.
+    await this.prisma.conversation.updateMany({
+      where: {
+        id: conversationId,
         workspaceId,
-        conversationId,
-        waId,
-        account,
-        body: dto.body,
-        quote: await this.quoteOf(conversationId, dto.quotedMessageId),
-      }),
-    };
+        aiPausedAt: null,
+        account: { agents: { some: { isActive: true } } },
+      },
+      data: {
+        aiPausedAt: new Date(),
+        aiPausedByUserId: userId,
+        aiPauseReason: "human",
+      },
+    });
+
+    return { message };
   }
 
   async sendMedia(
