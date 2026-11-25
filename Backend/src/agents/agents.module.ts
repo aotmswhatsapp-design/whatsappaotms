@@ -11,6 +11,7 @@ import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeService } from "./knowledge.service";
 import { OpenAiProvider } from "./ai.openai";
 import { RetrievalService } from "./retrieval.service";
+import { ReplyIntake } from "./reply.intake";
 
 /**
  * AuthModule supplies the guard, WorkspacesModule the tenant, and everything
@@ -24,6 +25,7 @@ import { RetrievalService } from "./retrieval.service";
     AgentsService,
     KnowledgeService,
     RetrievalService,
+    ReplyIntake,
     OpenAiProvider,
     OpenAiMediaExtractor,
     MediaStorage,
@@ -34,6 +36,6 @@ import { RetrievalService } from "./retrieval.service";
         config.get<string>("AGENT_SOURCE_BUCKET") ?? "agent-sources",
     },
   ],
-  exports: [AgentsService, KnowledgeService],
+  exports: [AgentsService, KnowledgeService, ReplyIntake],
 })
 export class AgentsModule {}
