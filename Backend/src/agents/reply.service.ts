@@ -196,13 +196,17 @@ export class ReplyService {
       return;
     }
 
-    // A burst of three messages is one answer, for the last of them. Siblings a
-    // second worker already claimed still outrank this run, and the `id`
-    // tie-break covers one delivery whose rows share a `createdAt`.
+    // A burst of three messages is one answer, for the last of them. A newer
+    // sibling suppresses this run while it is waiting, being worked on, or
+    // already answered — `SENT` included, or a newest message that finished
+    // first would let every older sibling answer too. A newer sibling that
+    // `FAILED` is left out on purpose: the burst then still gets one answer
+    // from the oldest survivor instead of silence. The `id` tie-break covers
+    // one delivery whose rows share a `createdAt`.
     const newer = await this.prisma.agentRun.count({
       where: {
         conversationId: conversation.id,
-        status: { in: ["QUEUED", "CLAIMED"] },
+        status: { in: ["QUEUED", "CLAIMED", "SENT"] },
         OR: [
           { createdAt: { gt: row.createdAt } },
           { createdAt: row.createdAt, id: { gt: row.id } },
