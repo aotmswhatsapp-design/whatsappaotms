@@ -27,5 +27,5 @@ export const site = {
    * Contact address shown in the footer and on "ask a question" mail links.
    * Set NEXT_PUBLIC_CONTACT_EMAIL before launch — the default is a placeholder.
    */
-  email: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "hello@example.com",
+  email: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "contact@aotms.com",
 } as const;
