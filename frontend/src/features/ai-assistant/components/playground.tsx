@@ -34,12 +34,16 @@ interface Entry {
 function placeOf(citation: Citation, source: Source | undefined): string | null {
   if (citation.page !== null) return `Page ${citation.page}`;
 
-  const sheet = citation.sheet;
   const range = rowRange(citation);
 
   if (source?.mime === "text/csv") {
     return range === null ? "Records" : `Records ${range}`;
   }
+
+  // The sheet name is only trusted once the file's type is known: `CSV` is a
+  // plausible worksheet name as well as the label the CSV reader files its
+  // records under, so without the source it is dropped rather than guessed.
+  const sheet = source?.mime ? citation.sheet : null;
 
   if (sheet === null) return range === null ? null : `Rows ${range}`;
   return range === null ? sheet : `${sheet} · rows ${range}`;

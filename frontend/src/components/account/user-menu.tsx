@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/features/auth/actions";
-import { clearWorkspaceRole } from "@/lib/api/workspace";
+import { invalidateWorkspaceRole } from "@/lib/api/workspace";
 import type { SessionUser } from "@/lib/auth/types";
 
 /**
@@ -100,12 +100,13 @@ export function UserMenu({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {/* The role is cached for the tab, not for the person: clearing it on
-            the way out means the next sign-in never inherits this account's. */}
+            the way out means the next sign-in never inherits this account's —
+            and the other tabs share this session, so they are told too. */}
         <form action={signOut}>
           <DropdownMenuItem asChild>
             <button
               className="w-full"
-              onClick={() => clearWorkspaceRole()}
+              onClick={() => invalidateWorkspaceRole()}
               type="submit"
             >
               <LogOut />

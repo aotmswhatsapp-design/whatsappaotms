@@ -93,6 +93,10 @@ export function SourceList({
   const [armed, setArmed] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [downloading, setDownloading] = React.useState<string | null>(null);
+  // The signed link a blocked tab left behind, held until the row is clicked.
+  const [fallback, setFallback] = React.useState<{ id: string; url: string } | null>(
+    null,
+  );
 
   // One picker for the whole list: which row asked is remembered here, because
   // the file dialog answers long after the click that opened it.
@@ -219,20 +223,36 @@ export function SourceList({
   }
 
   async function download(source: Source) {
+    // Opened during the click, before the await: afterwards the browser no
+    // longer counts this as a user gesture and blocks the tab. `noopener`
+    // cannot be asked for at open time — it hands back no handle to navigate —
+    // so the opener is severed on the handle instead. Nothing credential-bearing
+    // is passed either way; the signed URL is navigated to, never fetched.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+
+    setFallback(null);
     setDownloading(source.id);
 
     try {
       const { url } = await sourceDownloadUrl(agentId, source.id);
 
-      // The API answered with a signed Storage URL, not with bytes. It is
-      // opened directly: `request()` would put this API's Bearer token on a
-      // request to a different host, for which it is not a credential.
-      const link = document.createElement("a");
-      link.href = url;
-      link.rel = "noopener noreferrer";
-      link.target = "_blank";
-      link.click();
+      if (tab && !tab.closed) {
+        tab.location.replace(url);
+        return;
+      }
+
+      // The browser refused the tab. The link is offered in the row instead,
+      // where a fresh click is a gesture it cannot take away.
+      setFallback({ id: source.id, url });
+      toast.push({
+        title: "The browser blocked the new tab",
+        description: "Use Open file in the row to fetch the download.",
+        tone: "error",
+      });
     } catch (caught) {
+      // The blank tab would otherwise sit there with nothing to show.
+      tab?.close();
       toast.push({
         title: "Could not download the file",
         description:
@@ -337,7 +357,9 @@ export function SourceList({
                   </p>
                 ) : null}
 
-                {source.status === "READY" && source.extractTokens > 0 ? (
+                {/* Extraction can succeed and indexing fail afterwards, and
+                    that is exactly when the cost is worth reading. */}
+                {source.extractTokens > 0 ? (
                   <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
                     {source.extractTokens.toLocaleString()} extraction tokens spent
                   </p>
@@ -345,7 +367,25 @@ export function SourceList({
               </div>
 
               <div className="flex shrink-0 items-center gap-1">
-                {source.kind === "FILE" ? (
+                {/* A blocked tab leaves its signed link here: the click on it
+                    is a fresh gesture, which the browser will not refuse. */}
+                {source.kind === "FILE" && fallback?.id === source.id ? (
+                  <a
+                    className="inline-flex h-8 items-center rounded-md px-2 text-[12px] font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
+                    href={fallback.url}
+                    onClick={() => {
+                      // Cleared after the click is handled: the anchor must still
+                      // be in the document when the browser follows it.
+                      window.setTimeout(() => setFallback(null), 0);
+                    }}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    Open file
+                  </a>
+                ) : null}
+
+                {source.kind === "FILE" && fallback?.id !== source.id ? (
                   <button
                     aria-label={`Download ${source.title}`}
                     className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none disabled:opacity-50"

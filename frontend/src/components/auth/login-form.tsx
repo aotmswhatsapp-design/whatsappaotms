@@ -17,7 +17,7 @@ import {
   friendly,
   nextPath,
 } from "@/components/auth/form-bits";
-import { clearWorkspaceRole } from "@/lib/api/workspace";
+import { invalidateWorkspaceRole } from "@/lib/api/workspace";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -89,8 +89,9 @@ export function LoginForm({
 
   function finish() {
     // A successful sign-in may be a different account than the one this tab
-    // served last; whatever role was cached belonged to that person.
-    clearWorkspaceRole();
+    // served last; whatever role was cached belonged to that person — here and
+    // in every other tab, which shares this session.
+    invalidateWorkspaceRole();
     router.replace(nextPath());
     router.refresh();
   }
