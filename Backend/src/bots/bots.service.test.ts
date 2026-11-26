@@ -136,7 +136,7 @@ test("a flow that points outside itself is refused before anything is written", 
   assert.equal(prisma.rows.size, 0);
 });
 
-test("a database without the table answers 503 with the file that installs it", async () => {
+test("a database without the table answers 503 with the migration that installs it", async () => {
   const prisma = new FakePrisma();
 
   prisma.missing = true;

@@ -7,11 +7,11 @@ import { flowIn } from "./bot.snapshot";
 /**
  * Where a flow lives.
  *
- * Raw SQL on purpose. The table is a proposal that has not been applied
- * (`prisma/proposals/0025_bot_flows`), and a Prisma model would have to enter
- * `schema.prisma` to be typed — a schema that runs ahead of its migrations is
- * exactly the drift the proposal rule exists to prevent. Two statements are not
- * worth that trade.
+ * Raw SQL on purpose: two statements, and the payload is one JSON document that
+ * Prisma's typed client would hand back whole anyway. The table ships as
+ * migration `0025_bot_flows`, and `BotFlow` sits in `schema.prisma` beside it --
+ * without the model the next `migrate dev` would propose dropping a table the
+ * schema cannot see.
  */
 @Injectable()
 export class BotStore {
@@ -33,8 +33,15 @@ export class BotStore {
   /** One row per agent. The unique index on `agent_id` is what makes this an upsert. */
   async save(workspaceId: string, agentId: string, flow: BotFlow): Promise<void> {
     await this.prisma.$executeRaw`
-      INSERT INTO "bot_flows" ("id", "workspace_id", "agent_id", "data")
-      VALUES (gen_random_uuid(), ${workspaceId}::uuid, ${agentId}::uuid, ${JSON.stringify(flow)}::jsonb)
+      INSERT INTO "bot_flows" ("id", "workspace_id", "agent_id", "data", "created_at", "updated_at")
+      VALUES (
+        gen_random_uuid(),
+        ${workspaceId}::uuid,
+        ${agentId}::uuid,
+        ${JSON.stringify(flow)}::jsonb,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
       ON CONFLICT ("agent_id") DO UPDATE
         SET "data" = EXCLUDED."data",
             "workspace_id" = EXCLUDED."workspace_id",

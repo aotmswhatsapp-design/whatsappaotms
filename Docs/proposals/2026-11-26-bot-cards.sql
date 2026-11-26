@@ -1,26 +1,21 @@
 -- PROPOSAL — NOT APPLIED AND NOT IN prisma/migrations/.
 --
--- SUPERSEDED by Backend/prisma/proposals/0025_bot_flows. Kept for the record:
--- this version stores one row per *card* and would need a second read (and a
--- root-flag transaction) to hand a whole flow to the renderer. The flow is
--- validated as one object — an entry card that exists, a button that points
--- inside the flow, no card that opens only itself — so it is stored as one
--- object, keyed by agent. The argument for buttons staying JSON is unchanged.
+-- SUPERSEDED and CLOSED by Backend/prisma/migrations/0025_bot_flows/migration.sql,
+-- which is applied. Kept for the record: this version stores one row per *card*
+-- and would need a second read (and a root-flag transaction) to hand a whole
+-- flow to the renderer. The flow is validated as one object — an entry card that
+-- exists, a button that points inside the flow, no card that opens only itself —
+-- so it is stored as one object, keyed by agent. The argument for buttons
+-- staying JSON is unchanged.
 --
--- Phase 3 can send a card and route what comes back, but it cannot store one.
--- `InboxSender.interactive` writes the card it sent into `messages.payload`,
--- which is exactly what a tap needs: the card the customer saw, not the card the
--- business has since edited. What is missing is the editable card itself — the
--- thing a business authors once and every send copies.
+-- What this records is the state before the flow table existed: a card could be
+-- sent and routed but not stored, because `Agent` had no JSON column and no
+-- child table. That gap is closed — a card is authored at /workspace/chatbot,
+-- stored in `bot_flows` as part of the agent's one flow, and sent into a
+-- conversation from the Inbox's Chatbot tab.
 --
--- `Agent` has no JSON column and no child table for this, so a card cannot live
--- anywhere without a table. Until this is approved nothing is lost:
--- `bot.render` works from a `BotCard` value, so a card can be built in code,
--- sent, and routed. What cannot be done is authoring one in the dashboard and
--- having it survive a restart.
---
--- WHEN APPROVED, this becomes `Backend/prisma/migrations/0025_bot_cards/migration.sql`
--- and the model below joins `schema.prisma`.
+-- The model below is what would have joined `schema.prisma` had this shape been
+-- approved. `BotFlow` in `schema.prisma` is the shape that did.
 --
 -- 0025, not 0024: the comment on 0023_knowledge_lease_token/migration.sql
 -- already reserves 0024 for a later column drop.

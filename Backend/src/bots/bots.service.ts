@@ -100,9 +100,9 @@ export class BotsService {
   }
 
   /**
-   * The table is a proposal that has not been applied. Until it is, the honest
-   * answer is "not installed yet" and the name of the file that installs it —
-   * not a 500 that reads like a bug in the editor.
+   * The table ships as migration `0025_bot_flows`. A database that has not run
+   * it gets "not installed yet" and the command that installs it -- not a 500
+   * that reads like a bug in the editor.
    */
   private async guard<T>(work: () => Promise<T>): Promise<T> {
     try {
@@ -112,7 +112,7 @@ export class BotsService {
         throw new ServiceUnavailableException({
           code: "BOT_STORE_MISSING",
           message:
-            "The chatbot table is not installed on this database yet. Apply prisma/proposals/0025_bot_flows.",
+            "The chatbot table is not installed on this database yet. Run prisma migrate deploy (0025_bot_flows).",
         });
       }
 

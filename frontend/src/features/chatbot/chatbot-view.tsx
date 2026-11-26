@@ -344,32 +344,32 @@ export function ChatbotView() {
       {missingStore ? (
         <section className="rounded-xl border border-warning/40 bg-warning/5 p-4">
           <h2 className="text-[13px] font-semibold text-foreground">
-            One migration is not applied yet
+            This database is missing the chatbot table
           </h2>
           <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-foreground">
             This editor saves to a <code className="font-mono text-[11.5px]">bot_flows</code>{" "}
-            table, and that table is delivered as a proposal rather than as a
-            migration. Everything else is in place; the database is one file
-            behind.
+            table. The code is in place and the migration is written; this
+            database has not run it yet.
           </p>
           <ol className="mt-2.5 max-w-2xl list-decimal space-y-1 pl-4 text-[12.5px] leading-relaxed text-muted-foreground">
             <li>
-              Open{" "}
+              From{" "}
+              <code className="font-mono text-[11.5px] text-foreground">Backend/</code>, run{" "}
               <code className="font-mono text-[11.5px] text-foreground">
-                Backend/prisma/proposals/0025_bot_flows/migration.sql
+                npx prisma migrate deploy
               </code>
               .
             </li>
             <li>
-              Run it once against this database — the Supabase SQL editor or{" "}
-              <code className="font-mono text-[11.5px]">psql</code> both work.
+              That applies{" "}
+              <code className="font-mono text-[11.5px]">prisma/migrations/0025_bot_flows</code>{" "}
+              — one new table, nothing that already exists is touched.
             </li>
             <li>Reload this screen. The editor opens on the saved flow, if any.</li>
           </ol>
           <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            The same directory has a <code className="font-mono">rollback.sql</code>{" "}
-            and a README that says what the table holds. Nothing here can undo a
-            migration once it runs.
+            Nothing here writes until the table exists, and a migration that has
+            run cannot be undone from this screen.
           </p>
         </section>
       ) : null}

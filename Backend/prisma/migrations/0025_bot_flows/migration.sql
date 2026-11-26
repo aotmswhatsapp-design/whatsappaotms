@@ -1,11 +1,21 @@
 -- One interactive flow per agent: the cards a customer walks through, stored as
--- the same JSONB the renderer and the tap router already read.
+-- the same JSON the renderer and the tap router already read.
 --
 -- The row is keyed by agent rather than by flow: an agent has exactly one flow,
 -- so `agent_id` carries a unique index and the service's save is an upsert.
 -- The payload is not normalised into card and button tables on purpose -- a
 -- flow is validated as a whole (`flowProblem`), and a card is never read on its
 -- own.
+--
+-- Additive only: one new table, no existing table is touched, and nothing reads
+-- it until this migration has run -- `BotStore` answers 503 BOT_STORE_MISSING
+-- against a database without the table rather than failing as a bug.
+--
+-- Undoing this is a later forward migration that drops the table; there is no
+-- rollback file, because a migration that has run is history.
+--
+-- Numbered 0025 because 0024 is reserved for `0024_drop_model_and_token_columns`
+-- (docs/proposals), which has not been approved.
 
 -- CreateTable
 CREATE TABLE "bot_flows" (
@@ -14,7 +24,7 @@ CREATE TABLE "bot_flows" (
     "agent_id" UUID NOT NULL,
     "data" JSONB NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "bot_flows_pkey" PRIMARY KEY ("id")
 );
