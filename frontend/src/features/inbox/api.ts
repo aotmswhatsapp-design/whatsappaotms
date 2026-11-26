@@ -358,6 +358,15 @@ export function removeConversation(id: string): Promise<{ deleted: true }> {
 }
 
 /**
+ * Hides one bubble from the inbox. Local only: WhatsApp has no endpoint that
+ * deletes a message the customer already received, so the row survives and the
+ * customer keeps the message.
+ */
+export function hideMessage(messageId: string): Promise<{ hidden: true }> {
+  return request(`/v1/inbox/messages/${messageId}`, { method: "DELETE" });
+}
+
+/**
  * Hands one thread back to the agent. Answers 200 with `paused: false`; the
  * caller applies the change locally and the poll confirms it.
  */

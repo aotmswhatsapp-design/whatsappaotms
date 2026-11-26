@@ -33,6 +33,7 @@ import {
   conversationView,
   messageView,
   noteView,
+  previewOfRow,
   windowOpen,
   type ConversationSource,
   type ConversationView,
@@ -219,7 +220,9 @@ export class InboxService {
 
     const [messages, notes] = await Promise.all([
       this.prisma.message.findMany({
-        where: { conversationId: conversation.id },
+        // A message an agent hid is not part of the thread any more, though the
+        // row survives for the dedupe key and the campaign history.
+        where: { conversationId: conversation.id, deletedAt: null },
         // Newest first for the bound, reversed for display.
         orderBy: { createdAt: "desc" },
         take: 200,
@@ -617,6 +620,60 @@ export class InboxService {
     );
 
     return { deleted: true };
+  }
+
+  /**
+   * Hides one message from the inbox.
+   *
+   * A local tombstone, not a recall: Meta's Cloud API has no endpoint that
+   * deletes a delivered message. The row stays because `wamid` is the dedupe
+   * key for retried deliveries and because campaign and analytics history
+   * point at it — only the bubble goes.
+   */
+  async hideMessage(
+    claims: AuthClaims,
+    messageId: string,
+  ): Promise<{ hidden: true }> {
+    const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.message.findFirst({
+      where: { id: messageId, workspaceId },
+      select: { id: true, conversationId: true, deletedAt: true },
+    });
+
+    if (!row) throw new NotFoundException("That message does not exist.");
+
+    // Hiding twice is the same answer as hiding once: a retried click must not
+    // rewrite who hid it first.
+    if (row.deletedAt) return { hidden: true };
+
+    await this.prisma.message.update({
+      where: { id: row.id },
+      data: { deletedAt: new Date(), deletedByUserId: userId },
+    });
+
+    await this.rewritePreview(row.conversationId);
+
+    return { hidden: true };
+  }
+
+  /**
+   * The queue line is denormalised on the conversation, so hiding the newest
+   * message would otherwise leave the bubble gone and its text still showing
+   * in the list. `lastMessageAt` is deliberately left alone: the thread really
+   * did move then, and re-dating it would reorder the queue.
+   */
+  private async rewritePreview(conversationId: string): Promise<void> {
+    const newest = await this.prisma.message.findFirst({
+      where: { conversationId, deletedAt: null, kind: { not: "REACTION" } },
+      orderBy: { createdAt: "desc" },
+      select: { body: true, kind: true, mediaName: true },
+    });
+
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessagePreview: newest ? previewOfRow(newest) : null },
+    });
   }
 
   /**

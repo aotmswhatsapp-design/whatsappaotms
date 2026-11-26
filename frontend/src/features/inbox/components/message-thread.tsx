@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 import {
   ApiError,
+  hideMessage,
   removeConversation,
   resumeAi,
   sendReaction,
@@ -91,6 +92,7 @@ export function MessageThread({
   onReaction,
   onNote,
   onDeleted,
+  onMessageHidden,
 }: {
   thread: ThreadPayload | null;
   agents: InboxAgent[];
@@ -102,6 +104,8 @@ export function MessageThread({
   onReaction: (targetId: string, message: InboxMessage | null) => void;
   onNote: (note: InboxNote) => void;
   onDeleted: () => void;
+  /** The bubble is gone from this inbox; the customer still has the message. */
+  onMessageHidden: (messageId: string) => void;
 }) {
   const toast = useToast();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -318,6 +322,33 @@ export function MessageThread({
     } catch (error) {
       toast.push({
         title: "Could not react",
+        description: errorText(error),
+        tone: "error",
+      });
+    }
+  }
+
+  /**
+   * Hides one bubble. A local tombstone, not a recall: Meta has no way to take
+   * back a message the customer already received, so the question says exactly
+   * that before anything is hidden.
+   */
+  async function hide(target: InboxMessage): Promise<void> {
+    if (!thread) return;
+
+    const sure = window.confirm(
+      "Hide this message from the inbox?\n\nIt stays on the customer's phone — WhatsApp has no way to delete a message once it has been delivered.",
+    );
+
+    if (!sure) return;
+
+    try {
+      await hideMessage(target.id);
+      onMessageHidden(target.id);
+      toast.push({ title: "Message hidden", tone: "success" });
+    } catch (error) {
+      toast.push({
+        title: "Could not hide the message",
         description: errorText(error),
         tone: "error",
       });
@@ -612,6 +643,7 @@ export function MessageThread({
                     reactions={reactions.get(entry.message.id) ?? []}
                     onQuote={setQuoted}
                     onReact={(target, emoji) => void react(target, emoji)}
+                    onHide={(target) => void hide(target)}
                   />
                 ) : (
                   <NoteCard note={entry.note} />
@@ -640,6 +672,7 @@ function Bubble({
   reactions,
   onQuote,
   onReact,
+  onHide,
 }: {
   message: InboxMessage;
   /** Who the customer is, for the name above a quoted message. */
@@ -648,6 +681,7 @@ function Bubble({
   reactions: ReactionTally[];
   onQuote: (message: InboxMessage) => void;
   onReact: (message: InboxMessage, emoji: string) => void;
+  onHide: (message: InboxMessage) => void;
 }) {
   const outbound = message.direction === "OUTBOUND";
 
@@ -665,7 +699,12 @@ function Bubble({
         )}
       >
         {outbound ? null : (
-          <BubbleActions message={message} onQuote={onQuote} onReact={onReact} />
+          <BubbleActions
+            message={message}
+            onHide={onHide}
+            onQuote={onQuote}
+            onReact={onReact}
+          />
         )}
 
         <div
@@ -740,7 +779,12 @@ function Bubble({
         </div>
 
         {outbound ? (
-          <BubbleActions message={message} onQuote={onQuote} onReact={onReact} />
+          <BubbleActions
+            message={message}
+            onHide={onHide}
+            onQuote={onQuote}
+            onReact={onReact}
+          />
         ) : null}
       </div>
 
@@ -792,10 +836,12 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "🙏", "✅", "🎉"];
  */
 function BubbleActions({
   message,
+  onHide,
   onQuote,
   onReact,
 }: {
   message: InboxMessage;
+  onHide: (message: InboxMessage) => void;
   onQuote: (message: InboxMessage) => void;
   onReact: (message: InboxMessage, emoji: string) => void;
 }) {
@@ -847,6 +893,18 @@ function BubbleActions({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* The last action, and the only destructive one: it hides the bubble
+          from this inbox and leaves the customer's copy alone. */}
+      <button
+        type="button"
+        aria-label="Hide this message from the inbox"
+        title="Hide from the inbox"
+        className="grid size-7 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/40"
+        onClick={() => onHide(message)}
+      >
+        <Trash2 aria-hidden="true" className="size-3.5" />
+      </button>
     </div>
   );
 }

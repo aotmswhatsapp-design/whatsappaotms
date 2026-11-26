@@ -213,7 +213,12 @@ export function Composer({
   const rows = Math.min(6, Math.max(1, text.split("\n").length));
 
   return (
-    <div className="shrink-0 border-t border-border bg-card px-3 pt-2 pb-1.5 sm:px-4">
+    // An open template panel can be 500px tall, and this row is the last child
+    // of a column that cannot grow. Without a cap the thread's scroller is
+    // squeezed to nothing and the Send button lands past the card's edge, out
+    // of reach. The cap gives the panel its own scroll instead — which is also
+    // what lets the panel's header and footer stick to its edges.
+    <div className="max-h-[min(58dvh,520px)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-card px-3 pt-2 pb-1.5 sm:px-4">
       {mode === "template" ? (
         <TemplatePanel
           conversationId={conversation.id}

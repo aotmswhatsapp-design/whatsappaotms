@@ -331,6 +331,42 @@ export function previewOf(body: string | null, fallback: string): string {
   return text.length > 140 ? `${text.slice(0, 139)}…` : text;
 }
 
+/** What the list shows in place of text: the kind, or the file's own name. */
+export function previewOfRow(row: {
+  body: string | null;
+  kind: MessageKind;
+  mediaName: string | null;
+}): string {
+  const label = kindLabel(row.kind);
+  const fallback = row.mediaName ? `${label} ${row.mediaName}` : label;
+
+  return previewOf(row.body, fallback);
+}
+
+/** The bracket label a kind carries when it has no words of its own. */
+export function kindLabel(kind: MessageKind): string {
+  switch (kind) {
+    case "IMAGE":
+      return "[image]";
+    case "DOCUMENT":
+      return "[document]";
+    case "AUDIO":
+      return "[audio]";
+    case "VIDEO":
+      return "[video]";
+    case "STICKER":
+      return "[sticker]";
+    case "LOCATION":
+      return "[location]";
+    case "CONTACTS":
+      return "[contact card]";
+    case "REACTION":
+      return "[reaction]";
+    default:
+      return "[message]";
+  }
+}
+
 function iso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }

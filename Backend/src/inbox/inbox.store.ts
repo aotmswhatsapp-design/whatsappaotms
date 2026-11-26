@@ -7,6 +7,7 @@ import type {
   ParsedDeliveryStatus,
   ParsedMessage,
 } from "./inbox.payload";
+import { kindLabel } from "./inbox.view";
 
 const PREVIEW_LIMIT = 140;
 
@@ -272,29 +273,6 @@ function preview(message: ParsedMessage): string {
 
   const label = kindLabel(message.kind);
   return message.mediaName ? `${label} ${message.mediaName}`.slice(0, PREVIEW_LIMIT) : label;
-}
-
-function kindLabel(kind: MessageKind): string {
-  switch (kind) {
-    case "IMAGE":
-      return "[image]";
-    case "DOCUMENT":
-      return "[document]";
-    case "AUDIO":
-      return "[audio]";
-    case "VIDEO":
-      return "[video]";
-    case "STICKER":
-      return "[sticker]";
-    case "LOCATION":
-      return "[location]";
-    case "CONTACTS":
-      return "[contact card]";
-    case "REACTION":
-      return "[reaction]";
-    default:
-      return "[message]";
-  }
 }
 
 function truncate(text: string): string {

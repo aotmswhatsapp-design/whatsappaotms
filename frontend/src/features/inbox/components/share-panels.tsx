@@ -53,7 +53,7 @@ function PanelHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="sticky top-0 z-10 flex min-w-0 items-center gap-1.5 bg-card">
       <span className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-soft text-brand">
         {icon}
       </span>
@@ -238,7 +238,9 @@ export function LocationPanel({
 
       <PanelError message={error} />
 
-      <div className="mt-2 flex items-center justify-between gap-2">
+      {/* Pinned while the panel scrolls inside the composer, so Send never
+          slides out of the card. */}
+      <div className="sticky bottom-0 z-10 mt-2 flex items-center justify-between gap-2 bg-card pt-1">
         <button
           type="button"
           className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
@@ -391,7 +393,9 @@ export function ContactPanel({
 
       <PanelError message={error} />
 
-      <div className="mt-2 flex items-center justify-between gap-2">
+      {/* Pinned while the panel scrolls inside the composer, so Send never
+          slides out of the card. */}
+      <div className="sticky bottom-0 z-10 mt-2 flex items-center justify-between gap-2 bg-card pt-1">
         <p className="min-w-0 text-[10px] leading-relaxed text-muted-foreground">
           The customer can save it straight into their address book.
         </p>

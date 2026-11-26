@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { LayoutTemplate, Loader2, SendHorizontal } from "lucide-react";
+import { ChevronDown, LayoutTemplate, Loader2, SendHorizontal } from "lucide-react";
 
 import { TemplateImage } from "@/components/workspace/template-image";
 
@@ -156,7 +156,10 @@ export function TemplatePanel({
       aria-label="Send a template"
       className="rounded-xl border border-border bg-card p-2"
     >
-      <div className="flex min-w-0 items-center gap-1.5">
+      {/* The panel scrolls inside the composer now, so the way back to a
+          sentence and the Send button both stay on screen: the header pins to
+          the top, the footer to the bottom, and only the middle moves. */}
+      <div className="sticky top-0 z-10 flex min-w-0 items-center gap-1.5 bg-card pb-1">
         <ModeSwitcher mode={mode} locked={locked} onChange={onModeChange} />
         <span className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground">
           {locked
@@ -199,22 +202,31 @@ export function TemplatePanel({
           </p>
         ) : null}
 
+        {/* `appearance-none` strips the browser's own arrow, so the panel
+            draws one: without it the field reads as a label rather than as the
+            one control that picks a template. */}
         {templates && templates.length > 0 ? (
-          <select
-            aria-label="Template"
-            className="h-8 w-full min-w-0 appearance-none truncate rounded-lg border border-border bg-secondary px-2.5 text-[11.5px] font-medium text-foreground outline-none transition-colors focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/25"
-            disabled={busy}
-            name="template"
-            value={selectedId}
-            onChange={(event) => choose(event.target.value)}
-          >
-            <option value="">Pick an approved template…</option>
-            {templates.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name} · {row.language}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              aria-label="Template"
+              className="h-8 w-full min-w-0 appearance-none truncate rounded-lg border border-border bg-secondary pr-7 pl-2.5 text-[11.5px] font-medium text-foreground outline-none transition-colors focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/25"
+              disabled={busy}
+              name="template"
+              value={selectedId}
+              onChange={(event) => choose(event.target.value)}
+            >
+              <option value="">Pick an approved template…</option>
+              {templates.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name} · {row.language}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
         ) : null}
       </div>
 
@@ -340,7 +352,7 @@ export function TemplatePanel({
         </p>
       ) : null}
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="sticky bottom-0 z-10 mt-2 flex flex-wrap items-center justify-between gap-2 bg-card pt-1">
         <p className="min-w-0 text-[10px] leading-relaxed text-muted-foreground">
           {locked
             ? "Allowed outside the 24-hour window — that is what a template is for."

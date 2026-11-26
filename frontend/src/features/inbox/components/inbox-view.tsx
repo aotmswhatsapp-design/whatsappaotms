@@ -81,6 +81,14 @@ export function InboxView({
     filtersRef.current = filters;
   }, [filters]);
 
+  /**
+   * The bubbles this agent hid, by id. The server already leaves them out, but
+   * a poll that was in flight when the hide landed still carries them, so the
+   * ids are filtered again after every merge and cleared when the thread
+   * changes.
+   */
+  const hiddenRef = React.useRef<Set<string>>(new Set());
+
   const refreshList = React.useCallback(async (): Promise<void> => {
     try {
       const next = await fetchConversations(filtersRef.current);
@@ -164,7 +172,11 @@ export function InboxView({
     const tick = async (): Promise<void> => {
       try {
         const next = await fetchThread(selectedId);
-        if (active) setThread((current) => mergeThread(current, next));
+        if (active) {
+          setThread((current) =>
+            withoutHidden(hiddenRef.current, mergeThread(current, next)),
+          );
+        }
       } catch {
         // Polling is best effort; the next tick tries again.
       }
@@ -208,6 +220,7 @@ export function InboxView({
       setThread(null);
       setThreadLoading(true);
       setError(null);
+      hiddenRef.current = new Set();
 
       try {
         const next = await fetchThread(id);
@@ -313,6 +326,25 @@ export function InboxView({
     setConversations((rows) =>
       rows.map((row) => (row.id === conversation.id ? conversation : row)),
     );
+  }
+
+  /**
+   * A hidden bubble leaves now rather than at the next poll, and the queue is
+   * re-read because the conversation's preview may have changed with it.
+   */
+  function handleMessageHidden(messageId: string): void {
+    hiddenRef.current.add(messageId);
+
+    setThread((current) =>
+      current
+        ? {
+            ...current,
+            messages: current.messages.filter((row) => row.id !== messageId),
+          }
+        : current,
+    );
+
+    void refreshList();
   }
 
   function handleDeleted(): void {
@@ -504,6 +536,7 @@ export function InboxView({
             onChanged={handleChanged}
             onDeleted={handleDeleted}
             onMessage={handleSent}
+            onMessageHidden={handleMessageHidden}
             onNote={handleNoted}
             onReaction={handleReaction}
           />
@@ -531,6 +564,24 @@ function mergeThread(
         : current.messages,
     notes: next.notes.length >= current.notes.length ? next.notes : current.notes,
   };
+}
+
+/**
+ * Drops the bubbles this agent hid. Applied after the merge above, because the
+ * merge can prefer the client's longer list — which is exactly the list that
+ * still holds a message the server has already hidden.
+ */
+function withoutHidden(
+  hidden: Set<string>,
+  thread: ThreadPayload | null,
+): ThreadPayload | null {
+  if (!thread || hidden.size === 0) return thread;
+
+  const messages = thread.messages.filter((row) => !hidden.has(row.id));
+
+  return messages.length === thread.messages.length
+    ? thread
+    : { ...thread, messages };
 }
 
 function readError(error: unknown): string {

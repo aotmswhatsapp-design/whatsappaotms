@@ -456,6 +456,12 @@ model Message {
   sentAt         DateTime?        @map("sent_at")
   deliveredAt    DateTime?        @map("delivered_at")
   readAt         DateTime?        @map("read_at")
+  /// Set when an agent hides this bubble from the inbox. The row survives:
+  /// Meta has no revoke endpoint, `wamid` is the dedupe key for retried
+  /// deliveries, and campaign and analytics history point at it. The customer
+  /// still has the message on their phone.
+  deletedAt       DateTime?       @map("deleted_at")
+  deletedByUserId String?         @map("deleted_by_user_id") @db.Uuid
   createdAt      DateTime         @default(now()) @map("created_at")
 
   workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

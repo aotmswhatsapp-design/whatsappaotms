@@ -178,6 +178,22 @@ export class InboxController {
     return this.inbox.attachment(claims, id);
   }
 
+  /**
+   * DELETE /api/v1/inbox/messages/:id — hides one bubble from the inbox.
+   *
+   * Local only. WhatsApp has no way to remove a message the customer already
+   * received, so this answers 200 without claiming the message is gone.
+   */
+  @Delete("messages/:id")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  hideMessage(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.inbox.hideMessage(claims, id);
+  }
+
   /** PATCH /api/v1/inbox/conversations/:id — status and assignment. */
   @Patch("conversations/:id")
   update(
