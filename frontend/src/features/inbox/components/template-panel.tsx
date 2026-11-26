@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { ChevronDown, LayoutTemplate, Loader2, SendHorizontal } from "lucide-react";
 
+import { TemplateBubble } from "@/components/workspace/template-bubble";
 import { TemplateImage } from "@/components/workspace/template-image";
 
 import {
@@ -13,7 +14,7 @@ import {
   type InboxMessage,
   type SendableTemplate,
 } from "../api";
-import { readable, shapeOf } from "@/lib/templates/shape";
+import { buttonLabel, fill, shapeOf } from "@/lib/templates/shape";
 import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
 
 /** Meta's rule: only an approved template can be sent to a customer. */
@@ -232,22 +233,37 @@ export function TemplatePanel({
 
       {selected ? (
         <>
-          <div className="mt-2 rounded-lg bg-secondary/60 px-2.5 py-2">
-            <p className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+          {/* The bubble fills the panel on purpose. A squeezed preview hides
+              the three things an agent checks before a send — how the body
+              wraps, what the buttons say, and whether the footer fits. Nothing
+              is clamped: a long body grows and the composer's own scroll
+              reaches the rest of it. */}
+          <div className="mt-2">
+            <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
               <LayoutTemplate aria-hidden="true" className="size-3" />
               Preview
             </p>
-            {shape.headerKind === "IMAGE" ? (
-              <TemplateImage
-                alt={`Sample image for ${selected.name}`}
-                className="mt-1.5 aspect-[1.91/1] w-full rounded-md"
-                hasMedia={selected.hasMedia}
-                templateId={selected.id}
-              />
-            ) : null}
-            <p className="mt-1 line-clamp-5 text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground">
-              {readable(shape, values)}
-            </p>
+
+            <TemplateBubble
+              body={shape.body ? fill(shape.body, values) : ""}
+              buttons={shape.buttons.map(buttonLabel)}
+              footer={shape.footer ? fill(shape.footer, values) : null}
+              header={
+                shape.header && shape.headerKind !== "IMAGE"
+                  ? fill(shape.header, values)
+                  : null
+              }
+              media={
+                shape.headerKind === "IMAGE" ? (
+                  <TemplateImage
+                    alt={`Sample image for ${selected.name}`}
+                    className="mb-1 aspect-[1.91/1] w-full rounded-md"
+                    hasMedia={selected.hasMedia}
+                    templateId={selected.id}
+                  />
+                ) : null
+              }
+            />
           </div>
 
           {shape.tokens.length > 0 ? (

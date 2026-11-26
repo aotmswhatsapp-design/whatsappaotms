@@ -27,6 +27,14 @@ export interface TemplateShape {
   /** Header then body, in first-appearance order — the order Meta fills them. */
   tokens: string[];
   urlButtons: TemplateUrlButton[];
+  /** Every button in order, so a preview can draw the stack a phone shows. */
+  buttons: TemplatePreviewButton[];
+}
+
+/** One button as approved, with the label already trimmed. */
+export interface TemplatePreviewButton {
+  type: string;
+  text: string | null;
 }
 
 export function shapeOf(components: unknown): TemplateShape {
@@ -45,6 +53,22 @@ export function shapeOf(components: unknown): TemplateShape {
       ? asArray(record(component)?.buttons)
       : [],
   );
+
+  const previewButtons: TemplatePreviewButton[] = buttons.flatMap((button) => {
+    const entry = record(button);
+
+    if (!entry || typeof entry.type !== "string") return [];
+
+    return [
+      {
+        type: entry.type,
+        text:
+          typeof entry.text === "string" && entry.text.trim()
+            ? entry.text.trim()
+            : null,
+      },
+    ];
+  });
 
   const urlButtons = buttons.flatMap((button, index) => {
     const entry = record(button);
@@ -75,7 +99,23 @@ export function shapeOf(components: unknown): TemplateShape {
     // namespace, so `{{1}}` in both is one value, not two to ask for.
     tokens: [...new Set([...variablesIn(header ?? ""), ...variablesIn(body)])],
     urlButtons,
+    buttons: previewButtons,
   };
+}
+
+/**
+ * The words on a button, with WhatsApp's own fallbacks: Meta labels a copy-code
+ * button for you, and a bare link or call button still needs something to say.
+ */
+export function buttonLabel(button: {
+  type: string;
+  text?: string | null;
+}): string {
+  if (button.type === "COPY_CODE") return "Copy code";
+  if (button.type === "PHONE_NUMBER") return button.text?.trim() || "Call";
+  if (button.type === "URL") return button.text?.trim() || "Open link";
+
+  return button.text?.trim() || "Quick reply";
 }
 
 /** Replaces each `{{token}}` with its value, leaving unfilled ones visible. */
@@ -84,14 +124,6 @@ export function fill(text: string, values: Record<string, string>): string {
     const value = values[token]?.trim();
     return value ? value : whole;
   });
-}
-
-/** The message as the customer will read it, for the panel's preview. */
-export function readable(shape: TemplateShape, values: Record<string, string>): string {
-  return [shape.header, shape.body, shape.footer]
-    .map((part) => (part ? fill(part, values).trim() : ""))
-    .filter(Boolean)
-    .join("\n\n");
 }
 
 function variablesIn(text: string): string[] {
