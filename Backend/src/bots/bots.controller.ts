@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -94,5 +96,26 @@ export class BotsController {
     @Param("agentId", ParseUUIDPipe) agentId: string,
   ) {
     return this.bots.imageLibrary(claims, agentId);
+  }
+
+  /**
+   * DELETE /api/v1/agents/:agentId/bot/media?path=… — removes one uploaded
+   * picture from storage, for good.
+   *
+   * The path travels as a query parameter rather than a body: a DELETE body is
+   * dropped by some proxies in front of this API, and the path is short. A
+   * missing one is answered by the service like any other unknown path.
+   * Owner-only, like the upload: removing a picture changes what a customer can
+   * be shown.
+   */
+  @Delete("media")
+  @Roles("OWNER")
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  removeImage(
+    @CurrentUser() claims: AuthClaims,
+    @Param("agentId", ParseUUIDPipe) agentId: string,
+    @Query("path") path?: string,
+  ) {
+    return this.bots.removeImage(claims, agentId, path ?? "");
   }
 }

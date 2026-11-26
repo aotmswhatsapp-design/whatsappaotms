@@ -5,12 +5,19 @@ import {
   AlertCircle,
   Check,
   Loader2,
+  Trash2,
   UploadCloud,
   X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { ApiError, fetchCardImages, uploadCardImage, type CardImage } from "../api";
+import {
+  ApiError,
+  fetchCardImages,
+  removeCardImage,
+  uploadCardImage,
+  type CardImage,
+} from "../api";
 
 /**
  * The Picture field, as a drop target and a gallery.
@@ -20,6 +27,11 @@ import { ApiError, fetchCardImages, uploadCardImage, type CardImage } from "../a
  * than repeating the field for each card. What is stored is the optimised file
  * (rotated, resized to 1080 px, JPEG) in Supabase, so the address written into
  * the flow is the same file every customer will receive.
+ *
+ * Each stored picture carries a bin that deletes it from the bucket for good.
+ * It arms on the first click and deletes on the second, and it refuses while a
+ * card still shows the picture — a saved card the server knows about, or one
+ * of the draft's other cards, which only this screen can see.
  */
 
 const ACCEPT = "image/jpeg,image/png,image/webp";
@@ -42,11 +54,18 @@ export function CardImageField({
   agentId,
   value,
   disabled,
+  usedBy,
   onChange,
 }: {
   agentId: string;
   value: string | null;
   disabled: boolean;
+  /**
+   * The draft's other cards that already show a picture, by address. A draft
+   * points at files the server has never seen saved, so the refusal that keeps
+   * a card from ending up with a dead address has to happen here too.
+   */
+  usedBy?: (url: string) => string[];
   onChange: (url: string | null) => void;
 }) {
   const [images, setImages] = React.useState<CardImage[]>([]);
@@ -54,6 +73,11 @@ export function CardImageField({
   const [dragging, setDragging] = React.useState(false);
   const [libraryError, setLibraryError] = React.useState<string | null>(null);
   const [linkOpen, setLinkOpen] = React.useState(false);
+
+  /** The path armed by one click on its bin; the next click deletes it. */
+  const [pending, setPending] = React.useState<string | null>(null);
+  const [removing, setRemoving] = React.useState<string | null>(null);
+  const [removeError, setRemoveError] = React.useState<string | null>(null);
 
   const picker = React.useRef<HTMLInputElement>(null);
 
@@ -83,6 +107,16 @@ export function CardImageField({
       live = false;
     };
   }, [agentId]);
+
+  React.useEffect(() => {
+    if (!pending) return;
+
+    // The first click only arms the bin; a stray one expires instead of
+    // leaving a delete button waiting for a second click that was never meant.
+    const timer = window.setTimeout(() => setPending(null), 4_000);
+
+    return () => window.clearTimeout(timer);
+  }, [pending]);
 
   const addFiles = React.useCallback(
     (picked: File[]): void => {
@@ -138,12 +172,62 @@ export function CardImageField({
 
   const selected = value?.trim() || null;
 
+  /**
+   * Deletes one upload from the bucket, for good.
+   *
+   * The draft is checked first, then the server checks the saved flow; both
+   * name the card that holds the picture, because "in use" without a name
+   * leaves the agent hunting cards for the one they have to change.
+   */
+  const remove = React.useCallback(
+    async (tile: { url: string; path: string }): Promise<void> => {
+      const others = usedBy?.(tile.url) ?? [];
+
+      if (others.length > 0) {
+        setPending(null);
+        setRemoveError(
+          `${others.join(", ")} ${others.length === 1 ? "still uses" : "still use"} this picture. Give ${others.length === 1 ? "that card" : "those cards"} another picture first.`,
+        );
+        return;
+      }
+
+      setRemoving(tile.path);
+      setRemoveError(null);
+
+      try {
+        await removeCardImage(agentId, tile.path);
+
+        setImages((current) =>
+          current.filter((image) => image.path !== tile.path),
+        );
+
+        // The card would otherwise keep an address that no longer answers.
+        if (tile.url === selected) onChange(null);
+      } catch (error) {
+        setRemoveError(
+          error instanceof ApiError
+            ? error.message
+            : "That picture could not be removed.",
+        );
+      } finally {
+        setRemoving(null);
+        setPending(null);
+      }
+    },
+    [agentId, onChange, selected, usedBy],
+  );
+
   /** Every stored picture, plus a pasted link that is not one of them. */
   const tiles = React.useMemo(() => {
-    const list = images.map((image) => ({ url: image.url, path: image.path }));
+    const list = images.map((image) => ({
+      url: image.url,
+      path: image.path,
+      stored: true,
+    }));
 
     if (selected && !list.some((image) => image.url === selected)) {
-      list.unshift({ url: selected, path: selected });
+      // A pasted address is not ours to delete, so it carries no bin.
+      list.unshift({ url: selected, path: selected, stored: false });
     }
 
     return list;
@@ -274,47 +358,106 @@ export function CardImageField({
         <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
           {tiles.map((tile) => {
             const picked = tile.url === selected;
+            const armed = pending === tile.path;
+            const busy = removing === tile.path;
 
             return (
-              <button
-                type="button"
-                aria-label={picked ? "This picture is used" : "Use this picture"}
-                aria-pressed={picked}
+              <div
                 className={cn(
                   "group relative aspect-square overflow-hidden rounded-md border bg-secondary transition-colors",
                   picked
                     ? "border-foreground ring-2 ring-ring/30"
                     : "border-border hover:border-foreground/40",
-                  disabled && "cursor-not-allowed opacity-60",
+                  disabled && "opacity-60",
                 )}
-                disabled={disabled}
                 key={tile.path}
-                title={tile.url}
-                onClick={() => onChange(tile.url)}
               >
-                {/* A stored card picture is already an optimised 1080 px JPEG
-                    on a public bucket: `next/image` would add a proxy hop and
-                    re-encode it a second time. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  className="size-full object-cover"
-                  loading="lazy"
-                  src={tile.url}
-                />
-                {picked ? (
-                  <span className="absolute inset-0 grid place-items-center bg-black/35 text-white">
-                    <Check aria-hidden="true" className="size-4" strokeWidth={2.5} />
-                  </span>
-                ) : (
-                  <span className="absolute inset-x-0 bottom-0 hidden bg-black/45 py-0.5 text-center text-[10px] text-white group-hover:block">
-                    Use
-                  </span>
-                )}
-              </button>
+                <button
+                  type="button"
+                  aria-label={picked ? "This picture is used" : "Use this picture"}
+                  aria-pressed={picked}
+                  className="size-full disabled:cursor-not-allowed"
+                  disabled={disabled}
+                  title={tile.url}
+                  onClick={() => onChange(tile.url)}
+                >
+                  {/* A stored card picture is already an optimised 1080 px JPEG
+                      on a public bucket: `next/image` would add a proxy hop and
+                      re-encode it a second time. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt=""
+                    className="size-full object-cover"
+                    loading="lazy"
+                    src={tile.url}
+                  />
+                  {picked ? (
+                    <span className="absolute inset-0 grid place-items-center bg-black/35 text-white">
+                      <Check aria-hidden="true" className="size-4" strokeWidth={2.5} />
+                    </span>
+                  ) : (
+                    <span className="absolute inset-x-0 bottom-0 hidden bg-black/45 py-0.5 text-center text-[10px] text-white group-hover:block">
+                      Use
+                    </span>
+                  )}
+                </button>
+
+                {/* Its own button, not nested inside the tile: a delete inside
+                    a button is invalid markup and swallows the tile's own tap. */}
+                {tile.stored ? (
+                  <button
+                    type="button"
+                    aria-label={
+                      armed
+                        ? "Click again to delete this picture for good"
+                        : "Remove this picture from storage"
+                    }
+                    className={cn(
+                      "absolute top-1 right-1 grid size-5 place-items-center rounded-full text-white shadow-sm transition-colors disabled:opacity-50",
+                      armed ? "bg-destructive" : "bg-black/55 hover:bg-destructive",
+                    )}
+                    disabled={disabled || busy}
+                    title={
+                      armed
+                        ? "Click again to delete it from Supabase for good"
+                        : "Remove this picture from storage"
+                    }
+                    onClick={() => {
+                      setRemoveError(null);
+
+                      // The file cannot be brought back, so one stray click must
+                      // not delete it: the first arms this bin, the second does it.
+                      if (armed) {
+                        void remove(tile);
+                        return;
+                      }
+
+                      setPending(tile.path);
+                    }}
+                  >
+                    {busy ? (
+                      <Loader2 aria-hidden="true" className="size-3 animate-spin" />
+                    ) : (
+                      <Trash2 aria-hidden="true" className="size-3" />
+                    )}
+                  </button>
+                ) : null}
+              </div>
             );
           })}
         </div>
+      ) : null}
+
+      {tiles.some((tile) => tile.stored) ? (
+        <p className="text-[10.5px] leading-relaxed text-muted-foreground">
+          The bin deletes an upload from Supabase for good — click it twice.
+        </p>
+      ) : null}
+
+      {removeError ? (
+        <p className="text-[10.5px] leading-relaxed text-destructive">
+          {removeError}
+        </p>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

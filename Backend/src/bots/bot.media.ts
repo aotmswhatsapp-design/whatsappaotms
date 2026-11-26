@@ -101,3 +101,29 @@ export function cardImagePath(input: {
 
   return `${cardFolderFor(input.workspaceId, input.agentId)}/${stem}.jpg`;
 }
+
+/**
+ * The stored picture a path names, or `null` when it is not this agent's.
+ *
+ * Deleting is permanent, and the path arrives from the client, so it is checked
+ * against the folder this agent owns before any request reaches storage. The
+ * check is exact rather than permissive: one plain file name directly inside
+ * the folder, ending in `.jpg`. A `..` segment would climb out of a prefix
+ * match, so nested names are refused too — the uploader never writes one.
+ */
+export function ownedCardImagePath(input: {
+  workspaceId: string;
+  agentId: string;
+  path: string;
+}): string | null {
+  const folder = `${cardFolderFor(input.workspaceId, input.agentId)}/`;
+
+  if (!input.path.startsWith(folder)) return null;
+
+  const name = input.path.slice(folder.length);
+
+  if (!name || name.includes("/") || name.includes("\\")) return null;
+  if (!/\.jpe?g$/i.test(name)) return null;
+
+  return input.path;
+}

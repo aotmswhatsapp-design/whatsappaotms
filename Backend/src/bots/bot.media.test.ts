@@ -3,7 +3,12 @@ import { test } from "node:test";
 
 import sharp from "sharp";
 
-import { cardFolderFor, cardImagePath, prepareCardImage } from "./bot.media";
+import {
+  cardFolderFor,
+  cardImagePath,
+  ownedCardImagePath,
+  prepareCardImage,
+} from "./bot.media";
 
 /** A real PNG, made by the same encoder the optimiser uses to decode it. */
 const png = (width: number, height: number): Promise<Buffer> =>
@@ -63,4 +68,24 @@ test("a picture path is scoped to one workspace and one agent", () => {
   );
 
   assert.equal(cardFolderFor("ws-1", "agent-1"), "bots/ws-1/agent-1");
+});
+
+test("only a plain file name in this agent's folder is a picture to delete", () => {
+  const owned = (path: string) =>
+    ownedCardImagePath({ workspaceId: "ws-1", agentId: "agent-1", path });
+
+  assert.equal(owned("bots/ws-1/agent-1/abc.jpg"), "bots/ws-1/agent-1/abc.jpg");
+
+  // Another workspace's folder, and a sibling agent's, are unknown here.
+  assert.equal(owned("bots/ws-2/agent-1/abc.jpg"), null);
+  assert.equal(owned("bots/ws-1/agent-2/abc.jpg"), null);
+
+  // A prefix match is not enough: `..` must not climb out of the folder.
+  assert.equal(owned("bots/ws-1/agent-1/../agent-2/abc.jpg"), null);
+  assert.equal(owned("bots/ws-1/agent-1/.."), null);
+
+  // Nested names and other file types are never written by the uploader.
+  assert.equal(owned("bots/ws-1/agent-1/nested/abc.jpg"), null);
+  assert.equal(owned("bots/ws-1/agent-1/secret.env"), null);
+  assert.equal(owned(""), null);
 });

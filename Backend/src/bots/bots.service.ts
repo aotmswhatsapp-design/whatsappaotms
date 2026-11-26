@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
@@ -11,7 +12,12 @@ import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { BotFlow } from "./bot.card";
 import { emptyFlow, flowProblem } from "./bot.flow";
-import { cardFolderFor, cardImagePath, prepareCardImage } from "./bot.media";
+import {
+  cardFolderFor,
+  cardImagePath,
+  ownedCardImagePath,
+  prepareCardImage,
+} from "./bot.media";
 import { flowIn } from "./bot.snapshot";
 import { BotStore } from "./bot.store";
 
@@ -193,6 +199,66 @@ export class BotsService {
         // so reversing puts the newest upload first.
         .reverse(),
     };
+  }
+
+  /**
+   * Removes one uploaded picture from the bucket, for good.
+   *
+   * Two refusals before anything is deleted. A path outside this agent's folder
+   * is unknown rather than forbidden — another workspace must not be able to
+   * tell the two apart. A picture a saved card still shows is in use: deleting
+   * it would leave that card pointing at a dead address, and Meta fetches the
+   * address every time the card is shown.
+   *
+   * `strict` because this delete is not a side effect of something else the
+   * user asked for: if storage refuses, the picture is still there and the
+   * screen must say so instead of hiding an orphan.
+   */
+  async removeImage(
+    claims: AuthClaims,
+    agentId: string,
+    path: string,
+  ): Promise<{ removed: true }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.assertAgent(workspaceId, agentId);
+
+    const owned = ownedCardImagePath({ workspaceId, agentId, path });
+
+    if (!owned) {
+      throw new BadRequestException({
+        code: "BOT_IMAGE_UNKNOWN",
+        message: "That picture is not one of this agent's uploads.",
+      });
+    }
+
+    const url = this.storage.publicUrl(owned);
+
+    // A database without the flow table has no saved cards, so nothing can be
+    // pointing at the picture yet — that is not a reason to refuse the delete.
+    const flow = await this.store.read(agentId).catch((error: unknown) => {
+      if (BotStore.missingTable(error)) return null;
+
+      throw error;
+    });
+
+    const holders = flow?.cards.filter((card) => card.imageUrl === url) ?? [];
+
+    if (holders.length > 0) {
+      const [first] = holders;
+      const name = first.title.trim() || "An untitled card";
+      const more =
+        holders.length > 1 ? ` and ${holders.length - 1} other card(s)` : "";
+
+      throw new ConflictException({
+        code: "BOT_IMAGE_IN_USE",
+        message: `${name}${more} still uses this picture. Choose another picture for the card (or save the change) and then remove this one.`,
+      });
+    }
+
+    await this.storage.remove([owned], { strict: true });
+
+    return { removed: true };
   }
 
   private async assertAgent(workspaceId: string, agentId: string): Promise<void> {

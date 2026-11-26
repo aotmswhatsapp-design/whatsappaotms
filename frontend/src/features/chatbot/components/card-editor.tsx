@@ -103,6 +103,14 @@ export function CardEditor({
           <CardImageField
             agentId={flow.id}
             disabled={disabled}
+            // This card is left out: removing the picture it shows is how a
+            // card goes back to having none. The others are the ones a delete
+            // would leave pointing at nothing.
+            usedBy={(url) =>
+              flow.cards
+                .filter((other) => other.id !== card.id && other.imageUrl === url)
+                .map((other) => other.title.trim() || "An untitled card")
+            }
             value={card.imageUrl}
             onChange={(url) => patch({ imageUrl: url })}
           />

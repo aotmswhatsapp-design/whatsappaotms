@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BadRequestException,
+  ConflictException,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -55,7 +56,7 @@ class FakePrisma {
   }
 }
 
-const build = (prisma = new FakePrisma()) =>
+const build = (prisma = new FakePrisma(), removed: string[] = []) =>
   new BotsService(
     prisma as never,
     { primaryFor: async () => ({ workspaceId: "ws-a", userId: "user-a", role: "OWNER" }) } as never,
@@ -64,6 +65,9 @@ const build = (prisma = new FakePrisma()) =>
       upload: async () => undefined,
       list: async () => [],
       publicUrl: (path: string) => `https://storage.test/${path}`,
+      remove: async (paths: string[]) => {
+        removed.push(...paths);
+      },
     } as never,
   );
 
@@ -195,4 +199,97 @@ test("a database without the table answers 503 with the migration that installs 
       (error.getResponse() as { code?: string }).code === "BOT_STORE_MISSING" &&
       /0025_bot_flows/.test((error.getResponse() as { message?: string }).message ?? ""),
   );
+});
+
+/** A path this agent really owns, in the fake storage's public-url shape. */
+const PICTURE = "bots/ws-a/agent-1/abc.jpg";
+
+/** What `publicUrl` answers for that path — the address a card stores. */
+const PICTURE_URL = `https://storage.test/${PICTURE}`;
+
+test("a picture no card points at is deleted from storage", async () => {
+  const removed: string[] = [];
+  const prisma = new FakePrisma();
+
+  prisma.rows.set("agent-1", {
+    workspaceId: "ws-a",
+    flow: { id: "agent-1", rootCardId: null, cards: [card("c-root")], rules: [] },
+  });
+
+  const answer = await build(prisma, removed).removeImage(CLAIMS, "agent-1", PICTURE);
+
+  assert.deepEqual(answer, { removed: true });
+  assert.deepEqual(removed, [PICTURE]);
+});
+
+test("a picture a saved card still shows is refused, naming the card", async () => {
+  const removed: string[] = [];
+  const prisma = new FakePrisma();
+
+  prisma.rows.set("agent-1", {
+    workspaceId: "ws-a",
+    flow: {
+      id: "agent-1",
+      rootCardId: "c-menu",
+      cards: [{ ...card("c-menu"), imageUrl: PICTURE_URL }],
+      rules: [],
+    },
+  });
+
+  await assert.rejects(
+    () => build(prisma, removed).removeImage(CLAIMS, "agent-1", PICTURE),
+    (error: any) =>
+      error instanceof ConflictException &&
+      (error.getResponse() as { code?: string }).code === "BOT_IMAGE_IN_USE" &&
+      /c-menu/.test((error.getResponse() as { message?: string }).message ?? ""),
+  );
+
+  assert.deepEqual(removed, []);
+});
+
+test("a picture in another workspace's folder is unknown, not forbidden", async () => {
+  const removed: string[] = [];
+
+  await assert.rejects(
+    () =>
+      build(new FakePrisma(), removed).removeImage(
+        CLAIMS,
+        "agent-1",
+        "bots/ws-b/agent-1/abc.jpg",
+      ),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_IMAGE_UNKNOWN",
+  );
+
+  assert.deepEqual(removed, []);
+});
+
+test("a path that climbs out of the folder is refused", async () => {
+  const removed: string[] = [];
+
+  await assert.rejects(
+    () =>
+      build(new FakePrisma(), removed).removeImage(
+        CLAIMS,
+        "agent-1",
+        "bots/ws-a/agent-1/../../ws-b/agent-1/abc.jpg",
+      ),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_IMAGE_UNKNOWN",
+  );
+
+  assert.deepEqual(removed, []);
+});
+
+test("a database without the flow table still lets a picture be removed", async () => {
+  const removed: string[] = [];
+  const prisma = new FakePrisma();
+
+  prisma.missing = true;
+
+  await build(prisma, removed).removeImage(CLAIMS, "agent-1", PICTURE);
+
+  assert.deepEqual(removed, [PICTURE]);
 });

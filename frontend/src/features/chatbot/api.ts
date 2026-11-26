@@ -76,3 +76,20 @@ export function uploadCardImage(
 
   return upload<UploadedCardImage>(`/v1/agents/${agentId}/bot/media`, form);
 }
+
+/**
+ * Deletes one uploaded picture from Supabase, for good.
+ *
+ * Owner-only. The server refuses while a saved card still points at the picture
+ * (409 `BOT_IMAGE_IN_USE`) and for a path that is not this agent's
+ * (400 `BOT_IMAGE_UNKNOWN`); both carry a sentence meant for the screen.
+ */
+export function removeCardImage(
+  agentId: string,
+  path: string,
+): Promise<{ removed: boolean }> {
+  return request(
+    `/v1/agents/${agentId}/bot/media?path=${encodeURIComponent(path)}`,
+    { method: "DELETE" },
+  );
+}
