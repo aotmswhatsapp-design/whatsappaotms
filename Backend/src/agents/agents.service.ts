@@ -14,20 +14,15 @@ import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { MediaStorage } from "../inbox/media.storage";
 import { AiError } from "./ai.errors";
-import { DEFAULT_CHAT_MODEL, OpenAiProvider } from "./ai.openai";
+import { DEFAULT_CHAT_MODEL } from "./ai.openai";
 import type { AskAgentDto } from "./dto/ask-agent.dto";
 import type { CreateAgentDto } from "./dto/create-agent.dto";
 import type { ListRunsDto } from "./dto/list-runs.dto";
 import type { UpdateAgentDto } from "./dto/update-agent.dto";
 import { KnowledgeService, sourceView, type SourceView } from "./knowledge.service";
 import { RetrievalService } from "./retrieval.service";
-import {
-  HANDOFF_MESSAGE,
-  cleanReply,
-  declined,
-  messagesOf,
-  systemPrompt,
-} from "./reply.prompt";
+import { HANDOFF_MESSAGE, cleanReply } from "./reply.prompt";
+import { composeAnswer } from "./search/compose";
 
 /** What a draft starts with, so an agent is usable before it is tuned. */
 const DEFAULT_PROMPT =
@@ -115,7 +110,6 @@ export class AgentsService {
     private readonly workspaces: WorkspacesService,
     private readonly knowledge: KnowledgeService,
     private readonly retrieval: RetrievalService,
-    private readonly provider: OpenAiProvider,
     private readonly media: MediaStorage,
   ) {}
 
@@ -343,13 +337,12 @@ export class AgentsService {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
     const agent = await this.knowledge.agentOf(workspaceId, id);
 
-    this.requireProvider();
-
     const started = Date.now();
     let embedTokens = 0;
 
-    // Retrieval embeds the question, so it fails the same ways the chat call
-    // does: inside the guard, where the error is mapped and the run is metered.
+    // Local retrieval cannot fail on configuration; the vector engine can,
+    // because it embeds the question. Both throw inside the guard, where the
+    // error is mapped and the run is metered.
     try {
       const found = await this.retrieval.search(
         { agentId: agent.id, workspaceId },
@@ -372,27 +365,9 @@ export class AgentsService {
         };
       }
 
-      const company = await this.prisma.businessProfile.findFirst({
-        where: { workspaceId },
-        select: { companyName: true },
-      });
-
       const full = await this.prisma.agent.findUniqueOrThrow({
         where: { id: agent.id },
-        select: { systemPrompt: true, temperature: true, maxReplyChars: true, model: true },
-      });
-
-      const result = await this.provider.chat({
-        model: full.model,
-        system: systemPrompt({
-          systemPrompt: full.systemPrompt,
-          companyName: company?.companyName ?? null,
-          chunks,
-          maxReplyChars: full.maxReplyChars,
-        }),
-        messages: messagesOf([{ role: "user", body: dto.question }]),
-        temperature: full.temperature,
-        maxTokens: 400,
+        select: { maxReplyChars: true },
       });
 
       const citations = chunks.map((chunk) => ({
@@ -405,19 +380,27 @@ export class AgentsService {
         rowFrom: chunk.rowFrom,
         rowTo: chunk.rowTo,
       }));
-      const tokens = {
-        input: result.tokensIn,
-        output: result.tokensOut,
-        embedding: embedTokens,
-      };
+      // No model wrote this answer, so nothing is billed for writing it.
+      const tokens = { input: 0, output: 0, embedding: embedTokens };
 
-      // The prompt answers `[handoff]` when the material does not cover the
-      // question. The playground has no thread to hand to a person, so it shows
-      // the fixed line and records the same reason a real reply would.
-      if (declined(result.text)) {
+      const composed = composeAnswer({
+        question: dto.question,
+        chunks,
+        maxChars: full.maxReplyChars,
+      });
+
+      const answer = composed
+        ? cleanReply(composed.body, {
+            maxChars: full.maxReplyChars,
+            context: composed.used.map((chunk) => chunk.text).join("\n\n"),
+          })
+        : "";
+
+      // The playground has no thread to hand to a person, so a question the
+      // material does not cover shows the fixed line and records the same
+      // reason a real reply would.
+      if (answer.length === 0) {
         await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
-          tokensIn: result.tokensIn,
-          tokensOut: result.tokensOut,
           embeddingTokens: embedTokens,
           latencyMs: Date.now() - started,
         });
@@ -425,14 +408,7 @@ export class AgentsService {
         return { answer: HANDOFF_MESSAGE, citations, tokens, reason: "no-context" };
       }
 
-      const answer = cleanReply(result.text, {
-        maxChars: full.maxReplyChars,
-        context: chunks.map((chunk) => chunk.text).join("\n\n"),
-      });
-
       await this.record(agent.id, workspaceId, "SENT", null, {
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
         embeddingTokens: embedTokens,
         latencyMs: Date.now() - started,
       });
@@ -558,15 +534,6 @@ export class AgentsService {
       message:
         "Describe what this agent handles before it shares a number with another one — that description is how new conversations are routed.",
     });
-  }
-
-  private requireProvider(): void {
-    if (!this.provider.configured) {
-      throw new ServiceUnavailableException({
-        code: "AI_NOT_CONFIGURED",
-        message: "AI is not configured. Set OPENAI_API_KEY on the API and restart it.",
-      });
-    }
   }
 
   private async record(

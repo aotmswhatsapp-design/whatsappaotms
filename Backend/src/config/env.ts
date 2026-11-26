@@ -151,6 +151,22 @@ export const envSchema = z.object({
   /** Welded into knowledge_chunks.embedding; changing it needs a migration. */
   OPENAI_EMBED_MODEL: z.string().min(1).default("text-embedding-3-small"),
   /**
+   * Which engine answers a customer question.
+   *
+   * `local` is the default because the response path must not depend on a paid
+   * embedding call: Postgres full text and trigram similarity need no key. A
+   * deployment that has already paid for its embeddings can set `vector` and
+   * keep the original pgvector query.
+   */
+  KNOWLEDGE_SEARCH: z.enum(["local", "vector"]).default("local"),
+  /**
+   * The trigram floor for the local engine, on `word_similarity`'s 0–1 scale.
+   * Not comparable with the cosine floors in `retrieval.service.ts`: a word
+   * that appears verbatim in a chunk scores far above 0.5, which is why this
+   * measures a word, not a document.
+   */
+  SEARCH_MIN_TRGM: z.coerce.number().min(0).max(1).default(0.5),
+  /**
    * Private bucket for training files. Third of its kind, created on first
    * upload, and separate because a source outlives every conversation.
    */

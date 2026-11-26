@@ -1,0 +1,122 @@
+-- PROPOSAL — NOT APPLIED AND NOT IN prisma/migrations/.
+--
+-- Phase 2 (API-free knowledge search) reads `knowledge_chunks.text` with
+-- `to_tsvector` and `word_similarity`. Without these indexes those two calls
+-- work correctly and scan every chunk the agent owns; with them the scan
+-- becomes an index lookup. Correctness does not depend on this file. Latency
+-- does.
+--
+-- Nothing here is required for the application to boot, and nothing here is
+-- required for `VectorKnowledgeSearch` (KNOWLEDGE_SEARCH=vector), which uses
+-- the HNSW index created in 0015.
+--
+-- WHEN APPROVED, this becomes `Backend/prisma/migrations/0025_knowledge_search_indexes/migration.sql`
+-- with the two `CONCURRENTLY` keywords removed, because `prisma migrate deploy`
+-- runs each migration inside a transaction and `CREATE INDEX CONCURRENTLY`
+-- cannot run in one. See "APPLYING IT BY HAND" below for the alternative.
+--
+-- 0025, not 0024: the comment on 0023_knowledge_lease_token/migration.sql
+-- already reserves 0024 for a later column drop.
+
+-- ---------------------------------------------------------------------------
+-- 1. The extension
+-- ---------------------------------------------------------------------------
+-- `word_similarity()` does not exist without it, and `LocalKnowledgeSearch`
+-- would then log one warning and fall back to full text for the life of the
+-- process — never an outage, but also never a spelling-tolerant match.
+--
+-- `SCHEMA public` mirrors the `vector` extension created in 0015. On a hosted
+-- Postgres whose extensions live elsewhere, use the schema that is already on
+-- the connecting role's `search_path`, or `word_similarity` will not resolve
+-- even with the extension present.
+--
+-- This requires a role that may create extensions in the database. On Supabase
+-- that is `postgres`, not the Prisma connection role.
+CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public;
+
+-- ---------------------------------------------------------------------------
+-- 2. Full text — apply this
+-- ---------------------------------------------------------------------------
+-- The expression must match the query verbatim: `local.search.ts` writes
+-- `to_tsvector('english', c.text)` in the WHERE clause, the ORDER BY rank and
+-- both boolean columns. An index written with a different regconfig, with the
+-- one-argument `to_tsvector`, or over a concatenation of title and text would
+-- be silently unused — Postgres only matches an expression index exactly.
+--
+-- The two-argument `to_tsvector` is IMMUTABLE, which is what makes this
+-- indexable at all. `websearch_to_tsquery` is STABLE and sits on the right of
+-- `@@`, so it is evaluated once per query rather than indexed.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "knowledge_chunks_text_fts_idx"
+  ON "knowledge_chunks" USING gin (to_tsvector('english', "text"));
+
+-- ---------------------------------------------------------------------------
+-- 3. Trigram — deferred, do not apply yet
+-- ---------------------------------------------------------------------------
+-- `LocalKnowledgeSearch` filters with the function form
+-- `word_similarity($1, c.text) >= $2`. GIN trigram indexes only serve the
+-- operator form `$1 <% c.text`, which compares against the
+-- `pg_trgm.similarity_threshold` setting instead of a bound parameter. So an
+-- index created now would add write amplification to every chunk insert and
+-- change no query plan.
+--
+-- It becomes worth creating in the same change that rewrites the predicate to
+-- the operator form and sets the threshold per transaction. Until that
+-- rewrite exists, this statement stays commented out on purpose rather than
+-- applied "for later".
+--
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS "knowledge_chunks_text_trgm_idx"
+--   ON "knowledge_chunks" USING gin ("text" gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 4. Verifying it is used
+-- ---------------------------------------------------------------------------
+-- Run after section 2. `Index Scan using knowledge_chunks_text_fts_idx` in the
+-- plan is the pass condition; `Seq Scan on knowledge_chunks` means the
+-- expression did not match, or the agent owns too few chunks for the planner
+-- to prefer the index (correct behaviour, not a fault).
+--
+-- EXPLAIN (ANALYZE, BUFFERS)
+-- SELECT c.id
+-- FROM knowledge_chunks c
+-- WHERE to_tsvector('english', c.text)
+--         @@ websearch_to_tsquery('english', 'delivery time');
+--
+-- The extension itself, independent of the index:
+--
+-- SELECT word_similarity('dosai', 'Dosa 80');
+
+-- ---------------------------------------------------------------------------
+-- 5. Rollback
+-- ---------------------------------------------------------------------------
+-- Every statement above is additive and reversible; dropping either index or
+-- the extension returns the engine to the slower scan it runs today.
+--
+-- DROP INDEX CONCURRENTLY IF EXISTS "knowledge_chunks_text_fts_idx";
+--
+-- The extension may only be dropped once nothing else depends on it. Dropping
+-- it while the application is live does not break the application: the first
+-- search raises `function word_similarity(text, text) does not exist`, which
+-- `missingTrigram()` recognises, and the engine answers on full text from then
+-- on. Check for dependants first:
+--
+-- SELECT classid::regclass, objid
+-- FROM pg_depend
+-- WHERE refobjid = 'pg_trgm'::regclass;
+--
+-- DROP EXTENSION IF EXISTS pg_trgm;
+
+-- ---------------------------------------------------------------------------
+-- 6. Applying it by hand instead
+-- ---------------------------------------------------------------------------
+-- The `CONCURRENTLY` forms must not run inside a transaction. To apply this
+-- file as written, against a live database:
+--
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f Docs/proposals/2026-11-26-knowledge-search-indexes.sql
+--
+-- `psql -f` runs outside a transaction by default, so `CONCURRENTLY` succeeds
+-- and writers are not blocked. The index is then invisible to Prisma's
+-- migration history, so record it in the same breath or `migrate dev` will
+-- report drift on the next run — expression indexes cannot be declared in
+-- `schema.prisma`, only in SQL:
+--
+--   npx prisma migrate resolve --applied 0025_knowledge_search_indexes

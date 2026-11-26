@@ -6,17 +6,9 @@ import { windowOpen } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
 import { AgentRouter } from "./agent.router";
 import { AiError } from "./ai.errors";
-import { OpenAiProvider } from "./ai.openai";
-import {
-  HANDOFF_MESSAGE,
-  cleanReply,
-  declined,
-  matchesEscalation,
-  messagesOf,
-  systemPrompt,
-  type Turn,
-} from "./reply.prompt";
+import { HANDOFF_MESSAGE, cleanReply, matchesEscalation } from "./reply.prompt";
 import { RetrievalService } from "./retrieval.service";
+import { composeAnswer } from "./search/compose";
 
 /**
  * When a claim is old enough to be treated as abandoned. One answering run can
@@ -28,12 +20,6 @@ const STALE_MS = 600_000;
 
 /** After this many interruptions the run is left FAILED rather than looped. */
 const MAX_ATTEMPTS = 2;
-
-/** The last few turns give the model the thread; older ones only cost tokens. */
-const HISTORY_TURNS = 10;
-
-/** One WhatsApp-sized answer. Not a setting: a longer one is not a reply. */
-const MAX_TOKENS = 400;
 
 export interface ClaimedRun {
   id: string;
@@ -70,7 +56,6 @@ export class ReplyService {
     private readonly prisma: PrismaService,
     private readonly sender: InboxSender,
     private readonly retrieval: RetrievalService,
-    private readonly provider: OpenAiProvider,
     private readonly router: AgentRouter,
   ) {}
 
@@ -366,34 +351,21 @@ export class ReplyService {
         return;
       }
 
-      const business = await this.prisma.businessProfile.findUnique({
-        where: { workspaceId: conversation.workspaceId },
-        select: { companyName: true },
+      // The answer is a sentence from the material, not a sentence about it.
+      // Nothing here can invent a price, a policy or a web address: every
+      // character of the reply was written by the business and stored in a
+      // chunk.
+      const composed = composeAnswer({
+        question,
+        chunks,
+        maxChars: agent.maxReplyChars,
       });
 
-      const answer = await this.provider.chat({
-        model: agent.model,
-        system: systemPrompt({
-          systemPrompt: agent.systemPrompt,
-          companyName: business?.companyName ?? null,
-          chunks,
-          maxReplyChars: agent.maxReplyChars,
-        }),
-        messages: messagesOf(await this.turnsOf(conversation.id, question)),
-        temperature: agent.temperature,
-        maxTokens: MAX_TOKENS,
-      });
-
-      // The answer's own count plus what routing cost, because this object is
-      // what every exit below writes and a handoff still bought both calls.
-      spent.tokensIn = answer.tokensIn + (routed.tokensIn ?? 0);
-      spent.tokensOut = answer.tokensOut + (routed.tokensOut ?? 0);
-
-      // The model said the material does not cover the question. That used to
-      // be sent as a reply — a promise of a person nobody told — and the thread
-      // stayed live. It is a handoff: one fixed sentence, a paused thread, and
-      // a place in the team's queue.
-      if (declined(answer.text)) {
+      // No sentence in the material shared a word with the question. That is
+      // the same situation the prompt used to express as `[handoff]`, and it
+      // is handled the same way: one fixed line, a paused thread, and a place
+      // in the team's queue.
+      if (!composed) {
         await this.handoff(
           run.id,
           conversation.id,
@@ -405,9 +377,9 @@ export class ReplyService {
         return;
       }
 
-      const body = cleanReply(answer.text, {
+      const body = cleanReply(composed.body, {
         maxChars: agent.maxReplyChars,
-        context: chunks.map((chunk) => chunk.text).join("\n\n"),
+        context: composed.used.map((chunk) => chunk.text).join("\n\n"),
       });
 
       if (!body) {
@@ -504,39 +476,10 @@ export class ReplyService {
     }
   }
 
-  /**
-   * History plus the message being answered. History is `TEXT` only, but a
-   * `BUTTON` or `INTERACTIVE` tap is queued as a question too, and a model
-   * shown the material without that line answers something nobody asked.
-   */
-  private async turnsOf(
-    conversationId: string,
-    question: string,
-  ): Promise<Turn[]> {
-    const turns = await this.historyOf(conversationId);
-    const last = turns[turns.length - 1];
-
-    if (last?.role === "user" && last.body.trim() === question) return turns;
-
-    return [...turns, { role: "user", body: question }];
-  }
-
-  /** The last few text turns, oldest first, with the customer as `user`. */
-  private async historyOf(conversationId: string): Promise<Turn[]> {
-    const rows = await this.prisma.message.findMany({
-      where: { conversationId, kind: "TEXT", body: { not: null } },
-      orderBy: { createdAt: "desc" },
-      take: HISTORY_TURNS,
-      select: { direction: true, body: true },
-    });
-
-    return rows
-      .reverse()
-      .map((row) => ({
-        role: row.direction === "INBOUND" ? ("user" as const) : ("assistant" as const),
-        body: row.body ?? "",
-      }));
-  }
+  // History is no longer read here: an extractive answer has no prompt to
+  // carry turns into. The conversation engine reads them for repeat detection
+  // and for the selected menu, which is a different question from "what did
+  // the customer say three messages ago".
 
   /**
    * One fixed line, then the thread is paused. A handoff is a success for the

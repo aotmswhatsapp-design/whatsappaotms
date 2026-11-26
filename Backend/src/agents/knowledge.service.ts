@@ -134,11 +134,18 @@ export class KnowledgeService {
     // Derived, never configured separately: the reaper's cut follows whatever
     // budget is set, so no combination of settings can expire a live claim.
     this.staleMs = staleCutMs(this.jobBudgetMs);
+
+    // Local search reads `chunk.text` directly, so a source has no vectors to
+    // earn. This is the switch that keeps indexing free of the vendor.
+    this.vectorless =
+      (config.get<string>("KNOWLEDGE_SEARCH") ?? "local") !== "vector";
   }
 
   private readonly maxBytes: number;
   private readonly jobBudgetMs: number;
   private readonly staleMs: number;
+  /** True when the search engine does not read `knowledge_chunks.embedding`. */
+  private readonly vectorless: boolean;
 
   async addText(
     claims: AuthClaims,
@@ -795,40 +802,46 @@ export class KnowledgeService {
 
       let embedTokens = 0;
 
-      for (let at = 0; at < rows.length; at += EMBED_BATCH) {
-        // Between batches, not mid-call: an HTTP request already in flight is
-        // not aborted, so the job stops at the next boundary instead of
-        // claiming a cancellation it cannot deliver. A batch already paid for
-        // stays embedded, and a failed row loses its chunks in `fail`.
-        if (Date.now() - started > this.jobBudgetMs) {
-          throw new ExtractError(
-            "SOURCE_TIMEOUT",
-            "This file needed longer than one job is allowed, so embedding stopped at the last finished batch. Nothing was saved; try a smaller file, or split it and upload the part that matters.",
-          );
-        }
-
-        const batch = rows.slice(at, at + EMBED_BATCH);
-        const embedded = await this.provider.embed(batch.map((row) => row.text));
-
-        embedTokens += embedded.tokens;
-        spent = { embedTokens, extractTokens: extracted.extractTokens };
-
-        // The vectors and the lease are one write: a vector cannot land under a
-        // claim that has already been handed to another worker.
-        await lease.guard(async (tx) => {
-          for (let index = 0; index < batch.length; index += 1) {
-            // Source-scoped and counted: a chunk that another attempt replaced
-            // must fail this batch, not silently embed nothing.
-            const written = await tx.$executeRaw`
-              UPDATE knowledge_chunks
-              SET embedding = ${toVector(embedded.vectors[index])}::vector
-              WHERE id = ${batch[index].id}::uuid
-                AND source_id = ${source.id}::uuid
-            `;
-
-            if (written !== 1) throw new OwnershipLost();
+      // Local search indexes the text itself, so there is nothing to embed.
+      // The column is left alone — null for a new source, untouched for an old
+      // one — which is what lets a workspace switch back to `vector` later
+      // without uploading anything again.
+      if (!this.vectorless) {
+        for (let at = 0; at < rows.length; at += EMBED_BATCH) {
+          // Between batches, not mid-call: an HTTP request already in flight is
+          // not aborted, so the job stops at the next boundary instead of
+          // claiming a cancellation it cannot deliver. A batch already paid for
+          // stays embedded, and a failed row loses its chunks in `fail`.
+          if (Date.now() - started > this.jobBudgetMs) {
+            throw new ExtractError(
+              "SOURCE_TIMEOUT",
+              "This file needed longer than one job is allowed, so embedding stopped at the last finished batch. Nothing was saved; try a smaller file, or split it and upload the part that matters.",
+            );
           }
-        });
+
+          const batch = rows.slice(at, at + EMBED_BATCH);
+          const embedded = await this.provider.embed(batch.map((row) => row.text));
+
+          embedTokens += embedded.tokens;
+          spent = { embedTokens, extractTokens: extracted.extractTokens };
+
+          // The vectors and the lease are one write: a vector cannot land under a
+          // claim that has already been handed to another worker.
+          await lease.guard(async (tx) => {
+            for (let index = 0; index < batch.length; index += 1) {
+              // Source-scoped and counted: a chunk that another attempt replaced
+              // must fail this batch, not silently embed nothing.
+              const written = await tx.$executeRaw`
+                UPDATE knowledge_chunks
+                SET embedding = ${toVector(embedded.vectors[index])}::vector
+                WHERE id = ${batch[index].id}::uuid
+                  AND source_id = ${source.id}::uuid
+              `;
+
+              if (written !== 1) throw new OwnershipLost();
+            }
+          });
+        }
       }
 
       // The predecessor is read before the transaction so its object can be

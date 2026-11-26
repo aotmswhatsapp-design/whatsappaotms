@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { ConflictException, PayloadTooLargeException } from "@nestjs/common";
 
 import { KnowledgeService } from "./knowledge.service";
-import { RetrievalService } from "./retrieval.service";
+import { VectorKnowledgeSearch } from "./search/vector.search";
 import {
   CLAIMS,
   FakePrisma,
@@ -256,7 +256,8 @@ test("retrieval is scoped by workspace as well as agent", async () => {
     },
     $transaction: async (input: any[]) => Promise.all(input),
   };
-  const service = new RetrievalService(prisma as any, new FakeProvider() as any);
+  // The SQL moved to the engine that runs it, so the assertion follows it.
+  const service = new VectorKnowledgeSearch(prisma as any, new FakeProvider() as any);
 
   await service.search(
     { agentId: "agent-1", workspaceId: "ws-a" },
