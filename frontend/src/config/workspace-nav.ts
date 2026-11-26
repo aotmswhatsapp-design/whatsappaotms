@@ -97,7 +97,7 @@ export const workspaceNav: WorkspaceNavGroup[] = [
       {
         title: "Chatbot",
         href: "/workspace/chatbot",
-        description: "Keyword rules that answer before an agent does",
+        description: "Cards a customer walks through, sent from the Inbox",
         icon: Bot,
       },
       {
