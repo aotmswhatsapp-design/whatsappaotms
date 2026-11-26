@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { OpenAiProvider, toVector } from "./ai.openai";
@@ -12,6 +12,25 @@ export const TOP_K = 6;
  * the material does answer. The floor only drops near-zero matches.
  */
 export const FLOOR = 0.25;
+
+/**
+ * The second, wider look, taken only when the strict one found nothing.
+ *
+ * A one- or two-word question — "price", "delivery" — embeds close to the
+ * middle of the corpus, so the chunk that does answer it can be the nearest
+ * neighbour and still score under `FLOOR`. Reading more rows costs one wider
+ * index scan. It is the threshold, not the limit, that was discarding the
+ * answer: raising the limit alone would have returned more rows under the
+ * same floor and still filtered them all away.
+ */
+export const RETRY_K = 12;
+
+/**
+ * Low enough to keep a short query's real match, high enough to drop noise:
+ * unrelated text sits around 0.0–0.1 with this model, so 0.15 is a floor for
+ * "perhaps relevant" rather than a claim of a good match.
+ */
+export const RETRY_FLOOR = 0.15;
 
 export interface ContextChunk {
   id: string;
@@ -52,6 +71,27 @@ interface Row {
 }
 
 /**
+ * Which rows reach the prompt, as one pure decision so the bounds can be tested
+ * without a database.
+ *
+ * The two passes are ordered, not blended: when anything clears `FLOOR` the
+ * strict result is returned untouched, and the wider threshold is consulted
+ * only when it would otherwise be empty. That makes the change monotone — no
+ * question that answers today is handed different material — and it confines
+ * the weaker chunks to the questions that used to be refused before the model
+ * ever saw them.
+ */
+export function rank(rows: ContextChunk[]): ContextChunk[] {
+  const strict = rows.filter((row) => row.score >= FLOOR).slice(0, TOP_K);
+  if (strict.length > 0) return strict;
+
+  return rows
+    .filter((row) => row.score >= RETRY_FLOOR)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, RETRY_K);
+}
+
+/**
  * Cosine search over one agent's READY chunks.
  *
  * `iterative_scan` is why pgvector 0.8 matters: the filter is applied after the
@@ -61,6 +101,8 @@ interface Row {
  */
 @Injectable()
 export class RetrievalService {
+  private readonly logger = new Logger(RetrievalService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly provider: OpenAiProvider,
@@ -81,6 +123,10 @@ export class RetrievalService {
     // to share one connection. The array form is one connection and one
     // transaction — unlike the interactive form this codebase avoids on the
     // Supabase pooler.
+    //
+    // The limit is the wider one because the choice between the two floors
+    // happens after the rows are read: a query that is refused at `FLOOR`
+    // needs rows 7–12 to exist before `rank` can look at them.
     const [, rows] = await this.prisma.$transaction([
       this.prisma.$executeRawUnsafe(
         "SET LOCAL hnsw.iterative_scan = relaxed_order",
@@ -97,25 +143,36 @@ export class RetrievalService {
           AND s.status = 'READY'
           AND c.embedding IS NOT NULL
         ORDER BY c.embedding <=> ${vector}::vector
-        LIMIT ${TOP_K}
+        LIMIT ${RETRY_K}
       `,
     ]);
 
-    const chunks = rows
-      .map((row) => ({
-        id: row.id,
-        text: row.text,
-        sourceId: row.source_id,
-        title: row.title,
-        mime: row.mime ?? null,
-        score: Number(row.score),
-        page: row.page ?? null,
-        sheet: row.sheet ?? null,
-        rowFrom: row.row_from ?? null,
-        rowTo: row.row_to ?? null,
-        heading: row.heading ?? null,
-      }))
-      .filter((row) => row.score >= FLOOR);
+    const ranked = rows.map((row) => ({
+      id: row.id,
+      text: row.text,
+      sourceId: row.source_id,
+      title: row.title,
+      mime: row.mime ?? null,
+      score: Number(row.score),
+      page: row.page ?? null,
+      sheet: row.sheet ?? null,
+      rowFrom: row.row_from ?? null,
+      rowTo: row.row_to ?? null,
+      heading: row.heading ?? null,
+    }));
+
+    const chunks = rank(ranked);
+
+    // The relaxed pass is the only behaviour that changed, so it is the only
+    // one worth a line: the score says whether `RETRY_FLOOR` is earning its
+    // place or letting noise through. The question itself is not logged.
+    if (chunks.length > 0 && chunks[0].score < FLOOR) {
+      this.logger.debug(
+        `Relaxed retrieval for agent ${scope.agentId}: ` +
+          `${chunks.length} chunk(s) at or above ${RETRY_FLOOR}, ` +
+          `top ${chunks[0].score.toFixed(3)}`,
+      );
+    }
 
     return { chunks, embedTokens: tokens };
   }
