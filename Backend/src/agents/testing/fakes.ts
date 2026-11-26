@@ -114,8 +114,10 @@ export class FakePrisma {
   $executeRawUnsafe = (...args: any[]) =>
     this.invoke("$executeRawUnsafe", args, () => 1);
   $queryRaw = (...args: any[]) => this.invoke("$queryRaw", args, () => []);
-  $transaction = async (input: any) =>
-    Array.isArray(input) ? Promise.all(input) : input(this);
+  $transaction = async (input: any, options?: any) => {
+    this.calls.push({ path: "$transaction", args: options, ok: true });
+    return Array.isArray(input) ? Promise.all(input) : input(this);
+  };
 }
 
 /** Records bytes by path; `failRemove` proves the strict path throws. */

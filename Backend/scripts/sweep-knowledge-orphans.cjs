@@ -2,25 +2,56 @@
 /**
  * Deletes stored knowledge objects no row names.
  *
- * Dry run by default; `--apply` is the only way to delete. Run it against a
- * development project first: it reads whatever `DATABASE_URL` and
- * `SUPABASE_URL` point at. Requires `npm run build`, because it loads the
- * compiled planner from `dist/`.
+ * Dry run by default: it prints the complete candidate count and, at most, the
+ * first page of them. Deleting needs `--apply --confirm <count> --max <count>`,
+ * where the count is the one the dry run printed, so a stale reading cannot
+ * delete a bucket that has grown since.
+ *
+ * The decision, the environment check and the exit codes live in
+ * `src/agents/knowledge.sweep.cli.ts`, which is unit-tested; this file only
+ * supplies the network and the database. Requires `npm run build`.
+ *
+ * Exit codes: 0 done (or dry run), 1 could not read, 2 usage/environment
+ * refused, 3 deletion refused, 4 at least one delete batch failed.
  */
-const { PrismaClient } = require("@prisma/client");
-const { collectObjects, planSweep } = require("../dist/agents/knowledge.sweep");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const BUCKET = process.env.AGENT_SOURCE_BUCKET ?? "agent-sources";
+/**
+ * `.env` is not loaded by Node.
+ *
+ * Without this the environment check cannot see the variables the app itself
+ * runs with (`SUPABASE_POSTGRES_URL`, `DIRECT_URL`), and `npm run
+ * knowledge:sweep` stops at its own guard. An already-set variable wins, so a
+ * shell override still points the sweep somewhere else on purpose.
+ */
+function loadEnvFile(file) {
+  if (!fs.existsSync(file)) return;
+
+  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!match || line.trim().startsWith("#")) continue;
+
+    const value = match[2].replace(/^(["'])(.*)\1$/, "$2");
+    if (process.env[match[1]] === undefined) process.env[match[1]] = value;
+  }
+}
+
+loadEnvFile(path.join(__dirname, "..", ".env"));
+
+let runSweep;
+try {
+  ({ runSweep } = require("../dist/agents/knowledge.sweep.cli"));
+} catch (error) {
+  console.error("Run `npm run build` first: this script loads the compiled sweep.");
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
 const BASE = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
 const KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY ?? "";
-const APPLY = process.argv.includes("--apply");
-const BATCH = 100;
-
-if (!BASE || !KEY) {
-  console.error("SUPABASE_URL and a service-role key are required.");
-  process.exit(1);
-}
+const BUCKET = process.env.AGENT_SOURCE_BUCKET ?? "";
 
 /** One page of a prefix. A folder row has no id; the planner skips folders. */
 async function list(prefix, { limit, offset }) {
@@ -57,6 +88,7 @@ async function list(prefix, { limit, offset }) {
   );
 }
 
+/** The answer is returned, not printed: a failed batch is the caller's decision. */
 async function remove(paths) {
   const response = await fetch(`${BASE}/storage/v1/object/${BUCKET}`, {
     method: "DELETE",
@@ -69,51 +101,35 @@ async function remove(paths) {
     signal: AbortSignal.timeout(120_000),
   });
 
-  if (!response.ok) {
-    console.error(`delete batch answered ${response.status}`);
-  }
+  return { ok: response.ok, status: response.status };
 }
 
-(async () => {
+/** Read-only: the rows are the definition of "still needed". */
+async function live() {
+  const { PrismaClient } = require("@prisma/client");
   const prisma = new PrismaClient();
 
   try {
-    // Read-only: the rows are the definition of "still needed".
     const rows = await prisma.knowledgeSource.findMany({
       where: { storagePath: { not: null } },
       select: { storagePath: true },
     });
 
-    const live = new Set(rows.map((row) => row.storagePath));
-    const objects = await collectObjects(list, ["workspaces/", "agents/"]);
-    const orphans = planSweep({ objects, live, now: Date.now() });
-
-    // Printed before anything is deleted, so the operator can see the project
-    // their environment points at.
-    console.log(`bucket ${BUCKET} at ${BASE}`);
-    console.log(
-      `${objects.length} objects, ${live.size} referenced, ${orphans.length} orphaned`,
-    );
-
-    for (const orphan of orphans.slice(0, 200)) {
-      console.log(`${APPLY ? "delete" : "would delete"} ${orphan.path}`);
-    }
-
-    if (orphans.length > 200) {
-      console.log(`… ${orphans.length - 200} more`);
-    }
-
-    if (APPLY) {
-      for (let at = 0; at < orphans.length; at += BATCH) {
-        await remove(orphans.slice(at, at + BATCH).map((orphan) => orphan.path));
-      }
-    } else {
-      console.log("Dry run. Re-run with --apply to delete.");
-    }
+    return new Set(rows.map((row) => row.storagePath));
   } finally {
     await prisma.$disconnect();
   }
-})().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+}
+
+runSweep(process.argv.slice(2), process.env, {
+  list,
+  remove,
+  live,
+  log: (line) => console.log(line),
+  error: (line) => console.error(line),
+})
+  .then((code) => process.exit(code))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

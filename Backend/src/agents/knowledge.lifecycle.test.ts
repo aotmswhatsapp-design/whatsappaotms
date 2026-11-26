@@ -50,7 +50,10 @@ const rejectsWith = (code: string) => (error: any) =>
 test("retry of a PROCESSING source is a 409 and changes nothing", async () => {
   const { prisma, service } = build();
   (prisma.knowledgeSource as any).findFirst = async () => source("PROCESSING");
-  (prisma.knowledgeSource as any).updateMany = async () => ({ count: 0 });
+  // The lock finds the row; the conditional reset matches no status.
+  (prisma.knowledgeSource as any).updateMany = async (args: any) => ({
+    count: args.data?.status ? 0 : 1,
+  });
 
   await assert.rejects(
     () => service.retry(CLAIMS, "agent-1", "old"),
@@ -70,7 +73,9 @@ test("retry of a FAILED source resets every counter, conditionally", async () =>
   const { source: row } = await service.retry(CLAIMS, "agent-1", "old");
 
   const write = prisma.calls.find(
-    (call) => call.path === "knowledgeSource.updateMany",
+    (call) =>
+      call.path === "knowledgeSource.updateMany" &&
+      call.args.data?.status === "PENDING",
   );
 
   // The guard is part of the write, not a check before it (B-2).
@@ -108,7 +113,8 @@ test("a replacement writes a new row and leaves the old one READY", async () => 
 
   (prisma.knowledgeSource as any).findFirst = async (args: any) =>
     args.where.sha256 ? null : live;
-  (prisma.knowledgeSource as any).findUnique = async () => live;
+  (prisma.knowledgeSource as any).findUnique = async (args: any) =>
+    args.where.id === "old" ? live : null;
 
   const record = (prisma.knowledgeSource as any).create;
   (prisma.knowledgeSource as any).create = async (args: any) => {
@@ -161,7 +167,8 @@ test("a failed replacement leaves the old source and its bytes untouched", async
 
   (prisma.knowledgeSource as any).findFirst = async (args: any) =>
     args.where.sha256 ? null : live;
-  (prisma.knowledgeSource as any).findUnique = async () => live;
+  (prisma.knowledgeSource as any).findUnique = async (args: any) =>
+    args.where.id === "old" ? live : null;
   (prisma.knowledgeSource as any).create = async () => {
     throw new Error("row refused");
   };
@@ -208,6 +215,7 @@ const successor = (overrides: Record<string, unknown> = {}) => ({
   storagePath: "workspaces/ws-a/agents/agent-1/knowledge/new/original.pdf",
   text: "the new price list",
   status: "PROCESSING",
+  attempts: 0,
   meta: null,
   extractTokens: 0,
   replacesSourceId: "old",
@@ -248,6 +256,9 @@ test("becoming READY retires the predecessor in one transaction, then removes it
       call.args.data?.status === "READY",
   );
   assert.equal(ready?.args.where.status, "PROCESSING");
+  // The epoch the claim took is part of the write: a worker whose row was
+  // requeued cannot mark it READY afterwards.
+  assert.equal(ready?.args.where.attempts, 0);
 
   // The retirement is conditional on the successor being READY, in the same
   // agent, inside the transaction that wrote it.
@@ -257,10 +268,16 @@ test("becoming READY retires the predecessor in one transaction, then removes it
   assert.deepEqual(retired?.args.where, {
     id: "old",
     agentId: "agent-1",
+    // A row being read is never retired: that worker still owns its chunks.
+    status: { not: "PROCESSING" },
     agent: { sources: { some: { id: "new", status: "READY" } } },
   });
 
-  assert.deepEqual(removedDuringTransaction, [0]);
+  // No transaction that ran had already deleted the bytes: every one of them
+  // settled before the object went, and the retirement's own transaction is
+  // among them.
+  assert.ok(removedDuringTransaction.length > 0);
+  assert.ok(removedDuringTransaction.every((count) => count === 0));
   assert.deepEqual(storage.removed, [
     ["workspaces/ws-a/agents/agent-1/knowledge/old/original.pdf"],
   ]);
@@ -279,4 +296,52 @@ test("a retirement that loses the race removes no bytes", async () => {
   await service.index("new");
 
   assert.deepEqual(storage.removed, []);
+});
+
+test("retry is refused while a replacement is being prepared", async () => {
+  const { prisma, service } = build();
+  (prisma.knowledgeSource as any).findFirst = async () => source("READY");
+  // A successor exists, so the successor here is the live one.
+  (prisma.knowledgeSource as any).count = async () => 1;
+
+  await assert.rejects(
+    () => service.retry(CLAIMS, "agent-1", "old"),
+    rejectsWith("SOURCE_BUSY"),
+  );
+
+  // Nothing reset the row a READY successor is about to retire.
+  assert.equal(
+    prisma.calls.filter(
+      (call) =>
+        call.path === "knowledgeSource.updateMany" &&
+        call.args.data?.status === "PENDING",
+    ).length,
+    0,
+  );
+});
+
+test("retry takes the successor check under the replacement's own lock", async () => {
+  const { prisma, service } = build();
+  (prisma.knowledgeSource as any).findFirst = async () => source("FAILED");
+
+  await service.retry(CLAIMS, "agent-1", "old");
+
+  const counted = prisma.calls.find(
+    (call) => call.path === "knowledgeSource.count",
+  );
+  assert.deepEqual(counted?.args.where, {
+    agentId: "agent-1",
+    replacesSourceId: "old",
+    status: { in: ["PENDING", "PROCESSING", "READY"] },
+  });
+
+  // The lock is the first statement of the transaction, and the count runs
+  // after it: a replacement created in between would block on the same lock.
+  const lock = prisma.calls.find(
+    (call) => call.path === "knowledgeSource.updateMany",
+  );
+  assert.deepEqual(lock?.args.where, { id: "old", agentId: "agent-1" });
+  assert.ok(
+    prisma.calls.indexOf(lock!) < prisma.calls.indexOf(counted!),
+  );
 });

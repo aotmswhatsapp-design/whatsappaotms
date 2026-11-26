@@ -7,10 +7,11 @@ import {
   Logger,
   NotFoundException,
   PayloadTooLargeException,
+  ServiceUnavailableException,
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Prisma } from "@prisma/client";
+import { Prisma, type KnowledgeSource } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -36,10 +37,46 @@ export { MAX_SOURCE_BYTES } from "./knowledge.file";
 const EMBED_BATCH = 32;
 
 /** A row stuck in PROCESSING for this long belongs to a process that died. */
-const STALE_MS = 10 * 60 * 1000;
+export const STALE_MS = 10 * 60 * 1000;
+
+/**
+ * A live job renews its lease this often.
+ *
+ * Three renewals fit inside the stale cut, so a worker that dies is still
+ * recovered while a worker that is merely slow is not: the job budget and the
+ * stale cut stopped being the same clock once the lease renews itself (B-16).
+ */
+export const LEASE_RENEW_MS = 2 * 60 * 1000;
+
+/**
+ * The age at which a PROCESSING row may be given to another worker.
+ *
+ * The floor recovers a dead worker quickly; the budget term is what makes the
+ * pair consistent. A job is allowed to run for its whole budget, so the reaper
+ * must not take the claim before then — plus two renewals of slack for the
+ * heartbeat in flight. An 8-minute budget under a 10-minute cut is exactly the
+ * row two workers index at once (B-16).
+ */
+export function staleCutMs(budgetMs: number): number {
+  return Math.max(STALE_MS, budgetMs + LEASE_RENEW_MS * 2);
+}
 
 /** Automatic attempts before a source is left FAILED for a human to retry. */
 const MAX_ATTEMPTS = 2;
+
+/**
+ * Every transaction whose correctness depends on what a competitor sees.
+ *
+ * `ReadCommitted` is explicit because the successor count in `claimAndCreate`
+ * must observe another request's committed row; a snapshot taken before the
+ * lock wait (repeatable read) would let two replacements pass. The timeouts turn
+ * a contended lock into a 409 instead of a P2028 at the default five seconds.
+ */
+const TX = {
+  isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+  maxWait: 5_000,
+  timeout: 10_000,
+};
 
 /** The shape a row records for its source; `ExtractedMeta` owns the variants. */
 export type SourceMeta = ExtractedMeta;
@@ -93,10 +130,15 @@ export class KnowledgeService {
     // ends FAILED with a sentence instead of holding its claim for ever.
     this.jobBudgetMs =
       config.get<number>("KNOWLEDGE_JOB_BUDGET_MS") ?? 8 * 60 * 1000;
+
+    // Derived, never configured separately: the reaper's cut follows whatever
+    // budget is set, so no combination of settings can expire a live claim.
+    this.staleMs = staleCutMs(this.jobBudgetMs);
   }
 
   private readonly maxBytes: number;
   private readonly jobBudgetMs: number;
+  private readonly staleMs: number;
 
   async addText(
     claims: AuthClaims,
@@ -249,7 +291,17 @@ export class KnowledgeService {
 
       return { source: sourceView(row) };
     } catch (error) {
+      // A transaction can commit and still reject: the acknowledgement is lost,
+      // the connection drops at COMMIT, the pool recycles. The row is the truth.
+      // If this attempt's row exists, its object is the one the row names, so
+      // deleting it would break a live source; the upload succeeded.
+      const written = await this.findJustWritten(input.id);
+
+      if (written === "unknown") throw error;
+      if (written) return { source: sourceView(written) };
+
       await this.storage.remove([path]);
+
       // The unique index is the race backstop: two identical uploads at once.
       if (isUniqueViolation(error)) {
         throw new ConflictException({
@@ -257,7 +309,43 @@ export class KnowledgeService {
           message: "That file is already attached to this agent.",
         });
       }
+
+      // A deadlock victim or a transaction that outlived its timeout is
+      // retryable, not a bug in this process.
+      if (prismaCodeOf(error) === "P2034") {
+        throw new ConflictException({
+          code: "SOURCE_BUSY",
+          message: "Another replacement of that source is in progress. Try again.",
+        });
+      }
+
+      if (prismaCodeOf(error) === "P2028") {
+        throw new ServiceUnavailableException(
+          "The upload could not be stored before its transaction expired. Try again.",
+        );
+      }
+
       throw error;
+    }
+  }
+
+  /**
+   * The row this attempt wrote, if the write landed despite the error.
+   *
+   * `"unknown"` means the database could not answer. Keeping the object wastes
+   * bytes the sweeper reclaims; deleting it could break a row that does exist,
+   * so the doubt resolves towards keeping.
+   */
+  private async findJustWritten(
+    id: string,
+  ): Promise<KnowledgeSource | null | "unknown"> {
+    try {
+      return await this.prisma.knowledgeSource.findUnique({ where: { id } });
+    } catch (error) {
+      this.logger.warn(
+        `Could not confirm whether source ${id} was written (${error instanceof Error ? error.message : "unknown error"}); keeping its object.`,
+      );
+      return "unknown";
     }
   }
 
@@ -376,7 +464,7 @@ export class KnowledgeService {
       }
 
       return tx.knowledgeSource.create({ data });
-    });
+    }, TX);
   }
 
   async list(claims: AuthClaims, agentId: string): Promise<{ sources: SourceView[] }> {
@@ -444,21 +532,54 @@ export class KnowledgeService {
       ...(source.kind === "FILE" ? { text: null } : {}),
     };
 
-    // One conditional statement, not read-then-write: a claim landing between
-    // the two would let a second attempt start on a row already being read, and
-    // the two would delete each other's chunks (B-2).
-    const updated = await this.prisma.knowledgeSource.updateMany({
-      where: { id: source.id, agentId: agent.id, status: { in: ["FAILED", "READY"] } },
-      data: reset,
-    });
-
-    if (updated.count === 0) {
-      throw new ConflictException({
-        code: "SOURCE_BUSY",
-        message:
-          "This source is already queued or being read. Try again when it finishes.",
+    // One lock, two guards. The lock is the one `claimAndCreate` takes, so a
+    // replacement cannot be created between the successor check and the reset:
+    // a retried predecessor is never the row a READY successor retires. The
+    // reset is conditional, not read-then-write: a claim landing between the two
+    // would let a second attempt start on a row already being read (B-2).
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.knowledgeSource.updateMany({
+        where: { id: source.id, agentId: agent.id },
+        data: { updatedAt: new Date() },
       });
-    }
+
+      if (locked.count === 0) {
+        throw new NotFoundException("That source does not exist.");
+      }
+
+      const successors = await tx.knowledgeSource.count({
+        where: {
+          agentId: agent.id,
+          replacesSourceId: source.id,
+          status: { in: ["PENDING", "PROCESSING", "READY"] },
+        },
+      });
+
+      if (successors > 0) {
+        throw new ConflictException({
+          code: "SOURCE_BUSY",
+          message:
+            "This source is being replaced by a newer version. Retry the new version, or delete the old one once it is ready.",
+        });
+      }
+
+      const updated = await tx.knowledgeSource.updateMany({
+        where: {
+          id: source.id,
+          agentId: agent.id,
+          status: { in: ["FAILED", "READY"] },
+        },
+        data: reset,
+      });
+
+      if (updated.count === 0) {
+        throw new ConflictException({
+          code: "SOURCE_BUSY",
+          message:
+            "This source is already queued or being read. Try again when it finishes.",
+        });
+      }
+    }, TX);
 
     const row = await this.prisma.knowledgeSource.findUniqueOrThrow({
       where: { id: source.id },
@@ -549,11 +670,20 @@ export class KnowledgeService {
   /**
    * Extract, split, embed, mark READY. Never throws: a runner tick that dies
    * here would stop every other source behind it.
+   *
+   * The row is held on a lease. Every write goes through `lease.guard`, under
+   * the epoch the claim took, so a worker whose claim was handed on cannot
+   * write chunks, vectors or a status after the fact — and the failure it would
+   * otherwise record belongs to the newer attempt, not to it.
    */
   async index(sourceId: string): Promise<void> {
     const source = await this.loadForIndex(sourceId);
 
     if (!source || source.status !== "PROCESSING") return;
+
+    const lease = this.lease(source.id, source.attempts);
+    // What the provider charged for this attempt, recorded even when it fails.
+    let spent = { embedTokens: 0, extractTokens: source.extractTokens };
 
     try {
       // The budget covers extraction as well as embedding, so the clock starts
@@ -569,13 +699,11 @@ export class KnowledgeService {
             }
           : await this.readSource(source);
 
-      // A long extraction is the one phase with no paid call to renew the
-      // lease, so renew it here: otherwise a 24 MB PDF looks like a dead
-      // process and a second worker starts the same work (B-16).
-      await this.prisma.knowledgeSource.updateMany({
-        where: { id: source.id, status: "PROCESSING" },
-        data: { updatedAt: new Date() },
-      });
+      // The heartbeat renews during extraction; this refuses to go on with a
+      // claim that changed hands while the file was being read.
+      await lease.renew();
+
+      spent = { embedTokens: 0, extractTokens: extracted.extractTokens };
 
       const drafts = chunkBlocks(extracted.blocks);
       const text = extracted.blocks.map((block) => block.text).join("\n\n");
@@ -591,21 +719,25 @@ export class KnowledgeService {
         );
       }
 
-      // A retry re-reads from storage; the old chunks must not outlive it.
-      await this.prisma.knowledgeChunk.deleteMany({ where: { sourceId: source.id } });
+      // A retry re-reads from storage; the old chunks must not outlive it. The
+      // delete and the write share one transaction with the claim, so a requeue
+      // either waits for both or fails the guard before either.
+      await lease.guard(async (tx) => {
+        await tx.knowledgeChunk.deleteMany({ where: { sourceId: source.id } });
 
-      await this.prisma.knowledgeChunk.createMany({
-        data: drafts.map((chunk, ord) => ({
-          sourceId: source.id,
-          ord,
-          text: chunk.text,
-          tokens: estimateTokens(chunk.text),
-          page: chunk.page ?? null,
-          sheet: chunk.sheet ?? null,
-          rowFrom: chunk.rowFrom ?? null,
-          rowTo: chunk.rowTo ?? null,
-          heading: chunk.heading ?? null,
-        })),
+        await tx.knowledgeChunk.createMany({
+          data: drafts.map((chunk, ord) => ({
+            sourceId: source.id,
+            ord,
+            text: chunk.text,
+            tokens: estimateTokens(chunk.text),
+            page: chunk.page ?? null,
+            sheet: chunk.sheet ?? null,
+            rowFrom: chunk.rowFrom ?? null,
+            rowTo: chunk.rowTo ?? null,
+            heading: chunk.heading ?? null,
+          })),
+        });
       });
 
       const rows = await this.prisma.knowledgeChunk.findMany({
@@ -617,13 +749,14 @@ export class KnowledgeService {
       let embedTokens = 0;
 
       for (let at = 0; at < rows.length; at += EMBED_BATCH) {
-        // Between batches, not mid-call: a batch already in flight is already
-        // paid for, and stopping on a boundary leaves every embedded chunk
-        // embedded instead of half a document with no vectors.
+        // Between batches, not mid-call: an HTTP request already in flight is
+        // not aborted, so the job stops at the next boundary instead of
+        // claiming a cancellation it cannot deliver. A batch already paid for
+        // stays embedded, and a failed row loses its chunks in `fail`.
         if (Date.now() - started > this.jobBudgetMs) {
           throw new ExtractError(
             "SOURCE_TIMEOUT",
-            "Reading this file took longer than the time allowed and was stopped. Try a smaller file, or split it and upload the part that matters.",
+            "This file needed longer than one job is allowed, so embedding stopped at the last finished batch. Nothing was saved; try a smaller file, or split it and upload the part that matters.",
           );
         }
 
@@ -631,24 +764,18 @@ export class KnowledgeService {
         const embedded = await this.provider.embed(batch.map((row) => row.text));
 
         embedTokens += embedded.tokens;
+        spent = { embedTokens, extractTokens: extracted.extractTokens };
 
-        await this.prisma.$transaction(
-          batch.map((row, index) =>
-            this.prisma.$executeRaw`
+        // The vectors and the lease are one write: a vector cannot land under a
+        // claim that has already been handed to another worker.
+        await lease.guard(async (tx) => {
+          for (let index = 0; index < batch.length; index += 1) {
+            await tx.$executeRaw`
               UPDATE knowledge_chunks
               SET embedding = ${toVector(embedded.vectors[index])}::vector
-              WHERE id = ${row.id}::uuid
-            `,
-          ),
-        );
-
-        // Renew the lease: `recoverStale` measures a live job by `updatedAt`,
-        // and a long document is several minutes of paid calls. Without this a
-        // busy source looks like a dead process and is handed to a second
-        // worker, which pays for the same embeddings twice.
-        await this.prisma.knowledgeSource.updateMany({
-          where: { id: source.id, status: "PROCESSING" },
-          data: { updatedAt: new Date() },
+              WHERE id = ${batch[index].id}::uuid
+            `;
+          }
         });
       }
 
@@ -663,38 +790,43 @@ export class KnowledgeService {
 
       // Conditional on still owning the row: if ownership was lost mid-job the
       // newer attempt's status is the truth, and this one must not overwrite it.
-      const markReady = this.prisma.knowledgeSource.updateMany({
-        where: { id: source.id, status: "PROCESSING" },
-        data: {
-          text,
-          charCount: text.length,
-          chunkCount: rows.length,
-          embedTokens,
-          extractTokens: extracted.extractTokens,
-          meta: extracted.meta ?? undefined,
-          status: "READY",
-          error: null,
-          indexedAt: new Date(),
-        },
-      });
+      // The retirement shares the transaction, so the predecessor's bytes can
+      // only go once this attempt is the one that made the successor READY.
+      const { updated, retired } = await lease.guard(async (tx) => {
+        const updated = await tx.knowledgeSource.updateMany({
+          where: {
+            id: source.id,
+            status: "PROCESSING",
+            attempts: source.attempts,
+          },
+          data: {
+            text,
+            charCount: text.length,
+            chunkCount: rows.length,
+            embedTokens,
+            extractTokens: extracted.extractTokens,
+            meta: extracted.meta ?? undefined,
+            status: "READY",
+            error: null,
+            indexedAt: new Date(),
+          },
+        });
 
-      // The retirement is conditional on the row having actually become READY
-      // in the statement before it: inside one array transaction the second
-      // statement sees the first one's effect, and the relation filter is the
-      // guard `recoverStale` also uses against a newer attempt's row. A failed
-      // replacement therefore leaves the old source untouched.
-      const [updated, retired] = predecessor
-        ? await this.prisma.$transaction([
-            markReady,
-            this.prisma.knowledgeSource.deleteMany({
+        const retired = predecessor
+          ? await tx.knowledgeSource.deleteMany({
               where: {
                 id: predecessor.id,
                 agentId: source.agentId,
+                // A row being read is a running job's subject: retiring it
+                // would delete chunks out from under the worker that owns it.
+                status: { not: "PROCESSING" },
                 agent: { sources: { some: { id: source.id, status: "READY" } } },
               },
-            }),
-          ])
-        : [await markReady, { count: 0 }];
+            })
+          : { count: 0 };
+
+        return { updated, retired };
+      });
 
       if (updated.count > 0 && retired.count > 0 && predecessor?.storagePath) {
         // The bytes are the old version nobody can reach now. Best effort, and
@@ -708,8 +840,82 @@ export class KnowledgeService {
         );
       }
     } catch (error) {
-      await this.fail(source.id, error);
+      if (error instanceof OwnershipLost) {
+        // Another worker owns the row now. Its status is the truth, and writing
+        // FAILED here would be a lie about work this attempt no longer holds.
+        this.logger.warn(
+          `Source ${source.id} was reclaimed while it was being read; this attempt wrote nothing further.`,
+        );
+        return;
+      }
+
+      await this.fail(source.id, error, { epoch: source.attempts, ...spent });
+    } finally {
+      lease.stop();
     }
+  }
+
+  /**
+   * The claim on one PROCESSING row, renewed for as long as the job runs.
+   *
+   * `attempts` is the epoch: `claim` leaves it alone, so the worker that took
+   * the row knows which claim it holds; `recoverStale` increments it when it
+   * hands a dead row on, so the old worker can tell it no longer owns anything.
+   *
+   * Every write the job makes runs through `guard`, whose first statement
+   * re-takes the row under that epoch. The guard is the lock: a requeue either
+   * waits for the write to commit or fails the guard before it runs, so chunks
+   * and vectors cannot be written under a claim someone else holds. Renewals are
+   * chained, so a heartbeat and a batch write cannot invalidate each other.
+   */
+  private lease(sourceId: string, epoch: number) {
+    let chain: Promise<unknown> = Promise.resolve();
+
+    const guard = <T>(
+      run: (tx: Prisma.TransactionClient) => Promise<T>,
+    ): Promise<T> => {
+      const next = chain.then(() =>
+        this.prisma.$transaction(async (tx) => {
+          const held = await tx.knowledgeSource.updateMany({
+            where: { id: sourceId, status: "PROCESSING", attempts: epoch },
+            data: { updatedAt: new Date() },
+          });
+
+          if (held.count === 0) throw new OwnershipLost();
+
+          return run(tx);
+        }, TX),
+      );
+
+      chain = next.then(
+        () => undefined,
+        () => undefined,
+      );
+
+      return next;
+    };
+
+    // Extraction is minutes of work with no paid call to renew beside, so the
+    // lease is refreshed on a timer; otherwise a slow PDF looks like a dead
+    // process and a second worker pays for the same embeddings (B-16). The
+    // timer is unref'd: it must never hold the process open.
+    const timer = setInterval(() => {
+      void guard(async () => undefined).catch((error: unknown) => {
+        if (!(error instanceof OwnershipLost)) {
+          this.logger.warn(
+            `Could not renew the lease on source ${sourceId}: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+        }
+      });
+    }, LEASE_RENEW_MS);
+
+    timer.unref();
+
+    return {
+      guard,
+      renew: () => guard(async () => undefined),
+      stop: () => clearInterval(timer),
+    };
   }
 
   /**
@@ -733,6 +939,7 @@ export class KnowledgeService {
           extractTokens: true,
           replacesSourceId: true,
           status: true,
+          attempts: true,
           agent: { select: { model: true } },
         },
       });
@@ -783,8 +990,21 @@ export class KnowledgeService {
   /**
    * A failed source keeps its reason and loses its chunks: a half-indexed file
    * that answers is worse than one that says it could not be read.
+   *
+   * The failure is only recorded by the attempt that still owns the row. A
+   * worker that lost its claim may not delete the chunks a newer attempt is
+   * writing, and may not overwrite the newer attempt's status with its own
+   * error — but the tokens it already spent are still its own to report.
    */
-  private async fail(sourceId: string, error: unknown): Promise<void> {
+  private async fail(
+    sourceId: string,
+    error: unknown,
+    options: {
+      epoch?: number;
+      embedTokens?: number;
+      extractTokens?: number;
+    } = {},
+  ): Promise<void> {
     const message =
       error instanceof ExtractError || error instanceof AiError
         ? error.message
@@ -797,19 +1017,46 @@ export class KnowledgeService {
     // One transaction: a row marked FAILED with its chunks still attached would
     // answer from a half-read file. If the cleanup itself cannot be written,
     // the row stays PROCESSING and stale recovery hands it another attempt.
-    await this.prisma
-      .$transaction([
-        this.prisma.knowledgeChunk.deleteMany({ where: { sourceId } }),
-        this.prisma.knowledgeSource.update({
-          where: { id: sourceId },
-          data: { status: "FAILED", error: message, chunkCount: 0 },
-        }),
-      ])
-      .catch((failure: unknown) => {
+    try {
+      const owned = await this.prisma.$transaction(async (tx) => {
+        const held = await tx.knowledgeSource.updateMany({
+          where: {
+            id: sourceId,
+            status: "PROCESSING",
+            ...(options.epoch === undefined ? {} : { attempts: options.epoch }),
+          },
+          data: {
+            status: "FAILED",
+            error: message,
+            chunkCount: 0,
+            ...(options.embedTokens === undefined
+              ? {}
+              : { embedTokens: options.embedTokens }),
+            ...(options.extractTokens === undefined
+              ? {}
+              : { extractTokens: options.extractTokens }),
+          },
+        });
+
+        // Somebody else holds the row: the chunks are theirs, not this
+        // attempt's to delete.
+        if (held.count === 0) return false;
+
+        await tx.knowledgeChunk.deleteMany({ where: { sourceId } });
+
+        return true;
+      }, TX);
+
+      if (!owned) {
         this.logger.warn(
-          `Could not record the failure for source ${sourceId}: ${failure instanceof Error ? failure.message : "unknown error"}`,
+          `Source ${sourceId} was reclaimed before its failure could be recorded; the owner's status stands.`,
         );
-      });
+      }
+    } catch (failure: unknown) {
+      this.logger.warn(
+        `Could not record the failure for source ${sourceId}: ${failure instanceof Error ? failure.message : "unknown error"}`,
+      );
+    }
   }
 
   /**
@@ -818,7 +1065,7 @@ export class KnowledgeService {
    * looped forever.
    */
   async recoverStale(): Promise<void> {
-    const cut = new Date(Date.now() - STALE_MS);
+    const cut = new Date(Date.now() - this.staleMs);
 
     // A row that has spent its attempts is finished with, and its chunks must
     // go with it — the failed branch of `fail`, for a process that died before
@@ -897,11 +1144,20 @@ export function sourceView(row: {
   };
 }
 
+/** The claim moved on: another worker owns the row, so this one writes nothing. */
+class OwnershipLost extends Error {
+  constructor() {
+    super("This worker no longer owns the source it was reading.");
+  }
+}
+
 /** Prisma's own name for a unique-index rejection. */
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { code?: string }).code === "P2002"
-  );
+  return prismaCodeOf(error) === "P2002";
+}
+
+/** The `code` Prisma puts on its known request errors, if this is one. */
+function prismaCodeOf(error: unknown): string | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : null;
 }

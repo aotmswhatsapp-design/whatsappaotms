@@ -1,0 +1,210 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+  KnowledgeService,
+  LEASE_RENEW_MS,
+  STALE_MS,
+  staleCutMs,
+} from "./knowledge.service";
+import {
+  FakePrisma,
+  FakeProvider,
+  FakeStorage,
+  FakeWorkspaces,
+} from "./testing/fakes";
+
+const build = (config: Record<string, unknown> = {}) => {
+  const prisma = new FakePrisma();
+  const storage = new FakeStorage();
+  const provider = new FakeProvider();
+  const service = new KnowledgeService(
+    prisma as any,
+    new FakeWorkspaces() as any,
+    storage as any,
+    provider as any,
+    {} as any,
+    { get: (key: string) => config[key] } as any,
+  );
+  return { prisma, storage, provider, service };
+};
+
+/** The row `loadForIndex` reads: claimed, and its text already on the row. */
+const claimed = (overrides: Record<string, unknown> = {}) => ({
+  id: "src-1",
+  agentId: "agent-1",
+  kind: "TEXT",
+  title: "note",
+  mime: null,
+  storagePath: null,
+  text: "hello there",
+  meta: null,
+  extractTokens: 0,
+  replacesSourceId: null,
+  status: "PROCESSING",
+  attempts: 0,
+  agent: { model: "gpt-4o-mini" },
+  ...overrides,
+});
+
+test("the stale cut follows the budget, so a live job is never reaped mid-run", () => {
+  // The default 8-minute budget against the old 10-minute cut.
+  assert.equal(staleCutMs(8 * 60 * 1000), 8 * 60 * 1000 + LEASE_RENEW_MS * 2);
+  assert.ok(staleCutMs(8 * 60 * 1000) > STALE_MS);
+
+  // A budget shorter than the floor still recovers a dead worker promptly.
+  assert.equal(staleCutMs(60_000), STALE_MS);
+});
+
+test("recovery measures staleness against the derived cut", async () => {
+  const { prisma, service } = build();
+  (prisma.knowledgeSource as any).findMany = async () => [];
+
+  const before = Date.now();
+  await service.recoverStale();
+
+  const requeue = prisma.calls.find(
+    (call) => call.path === "knowledgeSource.updateMany",
+  );
+  const cut = (requeue?.args.where.updatedAt.lt as Date).getTime();
+
+  assert.ok(cut >= before - staleCutMs(8 * 60 * 1000) - 1_000);
+  assert.ok(cut <= Date.now() - staleCutMs(8 * 60 * 1000) + 1_000);
+});
+
+test("recovery hands the row on under a new epoch", async () => {
+  const { prisma, service } = build();
+  (prisma.knowledgeSource as any).findMany = async () => [];
+
+  await service.recoverStale();
+
+  const requeue = prisma.calls.find(
+    (call) => call.path === "knowledgeSource.updateMany",
+  );
+
+  // Only a row whose lease stopped being renewed can match, and the increment
+  // is what tells the previous worker it no longer holds the claim.
+  assert.equal(requeue?.args.where.status, "PROCESSING");
+  assert.equal(requeue?.args.where.updatedAt.lt instanceof Date, true);
+  assert.deepEqual(requeue?.args.data, {
+    status: "PENDING",
+    attempts: { increment: 1 },
+  });
+});
+
+test("a worker whose claim moved on writes no chunks and no status", async () => {
+  const { prisma, service } = build();
+  const seen: any[] = [];
+
+  (prisma.knowledgeSource as any).findUnique = async () => claimed({ attempts: 3 });
+  (prisma.knowledgeSource as any).updateMany = async (args: any) => {
+    seen.push(args);
+    return { count: 0 };
+  };
+
+  await service.index("src-1");
+
+  // The guard is the first write, under the epoch the claim took.
+  assert.deepEqual(seen[0]?.where, {
+    id: "src-1",
+    status: "PROCESSING",
+    attempts: 3,
+  });
+  // Nothing followed it: no chunk write, no FAILED, no READY.
+  assert.equal(seen.length, 1);
+
+  assert.equal(
+    prisma.calls.filter(
+      (call) =>
+        call.path === "knowledgeChunk.createMany" ||
+        call.path === "knowledgeChunk.deleteMany",
+    ).length,
+    0,
+  );
+  assert.equal(
+    prisma.calls.filter(
+      (call) =>
+        call.path === "knowledgeSource.updateMany" &&
+        typeof call.args?.data?.status === "string",
+    ).length,
+    0,
+  );
+});
+
+test("a failure after the claim moved on is not written over the owner's row", async () => {
+  const { prisma, provider, service } = build();
+  (prisma.knowledgeSource as any).findUnique = async () => claimed({ attempts: 1 });
+
+  // The renewal and the chunk write hold; the failure no longer does.
+  let held = 0;
+  (prisma.knowledgeSource as any).updateMany = async () => ({
+    count: (held += 1) <= 2 ? 1 : 0,
+  });
+  (provider as any).embed = async () => {
+    throw new Error("provider down");
+  };
+  (prisma.knowledgeChunk as any).findMany = async () => [
+    { id: "c1", text: "hello there" },
+  ];
+
+  await service.index("src-1");
+
+  const writes = prisma.calls.filter(
+    (call) => call.path === "knowledgeSource.updateMany",
+  );
+  assert.equal(writes.some((call) => call.args.data?.status === "FAILED"), false);
+
+  // Only the chunk replacement deleted anything; the newer attempt's chunks
+  // were left alone.
+  assert.equal(
+    prisma.calls.filter((call) => call.path === "knowledgeChunk.deleteMany")
+      .length,
+    1,
+  );
+});
+
+test("a failure records the tokens already paid for and the epoch it failed under", async () => {
+  const { prisma, storage, provider, service } = build();
+  const csv = [
+    "item,price",
+    ...Array.from({ length: 700 }, (_, at) => `item ${at + 1},${at + 1}`),
+  ].join("\n");
+
+  (prisma.knowledgeSource as any).findUnique = async () =>
+    claimed({
+      kind: "FILE",
+      title: "prices.csv",
+      mime: "text/csv",
+      storagePath: "workspaces/ws-a/agents/agent-1/knowledge/src-1/original.csv",
+      text: null,
+      attempts: 0,
+    });
+  (storage as any).download = async () => Buffer.from(csv);
+  (prisma.knowledgeChunk as any).findMany = async () =>
+    Array.from({ length: 35 }, (_, at) => ({ id: `c${at}`, text: "row" }));
+
+  let calls = 0;
+  (provider as any).embed = async (input: string[]) => {
+    calls += 1;
+    if (calls > 1) throw new Error("provider down");
+    return { vectors: input.map(() => new Array(1536).fill(0.01)), tokens: 7 };
+  };
+
+  await service.index("src-1");
+
+  const failed = prisma.calls.find(
+    (call) =>
+      call.path === "knowledgeSource.updateMany" &&
+      call.args.data?.status === "FAILED",
+  );
+
+  assert.deepEqual(failed?.args.where, {
+    id: "src-1",
+    status: "PROCESSING",
+    attempts: 0,
+  });
+  // What the first batch really cost is on the row, not lost with the failure.
+  assert.equal(failed?.args.data.embedTokens, 7);
+  assert.equal(failed?.args.data.extractTokens, 0);
+  assert.equal(failed?.args.data.chunkCount, 0);
+});
