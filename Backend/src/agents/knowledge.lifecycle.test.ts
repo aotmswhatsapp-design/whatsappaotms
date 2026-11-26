@@ -214,9 +214,7 @@ const successor = (overrides: Record<string, unknown> = {}) => ({
   attempts: 0,
   leaseToken: "tok-new",
   meta: null,
-  extractTokens: 0,
   replacesSourceId: "old",
-  agent: { model: "gpt-4o-mini" },
   ...overrides,
 });
 

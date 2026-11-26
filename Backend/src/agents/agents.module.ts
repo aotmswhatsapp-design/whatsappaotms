@@ -12,7 +12,6 @@ import { AgentRouter } from "./agent.router";
 import { AiController } from "./ai.controller";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeService } from "./knowledge.service";
-import { OpenAiProvider } from "./ai.openai";
 import { RetrievalService } from "./retrieval.service";
 import { ReplyIntake } from "./reply.intake";
 import { ReplyService } from "./reply.service";
@@ -35,7 +34,6 @@ import { LocalKnowledgeSearch } from "./search/local.search";
     ReplyIntake,
     ReplyService,
     AgentsRunner,
-    OpenAiProvider,
     LocalKnowledgeSearch,
     MediaStorage,
     {

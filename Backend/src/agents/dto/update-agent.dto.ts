@@ -3,7 +3,6 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
-  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,8 +11,6 @@ import {
   Min,
   MinLength,
 } from "class-validator";
-
-import { AGENT_MODELS } from "./create-agent.dto";
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === "string" ? value.trim() : value;
@@ -38,17 +35,6 @@ export class UpdateAgentDto {
   @IsString()
   @MaxLength(8_000)
   systemPrompt?: string;
-
-  @IsOptional()
-  @IsIn(AGENT_MODELS)
-  model?: (typeof AGENT_MODELS)[number];
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1.2)
-  temperature?: number;
 
   @IsOptional()
   @Type(() => Number)

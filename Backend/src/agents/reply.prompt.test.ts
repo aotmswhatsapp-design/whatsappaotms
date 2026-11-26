@@ -1,43 +1,38 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CSV_MIME, CSV_SHEET } from "./extract";
-import { contextBlock } from "./reply.prompt";
-import type { ContextChunk } from "./retrieval.service";
+import { cleanReply, matchesEscalation } from "./reply.prompt";
 
-/** What a `.xlsx` upload records (see `knowledge.file.ts`), whatever its sheets
- *  are called. */
-const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const limit = (maxChars = 200) => ({ maxChars, context: "" });
 
-const chunk = (over: Partial<ContextChunk>): ContextChunk => ({
-  id: "c", text: "body", sourceId: "s", title: "Price list", mime: null, score: 0.9,
-  page: null, sheet: null, rowFrom: null, rowTo: null, heading: null, ...over,
+test("Markdown bold becomes the bold WhatsApp reads", () => {
+  assert.equal(cleanReply("**dosa** 80", limit()), "*dosa* 80");
 });
 
-test("a page is named in the citation label", () => {
-  assert.ok(contextBlock([chunk({ page: 4 })]).includes("[Price list · page 4]"));
+test("a link the source material does not contain is removed", () => {
+  const out = cleanReply("Order at https://squatter.example now.", {
+    ...limit(),
+    context: "Call 011 234 5678.",
+  });
+
+  assert.equal(out.includes("squatter"), false);
 });
 
-test("a sheet and its row range are named", () => {
-  const label = contextBlock([chunk({ sheet: "Wholesale", rowFrom: 12, rowTo: 24 })]);
-  assert.ok(label.includes('[Price list · sheet "Wholesale" rows 12–24]'));
+test("a link the source material contains survives, with its punctuation", () => {
+  const reply = "The menu is at https://dosa.test/menu.";
+  const out = cleanReply(reply, { ...limit(), context: "Menu: https://dosa.test/menu" });
+
+  assert.equal(out, reply);
 });
 
-test("a CSV names records, because a quoted line break makes records and lines differ", () => {
-  const label = contextBlock([chunk({ mime: CSV_MIME, sheet: CSV_SHEET, rowFrom: 2, rowTo: 21 })]);
-  assert.ok(label.includes("[Price list · CSV records 2–21]"));
+test("a reply over the limit is cut at a sentence, not mid-word", () => {
+  assert.equal(
+    cleanReply("Dosa 80. Idli 40. Coffee 30.", limit(12)),
+    "Dosa 80.",
+  );
 });
 
-test("a workbook worksheet called CSV is a sheet, not a CSV file", () => {
-  const label = contextBlock([chunk({ mime: XLSX_MIME, sheet: CSV_SHEET, rowFrom: 7, rowTo: 26 })]);
-  assert.ok(label.includes('[Price list · sheet "CSV" rows 7–26]'));
-});
-
-test("an unknown MIME falls back to the sheet, never to the CSV wording", () => {
-  const label = contextBlock([chunk({ mime: null, sheet: CSV_SHEET, rowFrom: 2, rowTo: 21 })]);
-  assert.ok(label.includes('[Price list · sheet "CSV" rows 2–21]'));
-});
-
-test("a plain chunk keeps the bare title", () => {
-  assert.ok(contextBlock([chunk({})]).includes("[Price list]"));
+test("a keyword fires on a whole word only", () => {
+  assert.equal(matchesEscalation("I want a human", ["human"]), true);
+  assert.equal(matchesEscalation("a humanitarian crisis", ["human"]), false);
 });

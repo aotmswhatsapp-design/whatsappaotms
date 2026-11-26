@@ -18,7 +18,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { UploadedMedia } from "../inbox/inbox.sender";
 import { MediaStorage } from "../inbox/media.storage";
-import { AiError, ExtractError } from "./ai.errors";
+import { ExtractError } from "./extract.errors";
 import { extractSource, type Extracted, type ExtractedMeta } from "./extract";
 import {
   MAX_SOURCE_BYTES,
@@ -983,12 +983,10 @@ export class KnowledgeService {
     error: unknown,
     options: { token: string },
   ): Promise<void> {
+    // An ExtractError's own sentence is what the screen shows; anything else is
+    // reported as it reads.
     const message =
-      error instanceof ExtractError || error instanceof AiError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : "Extraction failed.";
+      error instanceof Error ? error.message : "Extraction failed.";
 
     this.logger.warn(`Source ${sourceId} failed: ${message}`);
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as ExcelJS from "exceljs";
 
-import { ExtractError } from "./ai.errors";
+import { ExtractError } from "./extract.errors";
 import { CSV_SHEET, csvBlocks, docxHtmlToBlocks, extractSource, pagesToBlocks, parseCsv } from "./extract";
 
 /** An xlsx whose rows sit at the numbers given, so gaps are real gaps. */

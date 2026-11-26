@@ -350,20 +350,6 @@ export function SourceList({
                     one is ready.
                   </p>
                 ) : null}
-
-                {source.status === "READY" && source.embedTokens > 0 ? (
-                  <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                    {source.embedTokens.toLocaleString()} embedding tokens spent
-                  </p>
-                ) : null}
-
-                {/* Extraction can succeed and indexing fail afterwards, and
-                    that is exactly when the cost is worth reading. */}
-                {source.extractTokens > 0 ? (
-                  <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                    {source.extractTokens.toLocaleString()} extraction tokens spent
-                  </p>
-                ) : null}
               </div>
 
               <div className="flex shrink-0 items-center gap-1">

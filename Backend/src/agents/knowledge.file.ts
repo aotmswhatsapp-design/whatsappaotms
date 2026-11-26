@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { ExtractError } from "./ai.errors";
+import { ExtractError } from "./extract.errors";
 
 /** The same ceiling the inbox uses for what leaves, applied to what arrives. */
 export const MAX_SOURCE_BYTES = 25 * 1024 * 1024;

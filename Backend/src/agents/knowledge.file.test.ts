@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ExtractError } from "./ai.errors";
+import { ExtractError } from "./extract.errors";
 import { inspectUpload, sha256Of } from "./knowledge.file";
 
 const LIMIT = 25 * 1024 * 1024;

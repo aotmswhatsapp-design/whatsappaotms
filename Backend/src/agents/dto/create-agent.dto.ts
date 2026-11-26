@@ -1,7 +1,6 @@
 import { Transform, Type } from "class-transformer";
 import {
   IsArray,
-  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -14,9 +13,6 @@ import {
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === "string" ? value.trim() : value;
-
-/** The two models verified on this key. An unknown one is a 400, not a 502. */
-export const AGENT_MODELS = ["gpt-5.4-mini", "gpt-4.1-mini"] as const;
 
 export class CreateAgentDto {
   @Transform(trim)
@@ -36,17 +32,6 @@ export class CreateAgentDto {
   @IsString()
   @MaxLength(8_000)
   systemPrompt?: string;
-
-  @IsOptional()
-  @IsIn(AGENT_MODELS)
-  model?: (typeof AGENT_MODELS)[number];
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1.2)
-  temperature?: number;
 
   @IsOptional()
   @Type(() => Number)

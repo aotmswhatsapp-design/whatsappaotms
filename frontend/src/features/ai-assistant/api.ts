@@ -66,7 +66,7 @@ export function deactivateAgent(id: string): Promise<{ agent: Agent }> {
   });
 }
 
-/** The playground. Costs tokens, sends nothing. */
+/** The playground. Answers from the local index, and sends nothing. */
 export function askAgent(id: string, question: string): Promise<AskResult> {
   return request<AskResult>(`/v1/agents/${id}/ask`, {
     method: "POST",

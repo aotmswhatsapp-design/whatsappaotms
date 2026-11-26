@@ -9,47 +9,19 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 import { ApiError, updateAgent } from "../api";
-import { AGENT_MODELS, type Agent, type AgentModel } from "../types";
+import type { Agent } from "../types";
 
 const FIELD =
   "h-10 w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
 
-/** Tall enough to edit a real briefing without scrolling on a laptop. */
-const AREA = cn(
-  FIELD,
-  "min-h-[240px] resize-y py-2.5 leading-relaxed",
-);
-
-const PROMPT_PLACEHOLDER = `You are the assistant for {business}. Answer only from the reference material you are given.
-
-- Reply in the customer's language, in plain WhatsApp text: no headings, no markdown tables.
-- One short paragraph, then a line about what happens next.
-- Quote a price only when the material states it. Otherwise say you will confirm.
-- Never promise a delivery date the material does not state.
-- If the question is not covered, or the customer is upset, say a person will reply shortly.`;
-
 const CAPS = [500, 900, 1_200, 1_600];
 
-/** Where the form lands when the stored model is not one the DTO accepts. */
-const FALLBACK_MODEL: AgentModel = "gpt-5.4-mini";
-
 /**
- * `Agent.model` is a plain string on the wire — the union is enforced on write,
- * not on read — so this narrows it back before the value is sent again.
- */
-function asModel(value: string): AgentModel {
-  return (
-    AGENT_MODELS.find((entry) => entry.value === value)?.value ?? FALLBACK_MODEL
-  );
-}
-
-/**
- * The Prompt tab: everything that shapes an answer before any material is read.
+ * The agent's settings: what it is called, what it handles, and how a reply is
+ * length-capped or handed on. There is no model to choose — answering is local.
  *
- * The instructions field is the product, so it is the largest element on the
- * tab and the only one with standing rules in its placeholder. A save sends
- * every field at once — the DTO is all-optional, and a partial send would make
- * "unchanged" and "cleared" indistinguishable.
+ * A save sends every field at once — the DTO is all-optional, and a partial
+ * send would make "unchanged" and "cleared" indistinguishable.
  *
  * Only an OWNER can save; everybody else reads the same fields locked. The
  * guard in `save()` matters as much as the disabled inputs, because a form
@@ -68,9 +40,6 @@ export function AgentForm({
 
   const [name, setName] = React.useState(agent.name);
   const [description, setDescription] = React.useState(agent.description ?? "");
-  const [prompt, setPrompt] = React.useState(agent.systemPrompt);
-  const [model, setModel] = React.useState<AgentModel>(() => asModel(agent.model));
-  const [temperature, setTemperature] = React.useState(agent.temperature);
   const [maxReplyChars, setMaxReplyChars] = React.useState(agent.maxReplyChars);
   const [keywords, setKeywords] = React.useState(
     agent.escalateKeywords.join(", "),
@@ -81,9 +50,6 @@ export function AgentForm({
     () => ({
       name: name.trim(),
       description: description.trim(),
-      systemPrompt: prompt.trim(),
-      model,
-      temperature,
       maxReplyChars,
       escalateKeywords: keywords
         .split(",")
@@ -91,23 +57,17 @@ export function AgentForm({
         .filter((entry) => entry.length > 0)
         .slice(0, 20),
     }),
-    [name, description, prompt, model, temperature, maxReplyChars, keywords],
+    [name, description, maxReplyChars, keywords],
   );
 
   /** Nothing typed, or typed back to what is stored. */
   const dirty =
     payload.name !== agent.name ||
     payload.description !== (agent.description ?? "") ||
-    payload.systemPrompt !== agent.systemPrompt ||
-    payload.model !== agent.model ||
-    payload.temperature !== agent.temperature ||
     payload.maxReplyChars !== agent.maxReplyChars ||
     payload.escalateKeywords.join(",") !== agent.escalateKeywords.join(",");
 
-  const blocked =
-    payload.name.length === 0 ||
-    payload.systemPrompt.length === 0 ||
-    payload.systemPrompt.length > 8_000;
+  const blocked = payload.name.length === 0;
 
   /** A save in flight, or no right to save at all. */
   const locked = saving || !canManage;
@@ -122,7 +82,7 @@ export function AgentForm({
       onSaved(next.agent);
       toast.push({
         title: "Saved",
-        description: "The next reply uses these instructions.",
+        description: "The next reply uses these settings.",
         tone: "success",
       });
     } catch (caught) {
@@ -161,7 +121,7 @@ export function AgentForm({
             value={name}
           />
           <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-            Shown in the Inbox beside an AI reply. Customers never see it.
+            Shown in the Inbox beside a reply. Customers never see it.
           </p>
         </div>
 
@@ -177,83 +137,13 @@ export function AgentForm({
             value={description}
           />
           <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-            For your team. Not sent to the model.
+            For your team. Also helps route a question to the right agent.
           </p>
         </div>
       </div>
 
       <div>
         <div className="flex items-end justify-between gap-3">
-          <Label htmlFor="agent-prompt">Instructions</Label>
-          <span className="text-[11.5px] tabular-nums text-muted-foreground">
-            {prompt.length.toLocaleString()} / 8,000
-          </span>
-        </div>
-        <textarea
-          className={cn(AREA, "mt-1.5")}
-          disabled={locked}
-          id="agent-prompt"
-          maxLength={8_000}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder={PROMPT_PLACEHOLDER}
-          spellCheck={false}
-          value={prompt}
-        />
-        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-          The reference material is appended to this at reply time, and the
-          customer&apos;s message always arrives as a separate turn — so nothing
-          a customer writes can rewrite these rules.
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="agent-model">Model</Label>
-          <select
-            className={cn(FIELD, "mt-1.5")}
-            disabled={locked}
-            id="agent-model"
-            onChange={(event) => setModel(asModel(event.target.value))}
-            value={model}
-          >
-            {AGENT_MODELS.map((entry) => (
-              <option key={entry.value} value={entry.value}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            {AGENT_MODELS.find((entry) => entry.value === model)?.blurb ?? ""}
-          </p>
-        </div>
-
-        <div>
-          <div className="flex items-end justify-between gap-3">
-            <Label htmlFor="agent-temperature">Temperature</Label>
-            <span className="text-[11.5px] tabular-nums text-muted-foreground">
-              {temperature.toFixed(1)}
-            </span>
-          </div>
-          <input
-            className="mt-3 w-full accent-[var(--brand)]"
-            disabled={locked}
-            id="agent-temperature"
-            max={1.2}
-            min={0}
-            onChange={(event) => setTemperature(Number(event.target.value))}
-            step={0.1}
-            type="range"
-            value={temperature}
-          />
-          <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            Lower repeats the material more literally. Above 1.0 the reply starts
-            to invent wording.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
           <Label htmlFor="agent-cap">Longest reply</Label>
           <select
             className={cn(FIELD, "mt-1.5")}
@@ -286,7 +176,8 @@ export function AgentForm({
           />
           <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
             Comma separated. A match hands the thread to a person without asking
-            the model, which is what keeps a complaint out of an AI reply.
+            anything else, which is what keeps a complaint out of an automatic
+            reply.
           </p>
         </div>
       </div>
@@ -296,7 +187,7 @@ export function AgentForm({
           {!canManage
             ? "Read-only. Only an owner can change how this agent answers."
             : blocked
-              ? "A name and instructions are required."
+              ? "A name is required."
               : dirty
                 ? "Unsaved changes."
                 : "All changes saved."}
@@ -308,7 +199,7 @@ export function AgentForm({
             variant="brand"
           >
             {saving ? <Loader2 className="animate-spin" /> : <Save />}
-            Save prompt
+            Save
           </Button>
         ) : null}
       </div>

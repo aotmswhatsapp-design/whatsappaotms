@@ -3,9 +3,8 @@ import { Injectable } from "@nestjs/common";
 import { LocalKnowledgeSearch } from "./search/local.search";
 import type { SearchResult, SearchScope } from "./search/search.port";
 
-// `reply.prompt.ts` and its tests read `ContextChunk` from here, so the type
-// keeps its home even though the vector engine that used to live beside it is
-// gone.
+// The type that describes one result. It is re-exported here because this is
+// the seam every caller already imports from.
 export type { ContextChunk } from "./search/context-chunk";
 
 /**

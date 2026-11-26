@@ -284,13 +284,7 @@ export function Playground({ agent }: { agent: Agent }) {
                         </details>
                       ) : null}
 
-                      <p className="mt-1.5 flex items-center justify-between gap-2 text-[10px] tabular-nums text-muted-foreground">
-                        <span>
-                          {entry.result.tokens.input.toLocaleString()} in ·{" "}
-                          {entry.result.tokens.output.toLocaleString()} out ·{" "}
-                          {entry.result.tokens.embedding.toLocaleString()}{" "}
-                          embedding
-                        </span>
+                      <p className="mt-1.5 flex items-center justify-end gap-2 text-[10px] tabular-nums text-muted-foreground">
                         <span>{clockOf(entry.at)}</span>
                       </p>
                     </div>

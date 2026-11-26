@@ -137,33 +137,9 @@ export const envSchema = z.object({
    */
   TEMPLATE_MEDIA_BUCKET: z.string().min(1).default("template-media"),
   /**
-   * The one AI credential. Everything the module does — replies, vision,
-   * Whisper, embeddings — uses it. Optional so a deployment without AI still
-   * boots; the routes that call the provider answer 503 naming this variable.
-   */
-  OPENAI_API_KEY: z
-    .string()
-    .min(20)
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
-  /** Test seam, like META_GRAPH_BASE_URL: point it at a local stub. */
-  OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
-  /** Welded into knowledge_chunks.embedding; changing it needs a migration. */
-  OPENAI_EMBED_MODEL: z.string().min(1).default("text-embedding-3-small"),
-  /**
-   * Which engine answers a customer question.
-   *
-   * `local` is the default because the response path must not depend on a paid
-   * embedding call: Postgres full text and trigram similarity need no key. A
-   * deployment that has already paid for its embeddings can set `vector` and
-   * keep the original pgvector query.
-   */
-  KNOWLEDGE_SEARCH: z.enum(["local", "vector"]).default("local"),
-  /**
    * The trigram floor for the local engine, on `word_similarity`'s 0–1 scale.
-   * Not comparable with the cosine floors in `retrieval.service.ts`: a word
-   * that appears verbatim in a chunk scores far above 0.5, which is why this
-   * measures a word, not a document.
+   * A word that appears verbatim in a chunk scores far above 0.5, which is why
+   * this measures a word, not a document.
    */
   SEARCH_MIN_TRGM: z.coerce.number().min(0).max(1).default(0.5),
   /**

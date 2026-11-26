@@ -44,7 +44,7 @@ const REASONS: Record<string, string> = {
   superseded: "A newer message arrived first",
   "window-closed": "The 24-hour window had closed",
   "no-context": "Nothing in the material matched",
-  unavailable: "The AI service failed",
+  unavailable: "Answering failed",
   "no-agent": "No active agent on the number",
   handoff: "Handed to a person",
 };
@@ -54,7 +54,6 @@ const COLUMNS: DataTableColumn[] = [
   { key: "kind", label: "Kind" },
   { key: "status", label: "Status" },
   { key: "reason", label: "Why" },
-  { key: "tokens", label: "Tokens" },
   { key: "latency", label: "Took" },
   { key: "open", label: "" },
 ];
@@ -136,19 +135,14 @@ export function ActivityTable({ agent }: { agent: Agent }) {
 
   return (
     <section className="space-y-3">
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-4">
+      <div className="max-w-[12rem] overflow-hidden rounded-xl border border-border">
         <Figure label="Runs" value={(usage?.runs ?? 0).toLocaleString()} />
-        <Figure label="Prompt tokens" value={(usage?.tokensIn ?? 0).toLocaleString()} />
-        <Figure label="Reply tokens" value={(usage?.tokensOut ?? 0).toLocaleString()} />
-        <Figure
-          label="Embedding tokens"
-          value={(usage?.embeddingTokens ?? 0).toLocaleString()}
-        />
       </div>
 
       <div className="flex flex-wrap items-end justify-between gap-2">
         <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-          Every run for this agent, newest first. Tokens are recorded, not capped.
+          Every run for this agent, newest first. Answering is local, so a run
+          costs nothing but the seconds it took.
         </p>
         <Button
           disabled={loading}
@@ -212,13 +206,6 @@ export function ActivityTable({ agent }: { agent: Agent }) {
                 <span className="text-muted-foreground/60">—</span>
               ) : null}
             </span>,
-            <span
-              key="tokens"
-              className="tabular-nums whitespace-nowrap"
-              title={`${run.tokensIn.toLocaleString()} in · ${run.tokensOut.toLocaleString()} out · ${run.embeddingTokens.toLocaleString()} embedded`}
-            >
-              {tokens(run)}
-            </span>,
             <span key="latency" className="tabular-nums whitespace-nowrap text-muted-foreground">
               {latency(run.latencyMs)}
             </span>,
@@ -275,13 +262,6 @@ function when(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-/** In, out and embedded in one figure; the split is the tooltip. */
-function tokens(run: Run): string {
-  const total = run.tokensIn + run.tokensOut + run.embeddingTokens;
-
-  return total === 0 ? "—" : total.toLocaleString();
 }
 
 function latency(ms: number | null): string {

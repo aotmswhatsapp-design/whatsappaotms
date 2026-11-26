@@ -2,7 +2,7 @@ import { Logger } from "@nestjs/common";
 import * as ExcelJS from "exceljs";
 import mammoth from "mammoth";
 
-import { ExtractError } from "./ai.errors";
+import { ExtractError } from "./extract.errors";
 import { extensionOf } from "./knowledge.file";
 
 const logger = new Logger("Extract");

@@ -1,10 +1,8 @@
 import {
-  BadGatewayException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import type { AgentRunKind, AgentRunStatus } from "@prisma/client";
 
@@ -13,8 +11,6 @@ import { PrismaService } from "../prisma/prisma.service";
 import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { MediaStorage } from "../inbox/media.storage";
-import { AiError } from "./ai.errors";
-import { DEFAULT_CHAT_MODEL } from "./ai.openai";
 import type { AskAgentDto } from "./dto/ask-agent.dto";
 import type { CreateAgentDto } from "./dto/create-agent.dto";
 import type { ListRunsDto } from "./dto/list-runs.dto";
@@ -39,8 +35,6 @@ export interface AgentView {
   name: string;
   description: string | null;
   systemPrompt: string;
-  model: string;
-  temperature: number;
   maxReplyChars: number;
   escalateKeywords: string[];
   isActive: boolean;
@@ -55,9 +49,6 @@ export interface RunView {
   status: AgentRunStatus;
   reason: string | null;
   conversationId: string | null;
-  tokensIn: number;
-  tokensOut: number;
-  embeddingTokens: number;
   latencyMs: number | null;
   error: string | null;
   createdAt: string;
@@ -65,9 +56,6 @@ export interface RunView {
 
 export interface Usage {
   runs: number;
-  tokensIn: number;
-  tokensOut: number;
-  embeddingTokens: number;
 }
 
 export interface AgentDetail {
@@ -90,7 +78,6 @@ export interface AskResult {
     rowFrom: number | null;
     rowTo: number | null;
   }[];
-  tokens: { input: number; output: number; embedding: number };
   reason: string | null;
 }
 
@@ -166,8 +153,6 @@ export class AgentsService {
         name: dto.name,
         description: dto.description ?? null,
         systemPrompt: dto.systemPrompt ?? DEFAULT_PROMPT,
-        model: dto.model ?? DEFAULT_CHAT_MODEL,
-        temperature: dto.temperature ?? 0.4,
         maxReplyChars: dto.maxReplyChars ?? 900,
         escalateKeywords: dto.escalateKeywords ?? [],
         createdByUserId: userId,
@@ -193,7 +178,6 @@ export class AgentsService {
       this.prisma.agentRun.aggregate({
         where: { agentId: agent.id },
         _count: { _all: true },
-        _sum: { tokensIn: true, tokensOut: true, embeddingTokens: true },
       }),
       this.prisma.agentRun.findMany({
         where: { agentId: agent.id },
@@ -236,8 +220,6 @@ export class AgentsService {
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.description !== undefined ? { description: changes.description } : {}),
         ...(changes.systemPrompt !== undefined ? { systemPrompt: changes.systemPrompt } : {}),
-        ...(changes.model !== undefined ? { model: changes.model } : {}),
-        ...(changes.temperature !== undefined ? { temperature: changes.temperature } : {}),
         ...(changes.maxReplyChars !== undefined ? { maxReplyChars: changes.maxReplyChars } : {}),
         ...(changes.escalateKeywords !== undefined
           ? { escalateKeywords: changes.escalateKeywords }
@@ -330,38 +312,27 @@ export class AgentsService {
   }
 
   /**
-   * The playground. Nothing is sent, but the call is a run, so it is metered
-   * and it appears in Activity beside the replies.
+   * The playground. Nothing is sent, but the call is a run, so it appears in
+   * Activity beside the replies.
    */
   async ask(claims: AuthClaims, id: string, dto: AskAgentDto): Promise<AskResult> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
     const agent = await this.knowledge.agentOf(workspaceId, id);
 
     const started = Date.now();
-    let embedTokens = 0;
 
-    // Local retrieval cannot fail on configuration; the vector engine can,
-    // because it embeds the question. Both throw inside the guard, where the
-    // error is mapped and the run is metered.
     try {
-      const found = await this.retrieval.search(
+      const { chunks } = await this.retrieval.search(
         { agentId: agent.id, workspaceId },
         dto.question,
       );
-      const chunks = found.chunks;
 
       if (chunks.length === 0) {
         await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
-          embeddingTokens: embedTokens,
           latencyMs: Date.now() - started,
         });
 
-        return {
-          answer: HANDOFF_MESSAGE,
-          citations: [],
-          tokens: { input: 0, output: 0, embedding: embedTokens },
-          reason: "no-context",
-        };
+        return { answer: HANDOFF_MESSAGE, citations: [], reason: "no-context" };
       }
 
       const full = await this.prisma.agent.findUniqueOrThrow({
@@ -380,7 +351,6 @@ export class AgentsService {
         rowTo: chunk.rowTo,
       }));
       // No model wrote this answer, so nothing is billed for writing it.
-      const tokens = { input: 0, output: 0, embedding: embedTokens };
 
       const composed = composeAnswer({
         question: dto.question,
@@ -400,27 +370,24 @@ export class AgentsService {
       // reason a real reply would.
       if (answer.length === 0) {
         await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
-          embeddingTokens: embedTokens,
           latencyMs: Date.now() - started,
         });
 
-        return { answer: HANDOFF_MESSAGE, citations, tokens, reason: "no-context" };
+        return { answer: HANDOFF_MESSAGE, citations, reason: "no-context" };
       }
 
       await this.record(agent.id, workspaceId, "SENT", null, {
-        embeddingTokens: embedTokens,
         latencyMs: Date.now() - started,
       });
 
-      return { answer, citations, tokens, reason: null };
+      return { answer, citations, reason: null };
     } catch (error) {
       await this.recordFailure(agent.id, workspaceId, {
-        embeddingTokens: embedTokens,
         latencyMs: Date.now() - started,
-        error: error instanceof Error ? error.message : "The model call failed.",
+        error: error instanceof Error ? error.message : "The lookup failed.",
       });
 
-      this.toHttp(error);
+      throw error;
     }
   }
 
@@ -452,7 +419,6 @@ export class AgentsService {
       this.prisma.agentRun.aggregate({
         where,
         _count: { _all: true },
-        _sum: { tokensIn: true, tokensOut: true, embeddingTokens: true },
       }),
     ]);
 
@@ -541,9 +507,6 @@ export class AgentsService {
     status: AgentRunStatus,
     reason: string | null,
     numbers: {
-      tokensIn?: number;
-      tokensOut?: number;
-      embeddingTokens?: number;
       latencyMs?: number;
       error?: string;
     },
@@ -555,9 +518,6 @@ export class AgentsService {
         kind: "PLAYGROUND",
         status,
         reason,
-        tokensIn: numbers.tokensIn ?? 0,
-        tokensOut: numbers.tokensOut ?? 0,
-        embeddingTokens: numbers.embeddingTokens ?? 0,
         latencyMs: numbers.latencyMs ?? null,
         error: numbers.error ?? null,
       },
@@ -566,12 +526,12 @@ export class AgentsService {
 
   /**
    * A run that has to be recorded, on a path that is already failing: an
-   * insert that rejects must not replace the provider error the caller needs.
+   * insert that rejects must not replace the error the caller needs.
    */
   private async recordFailure(
     agentId: string,
     workspaceId: string,
-    numbers: { embeddingTokens: number; latencyMs: number; error: string },
+    numbers: { latencyMs: number; error: string },
   ): Promise<void> {
     try {
       await this.record(agentId, workspaceId, "FAILED", null, numbers);
@@ -586,22 +546,6 @@ export class AgentsService {
   private storageRemove(paths: string[]): Promise<void> {
     return this.media.remove(paths);
   }
-
-  private toHttp(error: unknown): never {
-    if (error instanceof AiError) {
-      const body = { code: error.code, message: error.message };
-
-      if (error.code === "AI_NOT_CONFIGURED" || error.code === "AI_UNAUTHORIZED") {
-        throw new ServiceUnavailableException(body);
-      }
-
-      if (error.code === "AI_RATE_LIMITED") throw new ConflictException(body);
-
-      throw new BadGatewayException(body);
-    }
-
-    throw error;
-  }
 }
 
 function agentView(
@@ -610,8 +554,6 @@ function agentView(
     name: string;
     description: string | null;
     systemPrompt: string;
-    model: string;
-    temperature: number;
     maxReplyChars: number;
     escalateKeywords: string[];
     isActive: boolean;
@@ -625,8 +567,6 @@ function agentView(
     name: row.name,
     description: row.description,
     systemPrompt: row.systemPrompt,
-    model: row.model,
-    temperature: row.temperature,
     maxReplyChars: row.maxReplyChars,
     escalateKeywords: row.escalateKeywords,
     isActive: row.isActive,
@@ -637,24 +577,11 @@ function agentView(
 }
 
 /**
- * The four numbers every response that reports token totals carries. Tracked,
- * never enforced: a cap would need a period to cap over, and the spec defers
- * that to the cost phase.
+ * The one number every response that reports runs carries. Recorded, never
+ * enforced.
  */
-function usageOf(totals: {
-  _count: { _all: number };
-  _sum: {
-    tokensIn: number | null;
-    tokensOut: number | null;
-    embeddingTokens: number | null;
-  };
-}): Usage {
-  return {
-    runs: totals._count._all,
-    tokensIn: totals._sum.tokensIn ?? 0,
-    tokensOut: totals._sum.tokensOut ?? 0,
-    embeddingTokens: totals._sum.embeddingTokens ?? 0,
-  };
+function usageOf(totals: { _count: { _all: number } }): Usage {
+  return { runs: totals._count._all };
 }
 
 function runView(row: {
@@ -663,9 +590,6 @@ function runView(row: {
   status: AgentRunStatus;
   reason: string | null;
   conversationId: string | null;
-  tokensIn: number;
-  tokensOut: number;
-  embeddingTokens: number;
   latencyMs: number | null;
   error: string | null;
   createdAt: Date;
@@ -676,9 +600,6 @@ function runView(row: {
     status: row.status,
     reason: row.reason,
     conversationId: row.conversationId,
-    tokensIn: row.tokensIn,
-    tokensOut: row.tokensOut,
-    embeddingTokens: row.embeddingTokens,
     latencyMs: row.latencyMs,
     error: row.error,
     createdAt: row.createdAt.toISOString(),

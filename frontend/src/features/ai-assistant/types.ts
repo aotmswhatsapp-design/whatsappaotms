@@ -7,22 +7,6 @@
  * Supabase session code into its module graph.
  */
 
-/** The two models the server accepts. An unknown one is a 400, by design. */
-export type AgentModel = "gpt-5.4-mini" | "gpt-4.1-mini";
-
-export const AGENT_MODELS: { value: AgentModel; label: string; blurb: string }[] = [
-  {
-    value: "gpt-5.4-mini",
-    label: "GPT-5.4 mini",
-    blurb: "Reads images and answers in the shortest time. The default.",
-  },
-  {
-    value: "gpt-4.1-mini",
-    label: "GPT-4.1 mini",
-    blurb: "Older, slightly cheaper, and fine for text-only material.",
-  },
-];
-
 export type SourceKind = "TEXT" | "FILE";
 
 export type SourceStatus = "PENDING" | "PROCESSING" | "READY" | "FAILED";
@@ -36,8 +20,6 @@ export interface Agent {
   name: string;
   description: string | null;
   systemPrompt: string;
-  model: string;
-  temperature: number;
   maxReplyChars: number;
   escalateKeywords: string[];
   isActive: boolean;
@@ -74,9 +56,6 @@ export interface Source {
   error: string | null;
   charCount: number;
   chunkCount: number;
-  embedTokens: number;
-  /** Tokens spent reading an image or a voice note; 0 for documents. */
-  extractTokens: number;
   indexedAt: string | null;
   createdAt: string;
   /** Page count, sheet inventory or pixel size; null when the reader had none. */
@@ -92,9 +71,6 @@ export interface Run {
   /** `paused`, `superseded`, `window-closed`, `no-context`, `handoff`, … */
   reason: string | null;
   conversationId: string | null;
-  tokensIn: number;
-  tokensOut: number;
-  embeddingTokens: number;
   latencyMs: number | null;
   error: string | null;
   createdAt: string;
@@ -102,9 +78,6 @@ export interface Run {
 
 export interface Usage {
   runs: number;
-  tokensIn: number;
-  tokensOut: number;
-  embeddingTokens: number;
 }
 
 export interface AgentDetail {
@@ -133,7 +106,6 @@ export interface Citation {
 export interface AskResult {
   answer: string;
   citations: Citation[];
-  tokens: { input: number; output: number; embedding: number };
   /** `no-context` when nothing cleared the floor; null for a normal answer. */
   reason: string | null;
 }
@@ -142,8 +114,6 @@ export interface CreateAgentInput {
   name: string;
   description?: string;
   systemPrompt?: string;
-  model?: AgentModel;
-  temperature?: number;
   maxReplyChars?: number;
   escalateKeywords?: string[];
 }
@@ -152,8 +122,6 @@ export interface UpdateAgentInput {
   name?: string;
   description?: string;
   systemPrompt?: string;
-  model?: AgentModel;
-  temperature?: number;
   maxReplyChars?: number;
   escalateKeywords?: string[];
 }
