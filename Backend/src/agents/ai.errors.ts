@@ -31,7 +31,11 @@ export class AiError extends Error {
 }
 
 /** Why a file could not become text. Every one is a sentence for the screen. */
-export type ExtractCode = "SOURCE_UNSUPPORTED" | "SOURCE_EMPTY" | "SOURCE_TOO_LARGE";
+export type ExtractCode =
+  | "SOURCE_UNSUPPORTED"
+  | "SOURCE_EMPTY"
+  | "SOURCE_TOO_LARGE"
+  | "SOURCE_TIMEOUT";
 
 export class ExtractError extends Error {
   constructor(

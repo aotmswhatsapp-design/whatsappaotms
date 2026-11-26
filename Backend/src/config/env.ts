@@ -165,6 +165,16 @@ export const envSchema = z.object({
     .positive()
     .default(25 * 1024 * 1024),
   /**
+   * A document may take this long to read and embed before it is stopped. A
+   * 1,200-chunk price book is forty paid calls; without a ceiling one stalled
+   * provider holds the source's claim indefinitely.
+   */
+  KNOWLEDGE_JOB_BUDGET_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(8 * 60 * 1000),
+  /**
    * Retention for the connection status: within this window a page load reads
    * the stored verdict instead of calling Graph again.
    */

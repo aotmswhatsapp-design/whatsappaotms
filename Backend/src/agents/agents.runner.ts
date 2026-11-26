@@ -34,7 +34,7 @@ export class AgentsRunner implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
+    this.timer = setInterval(() => void this.runPass(), TICK_MS);
 
     // A background loop must never be the reason the process stays alive.
     this.timer.unref();
@@ -45,31 +45,56 @@ export class AgentsRunner implements OnModuleInit, OnModuleDestroy {
     this.timer = null;
   }
 
-  private async tick(): Promise<void> {
+  private async runPass(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
 
     try {
       // Both recoveries are two-column updates and are what makes a crash
-      // mid-call resume instead of leaving a row stuck forever.
-      await this.knowledge.recoverStale();
-      await this.replies.releaseStale();
+      // mid-call resume instead of leaving a row stuck forever. They are caught
+      // separately: a failure there must neither cost the pass its actual work
+      // nor reject the promise `onModuleInit` fired without a handler.
+      try {
+        await this.knowledge.recoverStale();
+      } catch (error) {
+        this.logger.error(`Stale-source recovery failed: ${messageOf(error)}`);
+      }
 
-      const source = await this.knowledge.claim();
-      if (source) await this.knowledge.index(source);
+      try {
+        await this.replies.releaseStale();
+      } catch (error) {
+        this.logger.error(`Stale-run recovery failed: ${messageOf(error)}`);
+      }
 
-      const run = await this.replies.claim();
-      if (run) await this.replies.answer(run);
-    } catch (error) {
-      // One bad row must not stop the loop: the row already holds its own
-      // failure, and the next tick takes the next one.
-      this.logger.error(
-        `Agent pass failed: ${
-          error instanceof Error ? error.message : "unknown failure"
-        }`,
-      );
+      // Independent rows, independent tables. Awaiting indexing before claiming
+      // a reply meant one tenant's five-minute price book delayed every other
+      // tenant's customer by exactly that long (B-10). Each branch still
+      // contains its own failure.
+      await Promise.all([this.indexOne(), this.answerOne()]);
     } finally {
       this.busy = false;
     }
   }
+
+  private async indexOne(): Promise<void> {
+    try {
+      const source = await this.knowledge.claim();
+      if (source) await this.knowledge.index(source);
+    } catch (error) {
+      this.logger.error(`Index pass failed: ${messageOf(error)}`);
+    }
+  }
+
+  private async answerOne(): Promise<void> {
+    try {
+      const run = await this.replies.claim();
+      if (run) await this.replies.answer(run);
+    } catch (error) {
+      this.logger.error(`Reply pass failed: ${messageOf(error)}`);
+    }
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown failure";
 }

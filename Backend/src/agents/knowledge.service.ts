@@ -10,6 +10,7 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import type { Prisma } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -18,7 +19,7 @@ import type { UploadedMedia } from "../inbox/inbox.sender";
 import { MediaStorage } from "../inbox/media.storage";
 import { AiError, ExtractError } from "./ai.errors";
 import { OpenAiProvider, toVector } from "./ai.openai";
-import { extractSource, type Extracted } from "./extract";
+import { extractSource, type Extracted, type ExtractedMeta } from "./extract";
 import { OpenAiMediaExtractor, resolveMime } from "./extract.media";
 import { probeImage } from "./image.probe";
 import { MAX_SOURCE_BYTES, inspectUpload, type InspectedFile } from "./knowledge.file";
@@ -40,10 +41,8 @@ const STALE_MS = 10 * 60 * 1000;
 /** Automatic attempts before a source is left FAILED for a human to retry. */
 const MAX_ATTEMPTS = 2;
 
-export type SourceMeta =
-  | { kind: "table"; sheets: { name: string; headers: string[]; rowCount: number }[] }
-  | { kind: "image"; mime: string; width: number | null; height: number | null }
-  | { kind: "document"; pages: number | null };
+/** The shape a row records for its source; `ExtractedMeta` owns the variants. */
+export type SourceMeta = ExtractedMeta;
 
 export interface SourceView {
   id: string;
@@ -89,9 +88,15 @@ export class KnowledgeService {
       config.get<number>("KNOWLEDGE_MAX_BYTES") ?? MAX_SOURCE_BYTES,
       MAX_SOURCE_BYTES,
     );
+
+    // A job that outlives this is stopped at the next batch boundary: the row
+    // ends FAILED with a sentence instead of holding its claim for ever.
+    this.jobBudgetMs =
+      config.get<number>("KNOWLEDGE_JOB_BUDGET_MS") ?? 8 * 60 * 1000;
   }
 
   private readonly maxBytes: number;
+  private readonly jobBudgetMs: number;
 
   async addText(
     claims: AuthClaims,
@@ -219,25 +224,28 @@ export class KnowledgeService {
           }
         : undefined;
 
+    const data: Prisma.KnowledgeSourceUncheckedCreateInput = {
+      id: input.id,
+      agentId: input.agentId,
+      kind: "FILE",
+      title: input.inspected.title,
+      mime: input.inspected.mime,
+      size: input.bytes.length,
+      storagePath: path,
+      sha256: input.inspected.sha256,
+      uploadedByUserId: input.userId,
+      replacesSourceId: input.replacesSourceId,
+      meta,
+      status: "PENDING",
+    };
+
     await this.storage.upload(path, input.bytes, input.inspected.mime);
 
     try {
-      const row = await this.prisma.knowledgeSource.create({
-        data: {
-          id: input.id,
-          agentId: input.agentId,
-          kind: "FILE",
-          title: input.inspected.title,
-          mime: input.inspected.mime,
-          size: input.bytes.length,
-          storagePath: path,
-          sha256: input.inspected.sha256,
-          uploadedByUserId: input.userId,
-          replacesSourceId: input.replacesSourceId,
-          meta,
-          status: "PENDING",
-        },
-      });
+      const row =
+        input.replacesSourceId === null
+          ? await this.prisma.knowledgeSource.create({ data })
+          : await this.claimAndCreate(input.replacesSourceId, data);
 
       return { source: sourceView(row) };
     } catch (error) {
@@ -251,6 +259,124 @@ export class KnowledgeService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Safe replacement.
+   *
+   * A second row is written and indexed while the old one keeps answering:
+   * retrieval only reads `READY` rows, so the old knowledge is available until
+   * the new source is proven. The old row is deleted inside the transaction
+   * that marks the new one READY, and nowhere else — a replacement that fails
+   * leaves the working source exactly as it was.
+   */
+  async replace(
+    claims: AuthClaims,
+    agentId: string,
+    sourceId: string,
+    file: UploadedMedia,
+  ): Promise<{ source: SourceView }> {
+    const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
+    const agent = await this.agentOf(workspaceId, agentId);
+    const target = await this.sourceOf(agent.id, sourceId);
+
+    if (target.kind !== "FILE") {
+      throw new ConflictException({
+        code: "SOURCE_NOT_FILE",
+        message: "A typed note is edited, not replaced. Delete it and write the new one.",
+      });
+    }
+
+    if (target.status === "PENDING" || target.status === "PROCESSING") {
+      throw new ConflictException({
+        code: "SOURCE_BUSY",
+        message: "Wait for the current upload to finish, then replace it.",
+      });
+    }
+
+    // The same read that refuses a client error with a 4xx, so a replacement
+    // that is too large or unreadable fails like an upload, not like a bug.
+    const inspected = this.admit(file);
+
+    if (target.sha256 && target.sha256 === inspected.sha256) {
+      throw new ConflictException({
+        code: "SOURCE_UNCHANGED",
+        message: "That is the same file. Upload the new version.",
+      });
+    }
+
+    return this.store({
+      agentId: agent.id,
+      workspaceId,
+      userId,
+      id: randomUUID(),
+      inspected,
+      bytes: file.buffer,
+      replacesSourceId: target.id,
+    });
+  }
+
+  /**
+   * Writes a replacement's row under the replaced source's row lock.
+   *
+   * The status read in `replace()` is the friendly answer; this is the
+   * authority. Two replacements of one source race on the `updateMany` below:
+   * the first holds the lock until it commits, and the second then sees the
+   * first one's successor and is refused. Only one replacement can succeed, and
+   * a refusal rolls back the lock's `updatedAt` bump with the transaction.
+   */
+  private async claimAndCreate(
+    predecessorId: string,
+    data: Prisma.KnowledgeSourceUncheckedCreateInput,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.knowledgeSource.updateMany({
+        where: { id: predecessorId, agentId: data.agentId },
+        data: { updatedAt: new Date() },
+      });
+
+      if (locked.count === 0) {
+        throw new NotFoundException("That source does not exist.");
+      }
+
+      const current = await tx.knowledgeSource.findUnique({
+        where: { id: predecessorId },
+        select: { status: true, sha256: true },
+      });
+
+      if (!current) throw new NotFoundException("That source does not exist.");
+
+      if (current.status === "PENDING" || current.status === "PROCESSING") {
+        throw new ConflictException({
+          code: "SOURCE_BUSY",
+          message: "Wait for the current upload to finish, then replace it.",
+        });
+      }
+
+      if (current.sha256 && current.sha256 === data.sha256) {
+        throw new ConflictException({
+          code: "SOURCE_UNCHANGED",
+          message: "That is the same file. Upload the new version.",
+        });
+      }
+
+      const successors = await tx.knowledgeSource.count({
+        where: {
+          agentId: data.agentId,
+          replacesSourceId: predecessorId,
+          status: { in: ["PENDING", "PROCESSING", "READY"] },
+        },
+      });
+
+      if (successors > 0) {
+        throw new ConflictException({
+          code: "SOURCE_BUSY",
+          message: "A replacement for this source is already being prepared.",
+        });
+      }
+
+      return tx.knowledgeSource.create({ data });
+    });
   }
 
   async list(claims: AuthClaims, agentId: string): Promise<{ sources: SourceView[] }> {
@@ -274,9 +400,23 @@ export class KnowledgeService {
     const agent = await this.agentOf(workspaceId, agentId);
     const source = await this.sourceOf(agent.id, sourceId);
 
-    // Chunks go with the row (cascade). The stored original has no foreign key.
-    await this.prisma.knowledgeSource.delete({ where: { id: source.id } });
+    // A row being read is a running job's subject: deleting it mid-flight would
+    // leave the worker writing into a row that no longer exists. Chunks go with
+    // the row (cascade); the conditional statement is the authority, because the
+    // screen's hidden button is only a hint.
+    const deleted = await this.prisma.knowledgeSource.deleteMany({
+      where: { id: source.id, agentId: agent.id, status: { not: "PROCESSING" } },
+    });
 
+    if (deleted.count === 0) {
+      throw new ConflictException({
+        code: "SOURCE_BUSY",
+        message: "This source is being read right now. Delete it when it finishes.",
+      });
+    }
+
+    // The stored original has no foreign key, so this is the only place it can
+    // be named again; a failed delete is the sweeper's work.
     if (source.storagePath) await this.storage.remove([source.storagePath]);
 
     return { deleted: true };
@@ -291,15 +431,37 @@ export class KnowledgeService {
     const agent = await this.agentOf(workspaceId, agentId);
     const source = await this.sourceOf(agent.id, sourceId);
 
-    const row = await this.prisma.knowledgeSource.update({
+    const reset = {
+      status: "PENDING" as const,
+      error: null,
+      attempts: 0,
+      // The old counts describe chunks that are about to be deleted.
+      charCount: 0,
+      chunkCount: 0,
+      embedTokens: 0,
+      extractTokens: 0,
+      // A file is re-read from storage; a typed note keeps its text.
+      ...(source.kind === "FILE" ? { text: null } : {}),
+    };
+
+    // One conditional statement, not read-then-write: a claim landing between
+    // the two would let a second attempt start on a row already being read, and
+    // the two would delete each other's chunks (B-2).
+    const updated = await this.prisma.knowledgeSource.updateMany({
+      where: { id: source.id, agentId: agent.id, status: { in: ["FAILED", "READY"] } },
+      data: reset,
+    });
+
+    if (updated.count === 0) {
+      throw new ConflictException({
+        code: "SOURCE_BUSY",
+        message:
+          "This source is already queued or being read. Try again when it finishes.",
+      });
+    }
+
+    const row = await this.prisma.knowledgeSource.findUniqueOrThrow({
       where: { id: source.id },
-      data: {
-        status: "PENDING",
-        error: null,
-        attempts: 0,
-        // A file is re-read from storage; a typed note keeps its text.
-        ...(source.kind === "FILE" ? { text: null } : {}),
-      },
     });
 
     return { source: sourceView(row) };
@@ -347,7 +509,14 @@ export class KnowledgeService {
   private async sourceOf(agentId: string, sourceId: string) {
     const source = await this.prisma.knowledgeSource.findFirst({
       where: { id: sourceId, agentId },
-      select: { id: true, kind: true, storagePath: true },
+      select: {
+        id: true,
+        kind: true,
+        status: true,
+        sha256: true,
+        storagePath: true,
+        title: true,
+      },
     });
 
     if (!source) throw new NotFoundException("That source does not exist.");
@@ -387,6 +556,10 @@ export class KnowledgeService {
     if (!source || source.status !== "PROCESSING") return;
 
     try {
+      // The budget covers extraction as well as embedding, so the clock starts
+      // before the first paid call rather than at the first batch.
+      const started = Date.now();
+
       const extracted: Extracted =
         source.text && source.text.length > 0
           ? {
@@ -444,6 +617,16 @@ export class KnowledgeService {
       let embedTokens = 0;
 
       for (let at = 0; at < rows.length; at += EMBED_BATCH) {
+        // Between batches, not mid-call: a batch already in flight is already
+        // paid for, and stopping on a boundary leaves every embedded chunk
+        // embedded instead of half a document with no vectors.
+        if (Date.now() - started > this.jobBudgetMs) {
+          throw new ExtractError(
+            "SOURCE_TIMEOUT",
+            "Reading this file took longer than the time allowed and was stopped. Try a smaller file, or split it and upload the part that matters.",
+          );
+        }
+
         const batch = rows.slice(at, at + EMBED_BATCH);
         const embedded = await this.provider.embed(batch.map((row) => row.text));
 
@@ -469,9 +652,18 @@ export class KnowledgeService {
         });
       }
 
+      // The predecessor is read before the transaction so its object can be
+      // removed after the commit, never before it.
+      const predecessor = source.replacesSourceId
+        ? await this.prisma.knowledgeSource.findFirst({
+            where: { id: source.replacesSourceId, agentId: source.agentId },
+            select: { id: true, storagePath: true },
+          })
+        : null;
+
       // Conditional on still owning the row: if ownership was lost mid-job the
       // newer attempt's status is the truth, and this one must not overwrite it.
-      const finished = await this.prisma.knowledgeSource.updateMany({
+      const markReady = this.prisma.knowledgeSource.updateMany({
         where: { id: source.id, status: "PROCESSING" },
         data: {
           text,
@@ -486,7 +678,31 @@ export class KnowledgeService {
         },
       });
 
-      if (finished.count > 0) {
+      // The retirement is conditional on the row having actually become READY
+      // in the statement before it: inside one array transaction the second
+      // statement sees the first one's effect, and the relation filter is the
+      // guard `recoverStale` also uses against a newer attempt's row. A failed
+      // replacement therefore leaves the old source untouched.
+      const [updated, retired] = predecessor
+        ? await this.prisma.$transaction([
+            markReady,
+            this.prisma.knowledgeSource.deleteMany({
+              where: {
+                id: predecessor.id,
+                agentId: source.agentId,
+                agent: { sources: { some: { id: source.id, status: "READY" } } },
+              },
+            }),
+          ])
+        : [await markReady, { count: 0 }];
+
+      if (updated.count > 0 && retired.count > 0 && predecessor?.storagePath) {
+        // The bytes are the old version nobody can reach now. Best effort, and
+        // only after the commit: the sweeper catches a failed delete.
+        await this.storage.remove([predecessor.storagePath]);
+      }
+
+      if (updated.count > 0) {
         this.logger.log(
           `Indexed ${rows.length} chunks for source ${source.id} (${source.title}).`,
         );
@@ -507,6 +723,7 @@ export class KnowledgeService {
         where: { id: sourceId },
         select: {
           id: true,
+          agentId: true,
           kind: true,
           title: true,
           mime: true,

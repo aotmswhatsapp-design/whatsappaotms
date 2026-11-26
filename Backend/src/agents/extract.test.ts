@@ -160,7 +160,8 @@ test("a worksheet named CSV keeps its own name, so it cannot be mistaken for a C
 
   assert.equal(blocks[0].sheet, CSV_SHEET);
   assert.equal(blocks[0].rowFrom, 2);
-  assert.equal(meta?.sheets[0].name, CSV_SHEET);
+  assert.ok(meta && meta.kind === "table");
+  assert.equal(meta.sheets[0].name, CSV_SHEET);
 });
 
 test("a docx heading attaches to the paragraph beneath it", () => {

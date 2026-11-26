@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   UnsupportedMediaTypeException,
   UploadedFile,
   UseFilters,
@@ -120,6 +121,36 @@ export class KnowledgeController {
     }
 
     return this.knowledge.addFile(claims, id, file);
+  }
+
+  /**
+   * PUT /api/v1/agents/:id/sources/:sourceId/file — the new version of a file.
+   *
+   * The old source keeps answering until the replacement is READY, so the row
+   * this returns is the *new* source; the screen follows it like any upload and
+   * the old one disappears when indexing retires it.
+   */
+  @Put(":sourceId/file")
+  @Roles("OWNER")
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @UseFilters(SourceTooLargeFilter)
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_SOURCE_BYTES },
+      fileFilter: acceptUpload,
+    }),
+  )
+  replace(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("sourceId", ParseUUIDPipe) sourceId: string,
+    @UploadedFile() file: UploadedMedia | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException("Attach the new version of the file.");
+    }
+
+    return this.knowledge.replace(claims, id, sourceId, file);
   }
 
   /** GET .../download — a short-lived link, issued only after an ownership check. */

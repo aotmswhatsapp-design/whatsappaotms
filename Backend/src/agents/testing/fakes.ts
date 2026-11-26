@@ -65,6 +65,12 @@ export class FakePrisma {
       this.invoke("knowledgeSource.findFirst", args, () => null),
     findUnique: (args: any) =>
       this.invoke("knowledgeSource.findUnique", args, () => null),
+    findUniqueOrThrow: (args: any) =>
+      this.invoke("knowledgeSource.findUniqueOrThrow", args, () => ({
+        ...ROW,
+        id: args.where.id,
+      })),
+    count: (args: any) => this.invoke("knowledgeSource.count", args, () => 0),
     findMany: (args: any) =>
       this.invoke("knowledgeSource.findMany", args, () => []),
     update: (args: any) =>

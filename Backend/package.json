@@ -21,7 +21,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:validate": "prisma validate",
-    "check:db": "node scripts/check-db-url.mjs"
+    "check:db": "node scripts/check-db-url.mjs",
+    "knowledge:sweep": "node scripts/sweep-knowledge-orphans.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

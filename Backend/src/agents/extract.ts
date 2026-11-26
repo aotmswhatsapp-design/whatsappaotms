@@ -59,7 +59,16 @@ export type TableMeta = {
 /** The pages that carry text: a blank page is not one a citation can name. */
 export type DocumentMeta = { kind: "document"; pages: number | null };
 
-export type ExtractedMeta = TableMeta | DocumentMeta;
+/** An image's own type and pixel size, read from its bytes before it is read. */
+export type ImageMeta = {
+  kind: "image";
+  mime: string;
+  width: number | null;
+  height: number | null;
+};
+
+/** What the row knows about a source's shape, whatever kind of source it is. */
+export type ExtractedMeta = TableMeta | DocumentMeta | ImageMeta;
 
 export interface Extracted {
   blocks: SourceBlock[];
