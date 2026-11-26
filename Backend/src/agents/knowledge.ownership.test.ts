@@ -43,6 +43,7 @@ const claimed = (overrides: Record<string, unknown> = {}) => ({
   replacesSourceId: null,
   status: "PROCESSING",
   attempts: 0,
+  leaseToken: "tok",
   agent: { model: "gpt-4o-mini" },
   ...overrides,
 });
@@ -89,6 +90,7 @@ test("recovery hands the row on under a new epoch", async () => {
   assert.deepEqual(requeue?.args.data, {
     status: "PENDING",
     attempts: { increment: 1 },
+    leaseToken: null,
   });
 });
 
@@ -102,13 +104,14 @@ test("a worker whose claim moved on writes no chunks and no status", async () =>
     return { count: 0 };
   };
 
-  await service.index("src-1");
+  await service.index("src-1", "tok");
 
-  // The guard is the first write, under the epoch the claim took.
+  // The guard is the first write, under the token the claim minted. `attempts`
+  // is not part of it: a number can be reused, a token never is.
   assert.deepEqual(seen[0]?.where, {
     id: "src-1",
     status: "PROCESSING",
-    attempts: 3,
+    leaseToken: "tok",
   });
   // Nothing followed it: no chunk write, no FAILED, no READY.
   assert.equal(seen.length, 1);
@@ -147,7 +150,7 @@ test("a failure after the claim moved on is not written over the owner's row", a
     { id: "c1", text: "hello there" },
   ];
 
-  await service.index("src-1");
+  await service.index("src-1", "tok");
 
   const writes = prisma.calls.filter(
     (call) => call.path === "knowledgeSource.updateMany",
@@ -190,7 +193,7 @@ test("a failure records the tokens already paid for and the epoch it failed unde
     return { vectors: input.map(() => new Array(1536).fill(0.01)), tokens: 7 };
   };
 
-  await service.index("src-1");
+  await service.index("src-1", "tok");
 
   const failed = prisma.calls.find(
     (call) =>
@@ -201,7 +204,7 @@ test("a failure records the tokens already paid for and the epoch it failed unde
   assert.deepEqual(failed?.args.where, {
     id: "src-1",
     status: "PROCESSING",
-    attempts: 0,
+    leaseToken: "tok",
   });
   // What the first batch really cost is on the row, not lost with the failure.
   assert.equal(failed?.args.data.embedTokens, 7);

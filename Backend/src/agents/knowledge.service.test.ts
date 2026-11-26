@@ -157,6 +157,7 @@ test("indexing a CSV writes one chunk per row range, with its sheet and its meta
     extractTokens: 0,
     replacesSourceId: null,
     status: "PROCESSING",
+    leaseToken: "tok-1",
     agent: { model: "gpt-4o-mini" },
   });
   (storage as any).download = async () => Buffer.from(csv);
@@ -173,7 +174,7 @@ test("indexing a CSV writes one chunk per row range, with its sheet and its meta
     return { count: 1 };
   };
 
-  await service.index("source-1");
+  await service.index("source-1", "tok-1");
 
   // The record range is what a citation quotes, so it has to survive the write.
   // Record 1 is the header, so the first data record is number 2.
@@ -225,6 +226,7 @@ test("indexing an image puts the vision call's tokens on the row", async () => {
     extractTokens: 0,
     replacesSourceId: null,
     status: "PROCESSING",
+    leaseToken: "tok-1",
     agent: { model: "gpt-4o-mini" },
   });
   (storage as any).download = async () => PNG;
@@ -235,7 +237,7 @@ test("indexing an image puts the vision call's tokens on the row", async () => {
     return { count: 1 };
   };
 
-  await service.index("source-1");
+  await service.index("source-1", "tok-1");
 
   const ready = writes.find((data) => data.status === "READY");
   assert.equal(ready?.extractTokens, 1240);

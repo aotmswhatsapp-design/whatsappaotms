@@ -1,0 +1,22 @@
+-- Additive only: one nullable column, no default, no table rewrite (Postgres 11+).
+--
+-- DEPLOYMENT SEQUENCE — do not reorder:
+--   1. Stop or drain every knowledge worker before applying this migration.
+--      A worker mid-job when the new code starts holds no lease token, so it
+--      must not be running while the two schemes overlap.
+--   2. Apply this migration (`prisma migrate deploy`). It rewrites no row and
+--      takes only a brief ACCESS EXCLUSIVE lock to add the column.
+--   3. Deploy the code that reads and writes `lease_token`, then start the
+--      workers. The runner probes for the column at boot and pauses indexing
+--      with an explicit log line if it is missing, so code deployed ahead of
+--      the migration cannot write with a NULL token.
+--
+-- Rolling back the code alone is safe: old code ignores this column. Dropping
+-- the column is a second, later migration (0024) and must not run while the
+-- new code is live — every lease check would fail.
+--
+-- NULL means "no worker holds this row". `claim()` assigns a fresh UUID in the
+-- same UPDATE that flips PENDING -> PROCESSING; `recoverStale` and `retry` set
+-- it back to NULL, so a suspended worker can never reclaim a row whose lease
+-- was handed on. This is what makes the token non-reusable, unlike `attempts`.
+ALTER TABLE "knowledge_sources" ADD COLUMN "lease_token" UUID;

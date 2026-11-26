@@ -21,6 +21,7 @@ const ROW = {
   chunkCount: 0,
   embedTokens: 0,
   attempts: 0,
+  leaseToken: null,
   indexedAt: null,
   sha256: null,
   uploadedByUserId: null,

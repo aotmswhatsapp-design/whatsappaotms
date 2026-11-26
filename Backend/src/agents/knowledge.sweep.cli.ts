@@ -300,8 +300,13 @@ export async function runSweep(
   let liveCount: number;
 
   try {
-    const live = await deps.live();
+    // The listing comes first and the reference set second: every object that
+    // appears in the listing is then judged against references that are at
+    // least as new as it. Reading references first would let an object created
+    // mid-listing look orphaned because the reference that names it was read
+    // before the row existed.
     const objects = await collectObjects(deps.list, ["workspaces/", "agents/"]);
+    const live = await deps.live();
 
     orphans = planSweep({ objects, live, now: deps.now?.() ?? Date.now() });
     objectCount = objects.length;
@@ -361,23 +366,51 @@ export async function runSweep(
 
   const failures: string[] = [];
   let deleted = 0;
+  let keptTotal = 0;
 
   for (let at = 0; at < orphans.length; at += DELETE_BATCH) {
     const batch = orphans.slice(at, at + DELETE_BATCH).map((orphan) => orphan.path);
     const label = `batch ${at / DELETE_BATCH + 1} (${batch.length} paths)`;
 
+    // The plan was drawn before the confirmations were checked; the confirmation
+    // itself takes time. An object can acquire a reference between the plan and
+    // this batch — a retried row re-reads its text, a replacement is re-uploaded
+    // to the same path. Every path is re-checked against a fresh reference read
+    // immediately before it is deleted, and a path that is referenced now is
+    // kept, not deleted. A failure to re-read is a failed batch: nothing in it
+    // is deleted unverified.
+    let stillLive: Set<string>;
+    try {
+      stillLive = await deps.live();
+    } catch (error) {
+      failures.push(
+        `${label} could not re-read references: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      continue;
+    }
+
+    const removable = batch.filter((path) => !stillLive.has(path));
+    const kept = batch.length - removable.length;
+
+    if (kept > 0) {
+      keptTotal += kept;
+      deps.log(`kept ${kept} candidate(s) that became referenced`);
+    }
+
+    if (removable.length === 0) continue;
+
     // One failed batch does not hide the rest: the others are still attempted,
     // and the exit code carries the fact that the sweep is incomplete.
     try {
-      const answer = await deps.remove(batch);
+      const answer = await deps.remove(removable);
 
       if (!answer.ok) {
         failures.push(`${label} answered ${answer.status}`);
         continue;
       }
 
-      deleted += batch.length;
-      deps.log(`deleted ${batch.length} objects`);
+      deleted += removable.length;
+      deps.log(`deleted ${removable.length} objects`);
     } catch (error) {
       failures.push(
         `${label} failed: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -393,6 +426,16 @@ export async function runSweep(
     for (const failure of failures) deps.error(`  ${failure}`);
 
     deps.error(`Deleted ${deleted} of ${orphans.length}. Re-run the dry run before trying again.`);
+    return SWEEP_EXIT.partial;
+  }
+
+  // Deletion finished but the bucket moved underneath it: the count the
+  // operator confirmed no longer describes what is left, so the next run must
+  // start from a fresh dry run rather than assume this one was complete.
+  if (keptTotal > 0) {
+    deps.error(
+      `Kept ${keptTotal} candidate(s) that became referenced during the sweep. Re-run the dry run before trying again.`,
+    );
     return SWEEP_EXIT.partial;
   }
 

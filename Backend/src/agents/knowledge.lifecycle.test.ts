@@ -216,6 +216,7 @@ const successor = (overrides: Record<string, unknown> = {}) => ({
   text: "the new price list",
   status: "PROCESSING",
   attempts: 0,
+  leaseToken: "tok-new",
   meta: null,
   extractTokens: 0,
   replacesSourceId: "old",
@@ -248,7 +249,7 @@ test("becoming READY retires the predecessor in one transaction, then removes it
     return { count: 1 };
   };
 
-  await service.index("new");
+  await service.index("new", "tok-new");
 
   const ready = prisma.calls.find(
     (call) =>
@@ -256,9 +257,9 @@ test("becoming READY retires the predecessor in one transaction, then removes it
       call.args.data?.status === "READY",
   );
   assert.equal(ready?.args.where.status, "PROCESSING");
-  // The epoch the claim took is part of the write: a worker whose row was
+  // The token the claim minted is part of the write: a worker whose row was
   // requeued cannot mark it READY afterwards.
-  assert.equal(ready?.args.where.attempts, 0);
+  assert.equal(ready?.args.where.leaseToken, "tok-new");
 
   // The retirement is conditional on the successor being READY, in the same
   // agent, inside the transaction that wrote it.
@@ -293,7 +294,7 @@ test("a retirement that loses the race removes no bytes", async () => {
   });
   (prisma.knowledgeSource as any).deleteMany = async () => ({ count: 0 });
 
-  await service.index("new");
+  await service.index("new", "tok-new");
 
   assert.deepEqual(storage.removed, []);
 });

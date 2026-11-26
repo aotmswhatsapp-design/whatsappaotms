@@ -924,6 +924,12 @@ model KnowledgeSource {
   embedTokens Int                 @default(0) @map("embed_tokens")
   /// Indexing attempts. A row that keeps failing is left FAILED, not looped.
   attempts    Int                 @default(0)
+  /// The claim this row is currently held under. NULL when nobody holds it;
+  /// `claim()` assigns a fresh UUID in the same UPDATE that makes the row
+  /// PROCESSING, and every worker write matches it. `recoverStale` and `retry`
+  /// set it back to NULL, so a suspended worker can never reclaim a row whose
+  /// lease was handed on (the `attempts` ABA, B-17).
+  leaseToken  String?             @map("lease_token") @db.Uuid
   indexedAt   DateTime?           @map("indexed_at")
   /// Lowercase hex SHA-256 of the stored bytes. Null for a typed note.
   sha256           String?   @db.Char(64)

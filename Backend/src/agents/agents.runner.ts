@@ -27,13 +27,26 @@ export class AgentsRunner implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentsRunner.name);
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
+  /**
+   * Whether this process may index. `knowledge_sources.lease_token` must exist
+   * before any claim; replies never depend on it.
+   */
+  private indexingEnabled = false;
 
   constructor(
     private readonly knowledge: KnowledgeService,
     private readonly replies: ReplyService,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
+    this.indexingEnabled = await this.knowledge.leaseSchemaReady();
+
+    if (!this.indexingEnabled) {
+      this.logger.error(
+        "knowledge_sources.lease_token is missing. Stop the workers, apply 0023_knowledge_lease_token, then deploy and restart. Indexing is paused; replies continue.",
+      );
+    }
+
     this.timer = setInterval(() => void this.runPass(), TICK_MS);
 
     // A background loop must never be the reason the process stays alive.
@@ -54,10 +67,12 @@ export class AgentsRunner implements OnModuleInit, OnModuleDestroy {
       // mid-call resume instead of leaving a row stuck forever. They are caught
       // separately: a failure there must neither cost the pass its actual work
       // nor reject the promise `onModuleInit` fired without a handler.
-      try {
-        await this.knowledge.recoverStale();
-      } catch (error) {
-        this.logger.error(`Stale-source recovery failed: ${messageOf(error)}`);
+      if (this.indexingEnabled) {
+        try {
+          await this.knowledge.recoverStale();
+        } catch (error) {
+          this.logger.error(`Stale-source recovery failed: ${messageOf(error)}`);
+        }
       }
 
       try {
@@ -70,7 +85,10 @@ export class AgentsRunner implements OnModuleInit, OnModuleDestroy {
       // a reply meant one tenant's five-minute price book delayed every other
       // tenant's customer by exactly that long (B-10). Each branch still
       // contains its own failure.
-      await Promise.all([this.indexOne(), this.answerOne()]);
+      await Promise.all([
+        this.indexingEnabled ? this.indexOne() : Promise.resolve(),
+        this.answerOne(),
+      ]);
     } finally {
       this.busy = false;
     }
@@ -79,7 +97,7 @@ export class AgentsRunner implements OnModuleInit, OnModuleDestroy {
   private async indexOne(): Promise<void> {
     try {
       const source = await this.knowledge.claim();
-      if (source) await this.knowledge.index(source);
+      if (source) await this.knowledge.index(source.id, source.leaseToken);
     } catch (error) {
       this.logger.error(`Index pass failed: ${messageOf(error)}`);
     }

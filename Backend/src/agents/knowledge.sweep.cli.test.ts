@@ -223,6 +223,55 @@ test("a confirmed run deletes in batches and succeeds", async () => {
   assert.ok(lines.some((line) => line.includes("Deleted 150 orphaned objects")));
 });
 
+test("the listing is read before the reference set", async () => {
+  const { deps } = harness(0);
+  const order: string[] = [];
+
+  deps.list = async () => {
+    order.push("list");
+    return [];
+  };
+  deps.live = async () => {
+    order.push("live");
+    return new Set<string>();
+  };
+
+  await runSweep([], env(), deps);
+
+  // Every listed object is judged against references at least as new as it.
+  assert.equal(order.filter((step) => step === "live").length, 1);
+  assert.ok(
+    order.indexOf("live") > order.lastIndexOf("list"),
+    `listing must finish before the reference set is read: ${order.join(", ")}`,
+  );
+});
+
+test("a candidate that becomes referenced after the plan is kept, and the run is partial", async () => {
+  const { deps, lines, errors, removed } = harness(3);
+
+  // The first read draws the plan; every later read — the recheck before the
+  // batch is deleted — shows that the middle path acquired a reference.
+  let reads = 0;
+  deps.live = async () => {
+    reads += 1;
+    return reads === 1
+      ? new Set<string>()
+      : new Set(["workspaces/f1"]);
+  };
+
+  const code = await runSweep(
+    ["--apply", "--confirm", "3", "--max", "3"],
+    env(),
+    deps,
+  );
+
+  assert.equal(code, SWEEP_EXIT.partial);
+  // The newly referenced path never reached the delete.
+  assert.deepEqual(removed, [["workspaces/f0", "workspaces/f2"]]);
+  assert.ok(lines.some((line) => line.includes("kept 1 candidate")));
+  assert.match(errors[0], /Kept 1 candidate/);
+});
+
 test("a failed deletion batch is non-zero, and the rest is still attempted", async () => {
   const { deps, errors, removed } = harness(150);
   let call = 0;

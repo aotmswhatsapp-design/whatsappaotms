@@ -523,6 +523,10 @@ export class KnowledgeService {
       status: "PENDING" as const,
       error: null,
       attempts: 0,
+      // A requeued row carries no lease. The next claim mints a fresh token, so
+      // a worker suspended from an earlier attempt can never match this row
+      // again — the ABA that `attempts` allowed (B-17).
+      leaseToken: null,
       // The old counts describe chunks that are about to be deleted.
       charCount: 0,
       chunkCount: 0,
@@ -649,11 +653,18 @@ export class KnowledgeService {
    * Claim one pending source. The statement is the lock: two runners waking at
    * the same instant cannot both take it, and `SKIP LOCKED` keeps the second
    * from waiting on the first.
+   *
+   * The lease token is minted in the same statement, so the claim and its
+   * ownership proof commit together. It is generated here rather than by
+   * `gen_random_uuid()` because that function needs a server this process
+   * cannot verify; a bound UUID is exactly as atomic inside one UPDATE.
    */
-  async claim(): Promise<string | null> {
-    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+  async claim(): Promise<{ id: string; leaseToken: string } | null> {
+    const leaseToken = randomUUID();
+
+    const rows = await this.prisma.$queryRaw<{ id: string; leaseToken: string }[]>`
       UPDATE knowledge_sources
-      SET status = 'PROCESSING', updated_at = now()
+      SET status = 'PROCESSING', updated_at = now(), lease_token = ${leaseToken}::uuid
       WHERE id = (
         SELECT id FROM knowledge_sources
         WHERE status = 'PENDING'
@@ -661,10 +672,38 @@ export class KnowledgeService {
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING id
+      RETURNING id, lease_token AS "leaseToken"
     `;
 
-    return rows[0]?.id ?? null;
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Whether the database has the column this code now writes.
+   *
+   * `start:prod` migrates before the process, but a local run or a deploy that
+   * reverses the order would start this code against an old schema: every claim
+   * would fail with "column does not exist" once a second. Indexing is paused
+   * instead, once, with the migration to apply named in the log. Replies are
+   * untouched. Read-only: one metadata row, no table access.
+   */
+  async leaseSchemaReady(): Promise<boolean> {
+    try {
+      const rows = await this.prisma.$queryRaw<{ ok: number }[]>`
+        SELECT 1 AS ok
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'knowledge_sources'
+          AND column_name = 'lease_token'
+      `;
+
+      return rows.length > 0;
+    } catch (error) {
+      this.logger.error(
+        `Could not check whether knowledge_sources.lease_token exists (${error instanceof Error ? error.message : "unknown error"}); indexing stays paused.`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -676,12 +715,20 @@ export class KnowledgeService {
    * write chunks, vectors or a status after the fact — and the failure it would
    * otherwise record belongs to the newer attempt, not to it.
    */
-  async index(sourceId: string): Promise<void> {
-    const source = await this.loadForIndex(sourceId);
+  async index(sourceId: string, leaseToken: string): Promise<void> {
+    const source = await this.loadForIndex(sourceId, leaseToken);
 
-    if (!source || source.status !== "PROCESSING") return;
+    // The token comes from the claim, never from this read: a row requeued in
+    // between would otherwise let this worker adopt the newer lease.
+    if (
+      !source ||
+      source.status !== "PROCESSING" ||
+      source.leaseToken !== leaseToken
+    ) {
+      return;
+    }
 
-    const lease = this.lease(source.id, source.attempts);
+    const lease = this.lease(source.id, leaseToken);
     // What the provider charged for this attempt, recorded even when it fails.
     let spent = { embedTokens: 0, extractTokens: source.extractTokens };
 
@@ -770,11 +817,16 @@ export class KnowledgeService {
         // claim that has already been handed to another worker.
         await lease.guard(async (tx) => {
           for (let index = 0; index < batch.length; index += 1) {
-            await tx.$executeRaw`
+            // Source-scoped and counted: a chunk that another attempt replaced
+            // must fail this batch, not silently embed nothing.
+            const written = await tx.$executeRaw`
               UPDATE knowledge_chunks
               SET embedding = ${toVector(embedded.vectors[index])}::vector
               WHERE id = ${batch[index].id}::uuid
+                AND source_id = ${source.id}::uuid
             `;
+
+            if (written !== 1) throw new OwnershipLost();
           }
         });
       }
@@ -797,7 +849,7 @@ export class KnowledgeService {
           where: {
             id: source.id,
             status: "PROCESSING",
-            attempts: source.attempts,
+            leaseToken,
           },
           data: {
             text,
@@ -808,6 +860,8 @@ export class KnowledgeService {
             meta: extracted.meta ?? undefined,
             status: "READY",
             error: null,
+            // The row is no longer claimed; a later worker must not match it.
+            leaseToken: null,
             indexedAt: new Date(),
           },
         });
@@ -849,7 +903,7 @@ export class KnowledgeService {
         return;
       }
 
-      await this.fail(source.id, error, { epoch: source.attempts, ...spent });
+      await this.fail(source.id, error, { token: leaseToken, ...spent });
     } finally {
       lease.stop();
     }
@@ -858,17 +912,17 @@ export class KnowledgeService {
   /**
    * The claim on one PROCESSING row, renewed for as long as the job runs.
    *
-   * `attempts` is the epoch: `claim` leaves it alone, so the worker that took
-   * the row knows which claim it holds; `recoverStale` increments it when it
-   * hands a dead row on, so the old worker can tell it no longer owns anything.
+   * `token` is the lease `claim` minted. `recoverStale` and `retry` clear it
+   * when they hand the row on, and the next claim mints a different one, so a
+   * token is never reused and a suspended worker cannot match a newer lease.
    *
    * Every write the job makes runs through `guard`, whose first statement
-   * re-takes the row under that epoch. The guard is the lock: a requeue either
+   * re-takes the row under that token. The guard is the lock: a requeue either
    * waits for the write to commit or fails the guard before it runs, so chunks
    * and vectors cannot be written under a claim someone else holds. Renewals are
    * chained, so a heartbeat and a batch write cannot invalidate each other.
    */
-  private lease(sourceId: string, epoch: number) {
+  private lease(sourceId: string, token: string) {
     let chain: Promise<unknown> = Promise.resolve();
 
     const guard = <T>(
@@ -877,7 +931,7 @@ export class KnowledgeService {
       const next = chain.then(() =>
         this.prisma.$transaction(async (tx) => {
           const held = await tx.knowledgeSource.updateMany({
-            where: { id: sourceId, status: "PROCESSING", attempts: epoch },
+            where: { id: sourceId, status: "PROCESSING", leaseToken: token },
             data: { updatedAt: new Date() },
           });
 
@@ -923,7 +977,7 @@ export class KnowledgeService {
    * recorded as failed rather than escaping a method that promised not to
    * throw and leaving a claimed row stranded in PROCESSING.
    */
-  private async loadForIndex(sourceId: string) {
+  private async loadForIndex(sourceId: string, token: string) {
     try {
       return await this.prisma.knowledgeSource.findUnique({
         where: { id: sourceId },
@@ -939,12 +993,14 @@ export class KnowledgeService {
           extractTokens: true,
           replacesSourceId: true,
           status: true,
-          attempts: true,
+          leaseToken: true,
           agent: { select: { model: true } },
         },
       });
     } catch (error) {
-      await this.fail(sourceId, error);
+      // The claim's token, not a guess: a lookup that fails after the row was
+      // handed on must not overwrite the newer owner's state.
+      await this.fail(sourceId, error, { token });
       return null;
     }
   }
@@ -1000,10 +1056,10 @@ export class KnowledgeService {
     sourceId: string,
     error: unknown,
     options: {
-      epoch?: number;
+      token: string;
       embedTokens?: number;
       extractTokens?: number;
-    } = {},
+    },
   ): Promise<void> {
     const message =
       error instanceof ExtractError || error instanceof AiError
@@ -1023,12 +1079,14 @@ export class KnowledgeService {
           where: {
             id: sourceId,
             status: "PROCESSING",
-            ...(options.epoch === undefined ? {} : { attempts: options.epoch }),
+            leaseToken: options.token,
           },
           data: {
             status: "FAILED",
             error: message,
             chunkCount: 0,
+            // The failure ends the claim; the token must not linger.
+            leaseToken: null,
             ...(options.embedTokens === undefined
               ? {}
               : { embedTokens: options.embedTokens }),
@@ -1093,6 +1151,8 @@ export class KnowledgeService {
             status: "FAILED",
             error: "Indexing was interrupted repeatedly and will not be retried automatically. Use Retry.",
             chunkCount: 0,
+            // The dead worker's token dies with the claim.
+            leaseToken: null,
           },
         }),
         this.prisma.knowledgeChunk.deleteMany({
@@ -1103,7 +1163,7 @@ export class KnowledgeService {
 
     await this.prisma.knowledgeSource.updateMany({
       where: { status: "PROCESSING", updatedAt: { lt: cut } },
-      data: { status: "PENDING", attempts: { increment: 1 } },
+      data: { status: "PENDING", attempts: { increment: 1 }, leaseToken: null },
     });
   }
 }
