@@ -1,4 +1,5 @@
 import { request, upload } from "@/lib/api/http";
+import type { BotFlow, BotView } from "@/lib/bots/card";
 
 export { ApiError } from "@/lib/api/http";
 
@@ -313,6 +314,54 @@ export function sendTemplate(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * One card of an agent's flow, sent into this conversation.
+ *
+ * The flow travels with the request on purpose: the server stores it beside the
+ * card in the message's own payload, so the card the customer is looking at is
+ * the one their tap is routed against. Editing the flow afterwards cannot
+ * change what an old tap meant.
+ */
+export function sendCard(
+  conversationId: string,
+  flow: BotFlow,
+  cardId: string,
+  quotedMessageId?: string | null,
+): Promise<{ message: InboxMessage }> {
+  return request(`/v1/inbox/conversations/${conversationId}/cards`, {
+    method: "POST",
+    body: JSON.stringify({
+      flow,
+      cardId,
+      ...(quotedMessageId ? { quotedMessageId } : {}),
+    }),
+  });
+}
+
+/**
+ * Who a card could come from. The narrow shape on purpose, the same way
+ * `SendableTemplate` is: the inbox reads a slice, and the agents screen owns
+ * the rest of the row.
+ */
+export interface CardAgent {
+  id: string;
+  name: string;
+  /** The one answering this number; the panel opens on it when there is one. */
+  isActive: boolean;
+}
+
+export function fetchCardAgents(): Promise<{ agents: CardAgent[] }> {
+  return request("/v1/agents", { method: "GET" });
+}
+
+/**
+ * One agent's flow, as the Chatbot screen saved it. Answers 503
+ * `BOT_STORE_MISSING` until the table's proposal has been applied.
+ */
+export function fetchAgentCards(agentId: string): Promise<BotView> {
+  return request<BotView>(`/v1/agents/${agentId}/bot`, { method: "GET" });
 }
 
 export function updateConversation(

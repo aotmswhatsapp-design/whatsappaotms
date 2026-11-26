@@ -1,0 +1,122 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+
+import type { AuthClaims } from "../auth/auth.types";
+import { PrismaService } from "../prisma/prisma.service";
+import { WorkspacesService } from "../workspaces/workspaces.service";
+import type { BotFlow } from "./bot.card";
+import { emptyFlow, flowProblem } from "./bot.flow";
+import { flowIn } from "./bot.snapshot";
+import { BotStore } from "./bot.store";
+
+/** A flow plus whether anybody has written it down yet. */
+export interface BotView {
+  flow: BotFlow;
+  stored: boolean;
+}
+
+/**
+ * The one flow an agent owns.
+ *
+ * Reading is open to every member: the Inbox needs the cards to offer them, and
+ * a card list is not a secret. Writing is the owner's, like every other field
+ * that changes what a customer sees.
+ *
+ * Scoping goes through the agent row, not through the flow row: a flow whose
+ * agent belongs to another workspace must look exactly like one that does not
+ * exist, and the agent is the row that says whose it is.
+ */
+@Injectable()
+export class BotsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workspaces: WorkspacesService,
+    private readonly store: BotStore,
+  ) {}
+
+  async read(claims: AuthClaims, agentId: string): Promise<BotView> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.assertAgent(workspaceId, agentId);
+
+    const flow = await this.guard(() => this.store.read(agentId));
+
+    return flow
+      ? { flow, stored: true }
+      : { flow: emptyFlow(agentId), stored: false };
+  }
+
+  /**
+   * Replaces the whole flow.
+   *
+   * Whole, not per card: a flow is one thing a customer walks through, and the
+   * checks below (an entry card that exists, a button that points inside the
+   * flow) are properties of the set. A per-card save could leave the flow
+   * invalid between two clicks that both succeeded.
+   */
+  async save(
+    claims: AuthClaims,
+    agentId: string,
+    dto: { flow?: unknown },
+  ): Promise<BotView> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.assertAgent(workspaceId, agentId);
+
+    const read = flowIn(dto.flow);
+
+    if (!read) {
+      throw new BadRequestException({
+        code: "BOT_FLOW_UNREADABLE",
+        message: "That flow could not be read. Every card needs an id and every button an action.",
+      });
+    }
+
+    // The flow belongs to the agent, so its id is the agent's however the
+    // client numbered it: two ids for one flow is a drift nobody would notice.
+    const flow: BotFlow = { ...read, id: agentId };
+    const problem = flowProblem(flow);
+
+    if (problem) {
+      throw new BadRequestException({ code: "BOT_FLOW_INVALID", message: problem });
+    }
+
+    await this.guard(() => this.store.save(workspaceId, agentId, flow));
+
+    return { flow, stored: true };
+  }
+
+  private async assertAgent(workspaceId: string, agentId: string): Promise<void> {
+    const agent = await this.prisma.agent.findFirst({
+      where: { id: agentId, workspaceId },
+      select: { id: true },
+    });
+
+    if (!agent) throw new NotFoundException("That agent does not exist.");
+  }
+
+  /**
+   * The table is a proposal that has not been applied. Until it is, the honest
+   * answer is "not installed yet" and the name of the file that installs it —
+   * not a 500 that reads like a bug in the editor.
+   */
+  private async guard<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (BotStore.missingTable(error)) {
+        throw new ServiceUnavailableException({
+          code: "BOT_STORE_MISSING",
+          message:
+            "The chatbot table is not installed on this database yet. Apply prisma/proposals/0025_bot_flows.",
+        });
+      }
+
+      throw error;
+    }
+  }
+}

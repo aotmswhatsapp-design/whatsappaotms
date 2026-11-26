@@ -1,17 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { LayoutTemplate, SendHorizontal, StickyNote } from "lucide-react";
+import { LayoutTemplate, MessageSquare, SendHorizontal, StickyNote } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-export type ComposerMode = "reply" | "note" | "template";
+export type ComposerMode = "reply" | "note" | "template" | "card";
 
 /**
- * Reply · Note · Template.
+ * Reply · Note · Template · Chatbot.
  *
  * Template is never disabled by the reply window: a template is the one
- * message WhatsApp lets a business send after the customer has gone quiet.
+ * message WhatsApp lets a business send after the customer has gone quiet. A
+ * chatbot card is the opposite — it is a reply, so it follows the window like
+ * a sentence does.
  */
 export function ModeSwitcher({
   mode,
@@ -53,6 +55,18 @@ export function ModeSwitcher({
         icon={<LayoutTemplate aria-hidden="true" className="size-3.5" />}
         label="Template"
         title="Send an approved template, even after the 24-hour window."
+      />
+      <ModeButton
+        active={mode === "card"}
+        disabled={locked}
+        onClick={() => onChange("card")}
+        icon={<MessageSquare aria-hidden="true" className="size-3.5" />}
+        label="Chatbot"
+        title={
+          locked
+            ? "A card is a reply: the customer has not written for 24 hours."
+            : "Send a card from an agent's saved flow."
+        }
       />
     </div>
   );

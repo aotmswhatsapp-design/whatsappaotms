@@ -39,6 +39,17 @@ export function snapshotIn(payload: unknown): CardSnapshot | null {
   return { flow, cardId };
 }
 
+/**
+ * A stored flow, read defensively.
+ *
+ * The same reader the outgoing message uses, exported because a saved flow and
+ * a sent one have to be the same shape: the builder writes what the renderer
+ * and the router already know how to read, and nothing else.
+ */
+export function flowIn(value: unknown): BotFlow | null {
+  return flowAt(value);
+}
+
 function flowAt(value: unknown): BotFlow | null {
   const flow = objectAt(value);
   const id = stringAt(flow?.id);

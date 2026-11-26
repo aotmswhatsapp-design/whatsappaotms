@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AgentsModule } from "./agents/agents.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuthModule } from "./auth/auth.module";
+import { BotsModule } from "./bots/bots.module";
 import { BusinessModule } from "./business/business.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
 import { validateEnv } from "./config/env";
@@ -37,6 +38,7 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module";
     }),
     PrismaModule,
     AgentsModule,
+    BotsModule,
     AuthModule,
     WhatsAppModule,
     BusinessModule,

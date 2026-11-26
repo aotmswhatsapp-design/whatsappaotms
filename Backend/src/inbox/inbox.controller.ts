@@ -94,10 +94,11 @@ export class InboxController {
    * POST /api/v1/inbox/conversations/:id/cards — a card: picture, information,
    * buttons.
    *
-   * The flow travels in the body because cards have no table yet. Which shape
-   * the ladder picks is not the caller's problem: three choices become buttons,
-   * ten become a list, and more become numbered text that the same router reads
-   * back.
+   * The flow travels in the body even though the agent has a saved one: that is
+   * what freezes the menu the customer was shown, so a later edit cannot change
+   * what an old tap meant. Which shape the ladder picks is not the caller's
+   * problem: three choices become buttons, ten become a list, and more become
+   * numbered text that the same router reads back.
    */
   @Post("conversations/:id/cards")
   @Throttle({ default: { limit: 40, ttl: 60_000 } })

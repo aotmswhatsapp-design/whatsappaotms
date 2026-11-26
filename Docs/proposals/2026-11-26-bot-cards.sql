@@ -1,5 +1,12 @@
 -- PROPOSAL — NOT APPLIED AND NOT IN prisma/migrations/.
 --
+-- SUPERSEDED by Backend/prisma/proposals/0025_bot_flows. Kept for the record:
+-- this version stores one row per *card* and would need a second read (and a
+-- root-flag transaction) to hand a whole flow to the renderer. The flow is
+-- validated as one object — an entry card that exists, a button that points
+-- inside the flow, no card that opens only itself — so it is stored as one
+-- object, keyed by agent. The argument for buttons staying JSON is unchanged.
+--
 -- Phase 3 can send a card and route what comes back, but it cannot store one.
 -- `InboxSender.interactive` writes the card it sent into `messages.payload`,
 -- which is exactly what a tap needs: the card the customer saw, not the card the

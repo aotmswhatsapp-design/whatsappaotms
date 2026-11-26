@@ -31,6 +31,7 @@ import {
   type InboxNote,
 } from "../api";
 import { messageSnippet } from "../format";
+import { CardPanel } from "./card-panel";
 import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
 import { ContactPanel, LocationPanel } from "./share-panels";
 import { TemplatePanel } from "./template-panel";
@@ -182,9 +183,9 @@ export function Composer({
     setPanel(null);
     setError(null);
 
-    // The template panel owns its own inputs; focusing the reply box here would
-    // pull the caret into a field the agent cannot see.
-    if (next !== "template") area.current?.focus();
+    // The template and card panels own their own inputs; focusing the reply box
+    // here would pull the caret into a field the agent cannot see.
+    if (next === "reply" || next === "note") area.current?.focus();
   }
 
   /**
@@ -226,6 +227,16 @@ export function Composer({
           mode={mode}
           onModeChange={switchMode}
           onSent={onSent}
+        />
+      ) : mode === "card" ? (
+        <CardPanel
+          conversation={conversation}
+          locked={locked}
+          mode={mode}
+          quotedMessageId={quoted?.id ?? null}
+          onModeChange={switchMode}
+          onSent={onSent}
+          onSentQuote={() => onClearQuote()}
         />
       ) : panel === "location" ? (
         <LocationPanel

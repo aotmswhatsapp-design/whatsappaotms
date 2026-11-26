@@ -295,11 +295,13 @@ export class InboxService {
   /**
    * One card of a flow: the picture, the information, and the buttons.
    *
-   * The flow arrives with the request because there is nowhere to store it yet
-   * — `bot_cards` is a proposal, not a table. It is read by `snapshotIn` — the
-   * same function that reads it back out of `messages.payload` — and the card
-   * is sent from that reading, so what the customer sees and what a later tap
-   * is routed against are the same object.
+   * The flow arrives with the request, even though the agent has a saved one in
+   * `bot_flows`. That is the point: the copy stored in `messages.payload` is the
+   * flow the customer was actually shown, so a tap is routed against it and an
+   * owner editing a card tomorrow cannot change what today's menu meant. It is
+   * read by `snapshotIn` — the same function that reads it back out of
+   * `messages.payload` — so what the customer saw and what a later tap is routed
+   * against are the same object.
    *
    * Deliberately does not pause the agent, unlike a text reply. A human sending
    * a menu is not taking the thread over; the taps under that menu are the

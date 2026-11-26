@@ -597,7 +597,6 @@ export class KnowledgeService {
         workspaceId: true,
         name: true,
         description: true,
-        model: true,
         isActive: true,
         whatsappAccountId: true,
       },
