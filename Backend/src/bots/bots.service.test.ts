@@ -101,6 +101,21 @@ test("a saved flow comes back from the table", async () => {
   assert.equal(view.flow.cards[0]?.id, "c-root");
 });
 
+test("a stored flow is read as this agent's, whatever id it carries", async () => {
+  const prisma = new FakePrisma();
+
+  // Written straight into the fake, as a row from an older build would be:
+  // the document's own id names another agent.
+  prisma.rows.set("agent-1", {
+    workspaceId: "ws-a",
+    flow: { id: "agent-2", rootCardId: null, cards: [], rules: [] },
+  });
+
+  const view = await build(prisma).read(CLAIMS, "agent-1");
+
+  assert.equal(view.flow.id, "agent-1");
+});
+
 test("the flow id is the agent's, whatever the client sent", async () => {
   const bots = build();
   const view = await bots.save(CLAIMS, "agent-1", {

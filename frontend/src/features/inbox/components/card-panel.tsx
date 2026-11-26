@@ -4,7 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import { ChevronDown, Loader2, SendHorizontal } from "lucide-react";
 
-import { BotCardPreview } from "@/components/workspace/bot-card-preview";
+import {
+  BotCardPreview,
+  shapeNote,
+  shapeOfCard,
+} from "@/components/workspace/bot-card-preview";
 import type { BotFlow } from "@/lib/bots/card";
 
 import {
@@ -271,6 +275,14 @@ export function CardPanel({
             Preview
           </p>
           <BotCardPreview card={card} />
+          {/* The bubble draws the card's picture even though a card with no
+              buttons is sent as plain text; saying so keeps the preview from
+              promising an image that will not arrive. */}
+          {card.imageUrl && shapeOfCard(card) === "text" ? (
+            <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
+              {shapeNote(card)}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

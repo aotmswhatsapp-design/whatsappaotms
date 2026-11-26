@@ -79,8 +79,12 @@ export class BotsService {
 
     const flow = await this.guard(() => this.store.read(agentId));
 
+    // The row is what says whose flow this is, not the id written inside the
+    // document. The builder asks for this agent's picture gallery by the id it
+    // gets back, so a stored flow naming another agent would list that agent's
+    // uploads — and accept uploads into that agent's folder — under this name.
     return flow
-      ? { flow, stored: true }
+      ? { flow: { ...flow, id: agentId }, stored: true }
       : { flow: emptyFlow(agentId), stored: false };
   }
 

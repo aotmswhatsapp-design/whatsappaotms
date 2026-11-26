@@ -35,12 +35,19 @@ const KIND_LABEL: Record<BotActionKind, string> = {
  * flow that already points at it.
  */
 export function CardEditor({
+  agentId,
   flow,
   card,
   disabled,
   onChange,
   onDelete,
 }: {
+  /**
+   * The agent whose flow this is, from the screen rather than from the flow
+   * document: the picture gallery is that agent's folder, and a flow that
+   * named somebody else must never list their uploads here.
+   */
+  agentId: string;
   flow: BotFlow;
   card: BotCard;
   disabled: boolean;
@@ -101,7 +108,7 @@ export function CardEditor({
         <p className="text-[13px] font-medium text-foreground">Picture</p>
         <div className="mt-1.5">
           <CardImageField
-            agentId={flow.id}
+            agentId={agentId}
             disabled={disabled}
             // This card is left out: removing the picture it shows is how a
             // card goes back to having none. The others are the ones a delete

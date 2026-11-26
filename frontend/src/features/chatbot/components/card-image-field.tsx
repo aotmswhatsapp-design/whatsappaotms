@@ -39,6 +39,9 @@ const ACCEPT = "image/jpeg,image/png,image/webp";
 /** Mirrors the API's own limit, so an oversized file fails without a round trip. */
 const MAX_BYTES = 5 * 1024 * 1024;
 
+/** One shared empty list, so a gallery with nothing in it is the same value each time. */
+const NO_IMAGES: CardImage[] = [];
+
 const FIELD =
   "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-[12.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
 
@@ -47,6 +50,19 @@ interface InFlight {
   id: string;
   name: string;
   /** Null while it is still being optimised and stored. */
+  error: string | null;
+}
+
+/**
+ * The listed gallery, with the agent it was listed for.
+ *
+ * One value rather than two states, because the pair must agree: a list left
+ * over from the agent just switched away from is never drawn, even for the
+ * moment the next list takes to arrive.
+ */
+interface Library {
+  agentId: string;
+  images: CardImage[];
   error: string | null;
 }
 
@@ -68,10 +84,9 @@ export function CardImageField({
   usedBy?: (url: string) => string[];
   onChange: (url: string | null) => void;
 }) {
-  const [images, setImages] = React.useState<CardImage[]>([]);
+  const [library, setLibrary] = React.useState<Library | null>(null);
   const [queue, setQueue] = React.useState<InFlight[]>([]);
   const [dragging, setDragging] = React.useState(false);
-  const [libraryError, setLibraryError] = React.useState<string | null>(null);
   const [linkOpen, setLinkOpen] = React.useState(false);
 
   /** The path armed by one click on its bin; the next click deletes it. */
@@ -81,6 +96,17 @@ export function CardImageField({
 
   const picker = React.useRef<HTMLInputElement>(null);
 
+  /** False once the field is unmounted, so a slow upload cannot write to another card. */
+  const alive = React.useRef(true);
+
+  React.useEffect(() => {
+    alive.current = true;
+
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   React.useEffect(() => {
     let live = true;
 
@@ -89,16 +115,20 @@ export function CardImageField({
         const listed = await fetchCardImages(agentId);
 
         if (live) {
-          setImages(listed.images);
-          setLibraryError(null);
+          setLibrary({ agentId, images: listed.images, error: null });
         }
       } catch (error) {
         if (live) {
-          setLibraryError(
-            error instanceof ApiError
-              ? error.message
-              : "The pictures already uploaded could not be listed.",
-          );
+          // Cleared rather than kept: tiles of the agent this one replaced must
+          // not stand in for pictures this agent does not have.
+          setLibrary({
+            agentId,
+            images: [],
+            error:
+              error instanceof ApiError
+                ? error.message
+                : "The pictures already uploaded could not be listed.",
+          });
         }
       }
     })();
@@ -107,6 +137,12 @@ export function CardImageField({
       live = false;
     };
   }, [agentId]);
+
+  const own = library?.agentId === agentId ? library : null;
+
+  /** Only this agent's list: another agent's is not drawn, even for a frame. */
+  const images = own?.images ?? NO_IMAGES;
+  const libraryError = own?.error ?? null;
 
   React.useEffect(() => {
     if (!pending) return;
@@ -139,16 +175,23 @@ export function CardImageField({
           try {
             const stored = await uploadCardImage(agentId, file);
 
-            setImages((current) => [
-              { url: stored.url, path: stored.path },
-              ...current.filter((image) => image.path !== stored.path),
-            ]);
+            setLibrary((current) => ({
+              agentId,
+              error: null,
+              images: [
+                { url: stored.url, path: stored.path },
+                ...(current?.agentId === agentId ? current.images : []).filter(
+                  (image) => image.path !== stored.path,
+                ),
+              ],
+            }));
 
             // The picture just dropped is the one the agent is looking at, so
             // it becomes the card's picture: keeping an older one would hide
             // the upload that prompted the change. The rest stay in the
-            // gallery to switch back to.
-            onChange(stored.url);
+            // gallery to switch back to. Nothing is written once this field is
+            // gone: the card on screen would belong to another agent by then.
+            if (alive.current) onChange(stored.url);
           } catch (error) {
             const message =
               error instanceof ApiError
@@ -197,12 +240,19 @@ export function CardImageField({
       try {
         await removeCardImage(agentId, tile.path);
 
-        setImages((current) =>
-          current.filter((image) => image.path !== tile.path),
+        setLibrary((current) =>
+          current?.agentId === agentId
+            ? {
+                ...current,
+                images: current.images.filter(
+                  (image) => image.path !== tile.path,
+                ),
+              }
+            : current,
         );
 
         // The card would otherwise keep an address that no longer answers.
-        if (tile.url === selected) onChange(null);
+        if (alive.current && tile.url === selected) onChange(null);
       } catch (error) {
         setRemoveError(
           error instanceof ApiError

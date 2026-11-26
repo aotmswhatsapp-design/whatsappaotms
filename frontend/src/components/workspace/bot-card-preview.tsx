@@ -35,7 +35,7 @@ export function shapeNote(card: BotCard): string {
   switch (shapeOfCard(card)) {
     case "text":
       return card.imageUrl
-        ? "Arrives as plain text, without the picture: an image with nothing to tap leaves the customer no way to say which part they meant."
+        ? "The picture is not sent: a card with no buttons arrives as plain text, because an image with nothing to tap leaves the customer no way to choose. Add a button and the picture becomes its header."
         : "Arrives as plain text: a card with no buttons has nothing to tap.";
     case "buttons":
       return `Arrives with ${buttons} reply ${buttons === 1 ? "button" : "buttons"}.`;
@@ -124,8 +124,12 @@ export function BotCardPreview({
           // bubble, and the choices sit at its foot as outlined pills. WhatsApp
           // draws an interactive message this way; separate floating pills
           // would describe a different kind of message than the one we send.
+          //
+          // The picture is drawn even when the card has no buttons, so picking
+          // one always shows what was picked; `shapeNote` says plainly that
+          // such a card still arrives as plain text.
           <div className="ml-auto w-[260px] max-w-full min-w-0 overflow-hidden rounded-lg rounded-tr-none bg-white shadow-sm">
-            {card.imageUrl && shape !== "text" ? (
+            {card.imageUrl ? (
               // Meta fetches this URL from its own servers, so it is not a
               // local path and `next/image` would need a remote pattern for an
               // origin we do not control.

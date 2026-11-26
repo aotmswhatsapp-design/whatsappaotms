@@ -605,7 +605,12 @@ export function ChatbotView() {
                     </div>
 
                     <div className="mt-3">
+                      {/* Keyed by agent: the picture gallery and the link field
+                          below it are this agent's, so switching agent starts
+                          them empty instead of carrying the last one over. */}
                       <CardEditor
+                        key={agentId}
+                        agentId={agentId}
                         card={activeCard}
                         disabled={!canManage || saving}
                         flow={draft ?? emptyFlow(agentId)}
