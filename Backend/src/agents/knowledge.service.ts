@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -154,7 +155,9 @@ export class KnowledgeService {
 
       const body = { code: error.code, message: error.message };
 
-      if (error.code === "SOURCE_TOO_LARGE") throw new ConflictException(body);
+      // 413, not 409: the interceptor's own ceiling already answers 413, and one
+      // limit must not have two statuses.
+      if (error.code === "SOURCE_TOO_LARGE") throw new PayloadTooLargeException(body);
       if (error.code === "SOURCE_EMPTY") throw new BadRequestException(body);
 
       throw new UnsupportedMediaTypeException(body);
@@ -167,6 +170,11 @@ export class KnowledgeService {
    * can never succeed.
    *
    * Shared with `replace`, which is the same operation with one extra column.
+   *
+   * `id` must be a freshly generated UUID on every call, and must never be the id
+   * of the source being replaced. The object key is built from it, so a reused id
+   * would overwrite the incumbent's bytes, and the P2002 cleanup below would then
+   * delete an object a live row still points at.
    */
   private async store(input: {
     agentId: string;

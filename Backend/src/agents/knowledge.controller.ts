@@ -10,6 +10,7 @@ import {
   Post,
   UnsupportedMediaTypeException,
   UploadedFile,
+  UseFilters,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
@@ -30,6 +31,7 @@ import {
   extensionOf,
 } from "./knowledge.file";
 import { KnowledgeService, MAX_SOURCE_BYTES } from "./knowledge.service";
+import { SourceTooLargeFilter } from "./source-too-large.filter";
 
 const ALLOWED = new Set<string>([
   ...DOCUMENT_EXTENSIONS,
@@ -98,6 +100,9 @@ export class KnowledgeController {
   @Post("file")
   @Roles("OWNER")
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  // Multer's own size refusal is a bare 413; this gives it the same body the
+  // service's `SOURCE_TOO_LARGE` carries.
+  @UseFilters(SourceTooLargeFilter)
   @UseInterceptors(
     FileInterceptor("file", {
       limits: { fileSize: MAX_SOURCE_BYTES },

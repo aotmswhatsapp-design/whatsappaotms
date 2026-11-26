@@ -17,6 +17,12 @@ const TIMEOUT_MS = 30_000;
 const TRANSFER_TIMEOUT_MS = 120_000;
 
 /**
+ * One code for every storage refusal, so a client can tell "the bucket is not
+ * there" from "this API broke" without reading the sentence.
+ */
+const STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE";
+
+/**
  * Which bucket an instance writes to. A module that wants its own bucket
  * provides this token; one that does not gets the inbox bucket, which keeps
  * `InboxModule` unaware that a second bucket exists.
@@ -69,7 +75,8 @@ export class MediaStorage {
 
     await this.ensureBucket();
 
-    const response = await fetch(
+    const response = await this.send(
+      "store the file",
       `${base}/storage/v1/object/${this.bucket}/${path}`,
       {
         method: "POST",
@@ -85,7 +92,7 @@ export class MediaStorage {
     );
 
     if (!response.ok) {
-      throw new ServiceUnavailableException(
+      throw this.unavailable(
         `Could not store the file (storage answered ${response.status}).`,
       );
     }
@@ -94,7 +101,8 @@ export class MediaStorage {
   async signedUrl(path: string): Promise<string> {
     const { base } = this.required();
 
-    const response = await fetch(
+    const response = await this.send(
+      "prepare the file for download",
       `${base}/storage/v1/object/sign/${this.bucket}/${path}`,
       {
         method: "POST",
@@ -109,9 +117,7 @@ export class MediaStorage {
     } | null;
 
     if (!response.ok || !payload?.signedURL) {
-      throw new ServiceUnavailableException(
-        "Could not prepare the file for download.",
-      );
+      throw this.unavailable("Could not prepare the file for download.");
     }
 
     return `${base}/storage/v1${payload.signedURL}`;
@@ -126,7 +132,8 @@ export class MediaStorage {
   async download(path: string): Promise<Buffer> {
     const { base } = this.required();
 
-    const response = await fetch(
+    const response = await this.send(
+      "read the stored file",
       `${base}/storage/v1/object/${this.bucket}/${path}`,
       {
         headers: this.headers(),
@@ -135,7 +142,7 @@ export class MediaStorage {
     );
 
     if (!response.ok) {
-      throw new ServiceUnavailableException(
+      throw this.unavailable(
         `Could not read the stored file (storage answered ${response.status}).`,
       );
     }
@@ -147,46 +154,63 @@ export class MediaStorage {
    * Best effort unless a caller says otherwise.
    *
    * The inbox and templates delete as a side effect of something the user already
-   * asked for, so a storage hiccup must not fail their request. Knowledge deletes
-   * pass `strict`, because a silent failure there is an object nobody can name
-   * again.
+   * asked for, so a storage hiccup must not fail their request. A caller that has
+   * to know — a delete whose object would otherwise be garbage nobody can name
+   * again — passes `strict` and gets a 503 instead of a log line. `strict` covers
+   * every way the delete can fail, including a request that never answered.
    */
   async remove(
     paths: string[],
     options: { strict?: boolean } = {},
   ): Promise<void> {
-    if (paths.length === 0 || !this.configured) {
+    if (paths.length === 0) return;
+
+    if (!this.configured) {
       if (options.strict) {
-        throw new ServiceUnavailableException(
-          "Media storage is not configured on this server.",
-        );
+        throw this.unavailable("Media storage is not configured on this server.");
       }
       return;
     }
 
     const { base } = this.required();
 
-    const response = await fetch(`${base}/storage/v1/object/${this.bucket}`, {
-      method: "DELETE",
-      headers: { ...this.headers(), "content-type": "application/json" },
-      body: JSON.stringify({ prefixes: paths }),
-      // A request that never answers parks the caller for ever otherwise (B-1).
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    }).catch((error: unknown) => {
-      this.logger.warn(
-        `Could not delete ${paths.length} object(s): ${error instanceof Error ? error.message : "unknown"}`,
-      );
-      return null;
-    });
+    const what =
+      paths.length === 1
+        ? "delete the stored file"
+        : `delete ${paths.length} objects`;
 
-    if (response && !response.ok) {
+    try {
+      const response = await this.send(
+        what,
+        `${base}/storage/v1/object/${this.bucket}`,
+        {
+          method: "DELETE",
+          headers: { ...this.headers(), "content-type": "application/json" },
+          body: JSON.stringify({ prefixes: paths }),
+          // A request that never answers parks the caller for ever otherwise (B-1).
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        },
+      );
+
+      if (response.ok) return;
+
       const detail = `storage answered ${response.status}`;
+
       if (options.strict) {
-        throw new ServiceUnavailableException(
-          `Could not delete the stored file (${detail}).`,
-        );
+        throw this.unavailable(`Could not delete the stored file (${detail}).`);
       }
+
       this.logger.warn(`Could not delete ${paths.length} object(s): ${detail}`);
+    } catch (error) {
+      // A timeout or a dead host arrives here, not as a non-OK response. Strict
+      // callers must see it: swallowing it is the silent orphan this option is for.
+      if (options.strict) throw error;
+
+      // The exception's own sentence already names the operation and the reason;
+      // repeating it here read as "Could not delete …: Could not delete …".
+      this.logger.warn(
+        error instanceof Error ? error.message : "Could not delete the stored file.",
+      );
     }
   }
 
@@ -200,20 +224,24 @@ export class MediaStorage {
   ): Promise<{ name: string; updatedAt: string | null }[]> {
     const { base } = this.required();
 
-    const response = await fetch(`${base}/storage/v1/object/list/${this.bucket}`, {
-      method: "POST",
-      headers: { ...this.headers(), "content-type": "application/json" },
-      body: JSON.stringify({
-        prefix,
-        limit: options.limit ?? 100,
-        offset: options.offset ?? 0,
-        sortBy: { column: "name", order: "asc" },
-      }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    const response = await this.send(
+      "list stored files",
+      `${base}/storage/v1/object/list/${this.bucket}`,
+      {
+        method: "POST",
+        headers: { ...this.headers(), "content-type": "application/json" },
+        body: JSON.stringify({
+          prefix,
+          limit: options.limit ?? 100,
+          offset: options.offset ?? 0,
+          sortBy: { column: "name", order: "asc" },
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    );
 
     if (!response.ok) {
-      throw new ServiceUnavailableException(
+      throw this.unavailable(
         `Could not list stored files (storage answered ${response.status}).`,
       );
     }
@@ -236,16 +264,20 @@ export class MediaStorage {
 
     const { base } = this.required();
 
-    const response = await fetch(`${base}/storage/v1/bucket`, {
-      method: "POST",
-      headers: { ...this.headers(), "content-type": "application/json" },
-      body: JSON.stringify({
-        id: this.bucket,
-        name: this.bucket,
-        public: false,
-      }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    const response = await this.send(
+      "create the media bucket",
+      `${base}/storage/v1/bucket`,
+      {
+        method: "POST",
+        headers: { ...this.headers(), "content-type": "application/json" },
+        body: JSON.stringify({
+          id: this.bucket,
+          name: this.bucket,
+          public: false,
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    );
 
     // 400/409 means the bucket already exists, which is the normal case after
     // the first upload. Anything else is worth a line, not a failed message.
@@ -258,6 +290,34 @@ export class MediaStorage {
     this.bucketChecked = true;
   }
 
+  /**
+   * One place a storage request is made, so no call can forget the rule: a fetch
+   * that never answers rejects with `TimeoutError` from `AbortSignal.timeout`,
+   * and a bare rejection would reach the global filter as a 500 that blames this
+   * process for a bucket that is down.
+   */
+  private async send(
+    action: string,
+    url: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      throw this.unavailable(
+        `Could not ${action} (${isTimeout(error) ? "storage did not answer in time" : "storage could not be reached"}).`,
+      );
+    }
+  }
+
+  /** Every refusal this class raises: 503, and one code the client can switch on. */
+  private unavailable(message: string): ServiceUnavailableException {
+    return new ServiceUnavailableException({
+      code: STORAGE_UNAVAILABLE,
+      message,
+    });
+  }
+
   private headers(): Record<string, string> {
     return {
       apikey: this.key as string,
@@ -267,11 +327,17 @@ export class MediaStorage {
 
   private required(): { base: string; key: string } {
     if (!this.base || !this.key) {
-      throw new ServiceUnavailableException(
-        "Media storage is not configured on this server.",
-      );
+      throw this.unavailable("Media storage is not configured on this server.");
     }
 
     return { base: this.base, key: this.key };
   }
+}
+
+/** `AbortSignal.timeout` rejects with `TimeoutError`; older runtimes say `AbortError`. */
+function isTimeout(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  );
 }

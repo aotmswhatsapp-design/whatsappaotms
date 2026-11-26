@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, PayloadTooLargeException } from "@nestjs/common";
 
 import { KnowledgeService } from "./knowledge.service";
 import { RetrievalService } from "./retrieval.service";
@@ -13,7 +13,7 @@ import {
   FakeWorkspaces,
 } from "./testing/fakes";
 
-const build = (workspaceId = "ws-a") => {
+const build = (workspaceId = "ws-a", maxBytes?: number) => {
   const prisma = new FakePrisma();
   const storage = new FakeStorage();
   const service = new KnowledgeService(
@@ -22,7 +22,10 @@ const build = (workspaceId = "ws-a") => {
     storage as any,
     new FakeProvider() as any,
     {} as any,
-    { get: () => undefined } as any,
+    {
+      get: (key: string) =>
+        key === "KNOWLEDGE_MAX_BYTES" ? maxBytes : undefined,
+    } as any,
   );
   return { prisma, storage, service };
 };
@@ -96,7 +99,7 @@ test("an exact duplicate is a 409 and stores nothing", async () => {
   assert.equal(storage.uploaded.length, 0);
 });
 
-test("a race that slips past the lookup is still a 409, and the object is removed", async () => {
+test("a race that slips past the lookup is still a 409, and only this attempt's object is removed", async () => {
   const { prisma, storage, service } = build();
   (prisma.knowledgeSource as any).create = async () => {
     throw Object.assign(new Error("unique"), { code: "P2002" });
@@ -106,7 +109,31 @@ test("a race that slips past the lookup is still a 409, and the object is remove
     () => service.addFile(CLAIMS, "agent-1", PDF as any),
     ConflictException,
   );
+
+  // Not "a removal happened" but "this attempt's key was removed": a cleanup
+  // that guessed a path, or reused an incumbent source's id, would fail here.
+  assert.equal(storage.uploaded.length, 1);
   assert.equal(storage.removed.length, 1);
+  assert.deepEqual(storage.removed[0], [storage.uploaded[0].path]);
+  assert.match(
+    storage.removed[0][0],
+    /^workspaces\/ws-a\/agents\/agent-1\/knowledge\/[0-9a-f-]{36}\/original\.pdf$/,
+  );
+});
+
+test("an oversized file is a 413 with SOURCE_TOO_LARGE", async () => {
+  // The configured limit is lowered, so the service refuses before the
+  // interceptor's own 25 MB ceiling is ever reached.
+  const { storage, service } = build("ws-a", 8);
+
+  await assert.rejects(
+    () => service.addFile(CLAIMS, "agent-1", PDF as any),
+    (error: any) =>
+      error instanceof PayloadTooLargeException &&
+      error.getStatus() === 413 &&
+      (error.getResponse() as { code?: string }).code === "SOURCE_TOO_LARGE",
+  );
+  assert.equal(storage.uploaded.length, 0);
 });
 
 test("retrieval is scoped by workspace as well as agent", async () => {
