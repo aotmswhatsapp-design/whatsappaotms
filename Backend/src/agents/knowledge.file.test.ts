@@ -32,6 +32,17 @@ test("the declared MIME is replaced by the sniffed one", () => {
   assert.equal(got.extension, "png");
 });
 
+test("a CSV records text/csv even when the browser calls it a spreadsheet", () => {
+  const got = inspect(
+    "prices.csv",
+    "application/vnd.ms-excel",
+    Buffer.from("item,price\nrice,449\n"),
+  );
+  assert.equal(got.kind, "document");
+  assert.equal(got.mime, "text/csv");
+  assert.equal(got.extension, "csv");
+});
+
 test("docx and xlsx are both zips and are told apart by extension", () => {
   assert.equal(inspect("policy.docx", "", zip).kind, "document");
   assert.equal(inspect("rates.xlsx", "", zip).kind, "document");

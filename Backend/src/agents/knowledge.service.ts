@@ -20,6 +20,7 @@ import { AiError, ExtractError } from "./ai.errors";
 import { OpenAiProvider, toVector } from "./ai.openai";
 import { extractSource, type Extracted } from "./extract";
 import { OpenAiMediaExtractor, resolveMime } from "./extract.media";
+import { probeImage } from "./image.probe";
 import { MAX_SOURCE_BYTES, inspectUpload, type InspectedFile } from "./knowledge.file";
 import {
   MAX_CHUNKS,
@@ -39,10 +40,10 @@ const STALE_MS = 10 * 60 * 1000;
 /** Automatic attempts before a source is left FAILED for a human to retry. */
 const MAX_ATTEMPTS = 2;
 
-export interface SourceMeta {
-  kind: "table";
-  sheets: { name: string; headers: string[]; rowCount: number }[];
-}
+export type SourceMeta =
+  | { kind: "table"; sheets: { name: string; headers: string[]; rowCount: number }[] }
+  | { kind: "image"; mime: string; width: number | null; height: number | null }
+  | { kind: "document"; pages: number | null };
 
 export interface SourceView {
   id: string;
@@ -203,6 +204,21 @@ export class KnowledgeService {
 
     const path = `workspaces/${input.workspaceId}/agents/${input.agentId}/knowledge/${input.id}/original.${input.inspected.extension}`;
 
+    // An image's row should say what the picture is before anyone reads it. The
+    // probe answers from the bytes; when it cannot, the sniffed type is still
+    // right and the size stays unknown rather than refused.
+    const meta =
+      input.inspected.kind === "image"
+        ? {
+            kind: "image" as const,
+            ...(probeImage(input.bytes) ?? {
+              mime: input.inspected.mime,
+              width: null,
+              height: null,
+            }),
+          }
+        : undefined;
+
     await this.storage.upload(path, input.bytes, input.inspected.mime);
 
     try {
@@ -218,6 +234,7 @@ export class KnowledgeService {
           sha256: input.inspected.sha256,
           uploadedByUserId: input.userId,
           replacesSourceId: input.replacesSourceId,
+          meta,
           status: "PENDING",
         },
       });
@@ -538,8 +555,9 @@ export class KnowledgeService {
         model: source.agent.model,
       });
 
-      // Task 3 records what the read cost; until then the column keeps 0.
-      return { blocks: [{ text: read.text }], meta: null, extractTokens: 0 };
+      // What the paid read really cost, from the provider's own usage. Whisper
+      // returns none, and zero is the honest number there.
+      return { blocks: [{ text: read.text }], meta: null, extractTokens: read.tokens };
     }
 
     return extractSource({ bytes, mime, name: source.title });

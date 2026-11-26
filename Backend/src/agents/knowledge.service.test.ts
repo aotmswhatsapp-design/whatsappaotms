@@ -13,7 +13,7 @@ import {
   FakeWorkspaces,
 } from "./testing/fakes";
 
-const build = (workspaceId = "ws-a", maxBytes?: number) => {
+const build = (workspaceId = "ws-a", maxBytes?: number, media: unknown = {}) => {
   const prisma = new FakePrisma();
   const storage = new FakeStorage();
   const service = new KnowledgeService(
@@ -21,7 +21,7 @@ const build = (workspaceId = "ws-a", maxBytes?: number) => {
     new FakeWorkspaces(workspaceId) as any,
     storage as any,
     new FakeProvider() as any,
-    {} as any,
+    media as any,
     {
       get: (key: string) =>
         key === "KNOWLEDGE_MAX_BYTES" ? maxBytes : undefined,
@@ -36,6 +36,12 @@ const PDF = {
   mimetype: "application/pdf",
   size: 33,
 };
+
+// 1×1 transparent PNG.
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 test("a valid PDF is stored under the workspace-scoped path, with its hash", async () => {
   const { prisma, service } = build();
@@ -182,6 +188,60 @@ test("indexing a CSV writes one chunk per row range, with its sheet and its meta
     sheets: [{ name: "CSV", headers: ["item", "price"], rowCount: 45 }],
   });
   assert.equal(ready?.extractTokens, 0);
+});
+
+test("an image upload records its own type and pixel size at upload", async () => {
+  const { service } = build();
+
+  const { source } = await service.addFile(CLAIMS, "agent-1", {
+    buffer: PNG,
+    originalname: "menu.png",
+    mimetype: "image/png",
+    size: PNG.length,
+  } as any);
+
+  assert.deepEqual(source.meta, {
+    kind: "image",
+    mime: "image/png",
+    width: 1,
+    height: 1,
+  });
+});
+
+test("indexing an image puts the vision call's tokens on the row", async () => {
+  const media = {
+    read: async () => ({ text: "A menu: dosa 80, idli 40.", tokens: 1240 }),
+  };
+  const { prisma, storage, service } = build("ws-a", undefined, media);
+
+  (prisma.knowledgeSource as any).findUnique = async () => ({
+    id: "source-1",
+    kind: "FILE",
+    title: "menu.png",
+    mime: "image/png",
+    storagePath: "workspaces/ws-a/agents/agent-1/knowledge/source-1/original.png",
+    text: null,
+    meta: { kind: "image", mime: "image/png", width: 1, height: 1 },
+    extractTokens: 0,
+    replacesSourceId: null,
+    status: "PROCESSING",
+    agent: { model: "gpt-4o-mini" },
+  });
+  (storage as any).download = async () => PNG;
+
+  const writes: any[] = [];
+  (prisma.knowledgeSource as any).updateMany = async ({ data }: any) => {
+    writes.push(data);
+    return { count: 1 };
+  };
+
+  await service.index("source-1");
+
+  const ready = writes.find((data) => data.status === "READY");
+  assert.equal(ready?.extractTokens, 1240);
+  // The picture's size was written at upload; a read that carries no meta must
+  // not erase it.
+  assert.equal(ready?.meta, undefined);
 });
 
 test("retrieval is scoped by workspace as well as agent", async () => {

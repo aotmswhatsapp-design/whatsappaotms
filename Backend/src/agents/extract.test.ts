@@ -146,6 +146,23 @@ test("a blank row inside a sheet does not renumber the rows below it", async () 
   assert.deepEqual(blocks[0].text.split("\n"), ["Columns: item | price", "rice | 449", "soap | 20"]);
 });
 
+test("a worksheet named CSV keeps its own name, so it cannot be mistaken for a CSV file", async () => {
+  const bytes = await sheetWith("CSV", [
+    [1, ["item", "price"]],
+    [2, ["rice", "449"]],
+  ]);
+
+  const { blocks, meta } = await extractSource({
+    bytes,
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    name: "rates.xlsx",
+  });
+
+  assert.equal(blocks[0].sheet, CSV_SHEET);
+  assert.equal(blocks[0].rowFrom, 2);
+  assert.equal(meta?.sheets[0].name, CSV_SHEET);
+});
+
 test("a docx heading attaches to the paragraph beneath it", () => {
   const html = "<h2>Delivery</h2><p>Pune in 24 hours.</p><p>Elsewhere 2-3 days.</p>";
   const blocks = docxHtmlToBlocks(html);

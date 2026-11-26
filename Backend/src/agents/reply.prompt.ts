@@ -1,5 +1,5 @@
 import type { ChatMessage } from "./ai.openai";
-import { CSV_SHEET } from "./extract";
+import { CSV_MIME, CSV_SHEET } from "./extract";
 import type { ContextChunk } from "./retrieval.service";
 
 /** What a customer sees when no answer exists, or a human was asked for. */
@@ -89,7 +89,10 @@ export function contextBlock(chunks: ContextChunk[]): string {
  *
  *  A spreadsheet is named by its sheet and its own row numbers. A CSV is named
  *  by record, not by row: a quoted line break keeps a value on several lines,
- *  so its records and its lines are different counts. */
+ *  so its records and its lines are different counts.
+ *
+ *  Which wording applies comes from the MIME type the upload proved, not from
+ *  the sheet name: a workbook is free to hold a worksheet called "CSV". */
 function labelOf(chunk: ContextChunk): string {
   const where: string[] = [];
 
@@ -97,7 +100,7 @@ function labelOf(chunk: ContextChunk): string {
 
   const range = chunk.rowFrom !== null && chunk.rowTo !== null ? `${chunk.rowFrom}–${chunk.rowTo}` : null;
 
-  if (chunk.sheet === CSV_SHEET) {
+  if (chunk.sheet && chunk.mime === CSV_MIME) {
     if (range) where.push(`${CSV_SHEET} records ${range}`);
   } else if (chunk.sheet) {
     where.push(`sheet "${chunk.sheet}"${range ? ` rows ${range}` : ""}`);

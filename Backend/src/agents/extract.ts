@@ -40,6 +40,11 @@ export interface SourceBlock {
  *  as "records", because a quoted line break makes records and lines differ. */
 export const CSV_SHEET = "CSV";
 
+/** What `knowledge.file.ts` records for a `.csv` upload, whatever the browser
+ *  claimed. A citation decides "CSV" by this and never by the sheet name: a
+ *  workbook may hold a worksheet called `CSV`, and that is still a workbook. */
+export const CSV_MIME = "text/csv";
+
 /** A row carrying its own number in the file, so blanks never renumber it. */
 export interface TableRow {
   number: number;
@@ -51,9 +56,14 @@ export type TableMeta = {
   sheets: { name: string; headers: string[]; rowCount: number }[];
 };
 
+/** The pages that carry text: a blank page is not one a citation can name. */
+export type DocumentMeta = { kind: "document"; pages: number | null };
+
+export type ExtractedMeta = TableMeta | DocumentMeta;
+
 export interface Extracted {
   blocks: SourceBlock[];
-  meta: TableMeta | null;
+  meta: ExtractedMeta | null;
   /** Tokens spent reading an image or a voice note; 0 for documents. */
   extractTokens: number;
 }
@@ -109,12 +119,15 @@ export async function extractSource(file: {
       };
     }
 
-    case "pdf":
+    case "pdf": {
+      const blocks = await readable(() => pdfBlocks(file.bytes), file.name);
+
       return {
-        blocks: await readable(() => pdfBlocks(file.bytes), file.name),
-        meta: null,
+        blocks,
+        meta: { kind: "document", pages: blocks.length },
         extractTokens: 0,
       };
+    }
 
     case "xls":
       throw new ExtractError(

@@ -1,3 +1,5 @@
+import { jpegSize, pngSize, webpSize } from "../common/image-bytes";
+
 /**
  * What Meta accepts as a template header image, and what a stored sample is
  * called.
@@ -170,85 +172,4 @@ function edgeCheck(image: AcceptedImage): ImageInspection {
   }
 
   return image;
-}
-
-/** Walks JPEG segments until a Start Of Frame marker, which carries the size. */
-function jpegSize(bytes: Buffer): { width: number | null; height: number | null } {
-  let offset = 2;
-
-  while (offset + 9 < bytes.length) {
-    // Segments begin with 0xFF; padding bytes between them are also 0xFF.
-    if (bytes[offset] !== 0xff) {
-      offset += 1;
-      continue;
-    }
-
-    const marker = bytes[offset + 1];
-
-    // Standalone markers carry no length.
-    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      offset += 2;
-      continue;
-    }
-
-    const length = bytes.readUInt16BE(offset + 2);
-
-    if (length < 2) return { width: null, height: null };
-
-    const isFrame =
-      (marker >= 0xc0 && marker <= 0xc3) ||
-      (marker >= 0xc5 && marker <= 0xc7) ||
-      (marker >= 0xc9 && marker <= 0xcb) ||
-      (marker >= 0xcd && marker <= 0xcf);
-
-    if (isFrame && offset + 9 <= bytes.length) {
-      return {
-        height: bytes.readUInt16BE(offset + 5),
-        width: bytes.readUInt16BE(offset + 7),
-      };
-    }
-
-    offset += 2 + length;
-  }
-
-  return { width: null, height: null };
-}
-
-/** PNG's IHDR is the first chunk, so the size sits at a fixed offset. */
-function pngSize(bytes: Buffer): { width: number | null; height: number | null } {
-  if (bytes.length < 24 || bytes.toString("ascii", 12, 16) !== "IHDR") {
-    return { width: null, height: null };
-  }
-
-  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
-}
-
-/** Reads the size from whichever WebP chunk this file uses. */
-function webpSize(bytes: Buffer): { width: number | null; height: number | null } {
-  const chunk = bytes.length >= 16 ? bytes.toString("ascii", 12, 16) : "";
-
-  if (chunk === "VP8X" && bytes.length >= 30) {
-    return {
-      width: 1 + bytes.readUIntLE(24, 3),
-      height: 1 + bytes.readUIntLE(27, 3),
-    };
-  }
-
-  if (chunk === "VP8L" && bytes.length >= 25 && bytes[20] === 0x2f) {
-    const packed = bytes.readUInt32LE(21);
-
-    return {
-      width: 1 + (packed & 0x3fff),
-      height: 1 + ((packed >> 14) & 0x3fff),
-    };
-  }
-
-  if (chunk === "VP8 " && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01) {
-    return {
-      width: bytes.readUInt16LE(26) & 0x3fff,
-      height: bytes.readUInt16LE(28) & 0x3fff,
-    };
-  }
-
-  return { width: null, height: null };
 }

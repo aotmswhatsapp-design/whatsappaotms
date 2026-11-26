@@ -18,12 +18,19 @@ export interface ContextChunk {
   text: string;
   sourceId: string;
   title: string;
+  /** What the upload proved the file is (see `knowledge.file.ts`). A citation
+   *  decides "CSV" by this, never by the sheet name: a workbook can hold a
+   *  worksheet called "CSV". */
+  mime: string | null;
   /** Cosine similarity, 0 to 1. */
   score: number;
   /** 1-based PDF page, when the extractor recorded one. */
   page: number | null;
   /** CSV/XLSX sheet name, when the chunk came from a table. */
   sheet: string | null;
+  /** First and last row this chunk covers, in the file's own numbering: a
+   *  physical worksheet row for XLSX, a logical record number for CSV (blank
+   *  records count, the header does not). Null when the chunk is not tabular. */
   rowFrom: number | null;
   rowTo: number | null;
   /** Nearest preceding heading (DOCX, Markdown). */
@@ -35,6 +42,7 @@ interface Row {
   text: string;
   source_id: string;
   title: string;
+  mime: string | null;
   score: number;
   page: number | null;
   sheet: string | null;
@@ -78,7 +86,7 @@ export class RetrievalService {
         "SET LOCAL hnsw.iterative_scan = relaxed_order",
       ),
       this.prisma.$queryRaw<Row[]>`
-        SELECT c.id, c.text, s.id AS source_id, s.title,
+        SELECT c.id, c.text, s.id AS source_id, s.title, s.mime,
                c.page, c.sheet, c.row_from, c.row_to, c.heading,
                1 - (c.embedding <=> ${vector}::vector) AS score
         FROM knowledge_chunks c
@@ -99,6 +107,7 @@ export class RetrievalService {
         text: row.text,
         sourceId: row.source_id,
         title: row.title,
+        mime: row.mime ?? null,
         score: Number(row.score),
         page: row.page ?? null,
         sheet: row.sheet ?? null,

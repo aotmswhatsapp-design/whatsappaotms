@@ -78,7 +78,7 @@ export class OpenAiMediaExtractor {
     name: string;
     /** The agent's model, so vision is read by the model that will answer. */
     model: string;
-  }): Promise<{ text: string }> {
+  }): Promise<{ text: string; tokens: number }> {
     const mime = resolveMime(input.mime, input.name);
 
     if (IMAGE_MIMES.has(mime) || mime.startsWith("image/")) {
@@ -99,7 +99,8 @@ export class OpenAiMediaExtractor {
         model: input.model,
       });
 
-      return { text: result.text };
+      // Vision is a paid call like any other: its tokens belong on the row.
+      return { text: result.text, tokens: result.tokensIn + result.tokensOut };
     }
 
     if (mime.startsWith("video/")) {
@@ -121,11 +122,14 @@ export class OpenAiMediaExtractor {
         throw new ExtractError("SOURCE_EMPTY", "That file was empty.");
       }
 
-      return this.provider.transcribe({
+      const result = await this.provider.transcribe({
         bytes: input.bytes,
         mime,
         name: input.name,
       });
+
+      // Whisper's response carries no usage; zero is the honest number.
+      return { text: result.text, tokens: 0 };
     }
 
     throw new ExtractError(
