@@ -629,24 +629,6 @@ export function ChatbotView() {
                     </p>
                   </>
                 ) : null}
-
-                <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5">
-                  <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-                    Sending a card by hand is deliberate: open the conversation
-                    in the{" "}
-                    <Link
-                      className="font-medium text-brand underline-offset-2 hover:underline"
-                      href="/workspace/inbox"
-                    >
-                      Inbox
-                    </Link>
-                    , choose <span className="font-medium">Chatbot</span> in the
-                    reply box, and pick a card. Rules need nobody: a customer
-                    message that matches one is answered on its own. Either way,
-                    taps are answered from the flow as it was sent, so editing a
-                    card later never changes what an old tap meant.
-                  </p>
-                </div>
               </div>
             </div>
           )}
