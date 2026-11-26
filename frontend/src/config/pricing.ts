@@ -58,7 +58,7 @@ export const plans: PricingPlan[] = [
     features: [
       "WhatsApp for 1 number",
       "Login to One CRM",
-      "3500 Conversations per month",
+      "350 Conversations per month",
       "No Templates included",
       "Email support",
     ],
