@@ -11,9 +11,15 @@ import {
   FakeProvider,
   FakeStorage,
   FakeWorkspaces,
+  searchConfig,
 } from "./testing/fakes";
 
-const build = (workspaceId = "ws-a", maxBytes?: number, media: unknown = {}) => {
+const build = (
+  workspaceId = "ws-a",
+  maxBytes?: number,
+  media: unknown = {},
+  search: "local" | "vector" = "vector",
+) => {
   const prisma = new FakePrisma();
   const storage = new FakeStorage();
   const service = new KnowledgeService(
@@ -22,10 +28,7 @@ const build = (workspaceId = "ws-a", maxBytes?: number, media: unknown = {}) => 
     storage as any,
     new FakeProvider() as any,
     media as any,
-    {
-      get: (key: string) =>
-        key === "KNOWLEDGE_MAX_BYTES" ? maxBytes : undefined,
-    } as any,
+    searchConfig({ search, KNOWLEDGE_MAX_BYTES: maxBytes }) as any,
   );
   return { prisma, storage, service };
 };
@@ -244,6 +247,54 @@ test("indexing an image puts the vision call's tokens on the row", async () => {
   // The picture's size was written at upload; a read that carries no meta must
   // not erase it.
   assert.equal(ready?.meta, undefined);
+});
+
+test("in local mode indexing reaches READY without asking for a vector", async () => {
+  const prisma = new FakePrisma();
+  const provider = new FakeProvider();
+  let embedCalls = 0;
+  provider.embed = async () => {
+    embedCalls += 1;
+    return { vectors: [], tokens: 0 };
+  };
+
+  const service = new KnowledgeService(
+    prisma as any,
+    new FakeWorkspaces() as any,
+    new FakeStorage() as any,
+    provider as any,
+    {} as any,
+    searchConfig({ search: "local" }) as any,
+  );
+
+  (prisma.knowledgeSource as any).findUnique = async () => ({
+    id: "source-1",
+    kind: "TEXT",
+    title: "menu",
+    mime: null,
+    storagePath: null,
+    text: "Dosa 80. Idli 40. Filter coffee 30.",
+    meta: null,
+    extractTokens: 0,
+    replacesSourceId: null,
+    status: "PROCESSING",
+    leaseToken: "tok-1",
+    agent: { model: "gpt-4o-mini" },
+  });
+
+  let ready: any;
+  (prisma.knowledgeSource as any).updateMany = async ({ data }: any) => {
+    if (data.status === "READY") ready = data;
+    return { count: 1 };
+  };
+
+  await service.index("source-1", "tok-1");
+
+  // Search reads the text itself, so a READY row with no vectors is complete,
+  // not half-indexed — and nobody was billed for the attempt.
+  assert.equal(ready?.status, "READY");
+  assert.equal(ready?.embedTokens, 0);
+  assert.equal(embedCalls, 0, "the provider was never asked for a vector");
 });
 
 test("retrieval is scoped by workspace as well as agent", async () => {

@@ -176,6 +176,24 @@ export class FakeProvider {
   }
 }
 
+/**
+ * Config for a `KnowledgeService` under test.
+ *
+ * The embedding pipeline only runs when the search engine is the vector one:
+ * under the default local engine the worker stores its chunks and stops,
+ * because there are no vectors to write. A suite that expects vectors has to
+ * say so, rather than inherit whichever mode the environment happens to hold.
+ */
+export function searchConfig(
+  options: { search?: "local" | "vector" } & Record<string, unknown> = {},
+) {
+  const { search = "vector", ...rest } = options;
+
+  return {
+    get: (key: string) => (key === "KNOWLEDGE_SEARCH" ? search : rest[key]),
+  };
+}
+
 export class FakeWorkspaces {
   constructor(
     readonly workspaceId = "ws-a",

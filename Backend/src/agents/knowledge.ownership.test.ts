@@ -12,6 +12,7 @@ import {
   FakeProvider,
   FakeStorage,
   FakeWorkspaces,
+  searchConfig,
 } from "./testing/fakes";
 
 const build = (config: Record<string, unknown> = {}) => {
@@ -24,7 +25,7 @@ const build = (config: Record<string, unknown> = {}) => {
     storage as any,
     provider as any,
     {} as any,
-    { get: (key: string) => config[key] } as any,
+    searchConfig(config) as any,
   );
   return { prisma, storage, provider, service };
 };

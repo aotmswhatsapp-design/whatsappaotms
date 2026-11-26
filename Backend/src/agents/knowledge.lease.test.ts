@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { KnowledgeService } from "./knowledge.service";
-import { CLAIMS } from "./testing/fakes";
+import { CLAIMS, searchConfig } from "./testing/fakes";
 
 const TOK_A = "aaaaaaaa-0000-4000-8000-000000000001";
 const TOK_B = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -266,7 +266,7 @@ const build = (db: LeasedTable, provider: unknown) =>
     { download: async () => Buffer.alloc(0), remove: async () => undefined } as any,
     provider as any,
     {} as any,
-    { get: () => undefined } as any,
+    searchConfig() as any,
   );
 
 test("a resumed worker cannot delete or modify the chunks of the claim that replaced it", async () => {
@@ -363,7 +363,7 @@ test("a claim mints a fresh token inside the claiming statement", async () => {
     {} as any,
     {} as any,
     {} as any,
-    { get: () => undefined } as any,
+    searchConfig() as any,
   );
 
   const first = await service.claim();

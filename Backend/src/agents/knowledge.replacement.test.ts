@@ -13,6 +13,7 @@ import {
   FakeProvider,
   FakeStorage,
   FakeWorkspaces,
+  searchConfig,
 } from "./testing/fakes";
 
 const build = () => {
@@ -24,7 +25,7 @@ const build = () => {
     storage as any,
     new FakeProvider() as any,
     {} as any,
-    { get: () => undefined } as any,
+    searchConfig() as any,
   );
   return { prisma, storage, service };
 };
