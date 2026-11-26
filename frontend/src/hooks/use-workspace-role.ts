@@ -12,8 +12,23 @@ import {
 } from "@/lib/api/workspace";
 
 /**
- * The caller's role in the workspace the API acts in, or `null` while that is
- * unknown.
+ * What the caller's role is, how far the read has got, and how to ask again.
+ *
+ * `status` exists because "read-only" has three causes a person cannot tell
+ * apart on screen: the role is still loading, the read failed, or the caller is
+ * genuinely not the owner. Only the last one is a fact; showing the owner-only
+ * sentence for the first two is how a working form looks broken.
+ */
+export interface RoleState {
+  role: WorkspaceRole | null;
+  status: "loading" | "ready" | "failed";
+  /** Asks again. A failed read is a click away from working, not a reload. */
+  retry: () => void;
+}
+
+/**
+ * The caller's role in the workspace the API acts in, `null` while that is
+ * unknown, and whether the unknown is "still asking" or "the ask failed".
  *
  * `null` is not a placeholder for "probably an owner": consumers treat it as
  * "no mutation controls", so an unknown role can never reveal a control the
@@ -27,8 +42,21 @@ import {
  * cache is empty — and for good if the refetch failed. Reading the store makes
  * that impossible: clearing it, for any reason, renders `null` straight away.
  */
-export function useWorkspaceRole(): WorkspaceRole | null {
+export function useWorkspaceRole(): RoleState {
   const pathname = usePathname();
+  const [attempt, setAttempt] = React.useState(0);
+
+  /**
+   * The last answer that arrived, tagged with the request it answered. A stale
+   * one — a navigation or a retry moved on — is ignored by the tag rather than
+   * reset by an effect, which is also what keeps this effect from setting state
+   * on every run.
+   */
+  const [answer, setAnswer] = React.useState<{
+    attempt: number;
+    pathname: string;
+    failed: boolean;
+  } | null>(null);
 
   const role = React.useSyncExternalStore(
     subscribeWorkspaceRole,
@@ -46,8 +74,30 @@ export function useWorkspaceRole(): WorkspaceRole | null {
     // again.
     clearWorkspaceRole();
 
-    void fetchWorkspaceRole().catch(() => {});
-  }, [pathname]);
+    void fetchWorkspaceRole().then(
+      // A resolved request is not an answer: a clear that raced it discards the
+      // role, and the store is the only place that knows.
+      () => setAnswer({ attempt, pathname, failed: readWorkspaceRole() === null }),
+      () => setAnswer({ attempt, pathname, failed: true }),
+    );
+  }, [pathname, attempt]);
 
-  return role;
+  // Read together, never separately: a focus revalidation clears the store, and
+  // a stale "ready" beside a null role would render the owner's controls to
+  // somebody whose role is no longer known.
+  const status: RoleState["status"] =
+    role !== null
+      ? "ready"
+      : answer !== null &&
+          answer.attempt === attempt &&
+          answer.pathname === pathname &&
+          answer.failed
+        ? "failed"
+        : "loading";
+
+  const retry = React.useCallback(() => {
+    setAttempt((count) => count + 1);
+  }, []);
+
+  return { role, status, retry };
 }

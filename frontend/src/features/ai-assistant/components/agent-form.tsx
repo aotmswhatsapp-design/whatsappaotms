@@ -30,10 +30,13 @@ const CAPS = [500, 900, 1_200, 1_600];
 export function AgentForm({
   agent,
   canManage,
+  readOnlyNote,
   onSaved,
 }: {
   agent: Agent;
   canManage: boolean;
+  /** Why it is read-only, when the caller knows better than this form does. */
+  readOnlyNote?: string;
   onSaved: (next: Agent) => void;
 }) {
   const toast = useToast();
@@ -142,11 +145,11 @@ export function AgentForm({
         </div>
       </div>
 
-      <div>
-        <div className="flex items-end justify-between gap-3">
+      <div className="space-y-4">
+        <div>
           <Label htmlFor="agent-cap">Longest reply</Label>
           <select
-            className={cn(FIELD, "mt-1.5")}
+            className={cn(FIELD, "mt-1.5 max-w-[16rem]")}
             disabled={locked}
             id="agent-cap"
             onChange={(event) => setMaxReplyChars(Number(event.target.value))}
@@ -185,7 +188,8 @@ export function AgentForm({
       <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
         <p className="text-[11.5px] text-muted-foreground">
           {!canManage
-            ? "Read-only. Only an owner can change how this agent answers."
+            ? (readOnlyNote ??
+              "Read-only. Only an owner can change how this agent answers.")
             : blocked
               ? "A name is required."
               : dirty

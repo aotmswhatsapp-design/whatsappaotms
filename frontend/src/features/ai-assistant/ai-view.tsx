@@ -52,8 +52,27 @@ const TABS: { value: Tab; label: string }[] = [
  */
 export function AiView() {
   const toast = useToast();
-  const role = useWorkspaceRole();
+  const {
+    role,
+    status: roleStatus,
+    retry: retryRole,
+  } = useWorkspaceRole();
   const canManage = role === "OWNER";
+
+  /**
+   * Why the screen is read-only, in the caller's own terms. "Loading" and
+   * "the read failed" are not the same fact as "you are not the owner", and a
+   * generic sentence for all three reads as a broken form to the owner who is
+   * looking at it.
+   */
+  const roleNote =
+    roleStatus === "loading"
+      ? "Checking your permissions…"
+      : roleStatus === "failed"
+        ? "Your role could not be read just now. Use Retry permissions above; nothing on this screen is lost."
+        : role === "ADMIN"
+          ? "Read-only. You are a manager in this workspace; only its owner can change how an agent answers."
+          : "Read-only. You are a support agent in this workspace; only its owner can change how an agent answers.";
 
   const [channel, setChannel] = React.useState<Channel | null>(null);
   const [agents, setAgents] = React.useState<Agent[] | null>(null);
@@ -321,9 +340,28 @@ export function AiView() {
 
       <p className="text-[12.5px] leading-relaxed text-muted-foreground">
         Training is indexing, not fine-tuning: the files are read, split and
-        embedded once, and every reply quotes what the search returns. One
-        active agent per number.
+        searched, and every reply quotes what the search returns. One active
+        agent per number.
       </p>
+
+      {roleStatus === "failed" ? (
+        <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5">
+          <p className="text-[12.5px] leading-relaxed text-foreground">
+            Your role in this workspace could not be read, so the controls stay
+            locked. This is usually a dropped request, not a permissions change.
+          </p>
+          <Button
+            className="mt-2"
+            onClick={retryRole}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <RefreshCw />
+            Retry permissions
+          </Button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-lg border border-destructive/35 bg-destructive/5 px-3 py-2.5">
@@ -456,8 +494,7 @@ export function AiView() {
                     className="max-w-[15rem] text-right text-[11px] leading-relaxed text-muted-foreground"
                     id="agent-owner-note"
                   >
-                    Only an owner can turn the agent on or off. Everything on this
-                    screen stays readable.
+                    {roleNote} Everything on this screen stays readable.
                   </p>
                 ) : blocked ? (
                   <p
@@ -531,6 +568,7 @@ export function AiView() {
                           : current,
                       );
                     }}
+                    readOnlyNote={roleNote}
                   />
                 ) : tabShown === "TRAINING" ? (
                   <TrainingPanel
