@@ -36,6 +36,13 @@ const formatPrice = (value: string) => Number(value).toLocaleString("en-IN");
  * Meta's per-message charges are explained in their own block instead of being
  * priced here, because Meta bills them to the client's own account.
  */
+
+/**
+ * A row that is only a dash states what the plan does *not* have. It borrows the
+ * module list's muted treatment so it never reads as an included feature.
+ */
+const isDash = (feature: string) => feature.trim() === "-";
+
 export function Pricing() {
   const [annual, setAnnual] = React.useState(false);
 
@@ -159,16 +166,29 @@ export function Pricing() {
                 </CtaLink>
 
                 <ul className="mt-7 flex flex-col gap-2.5 border-t border-border pt-6">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex gap-2">
-                      <CheckCircle
-                        className="mt-0.5 size-4 shrink-0 text-brand"
-                        weight="fill"
-                        aria-hidden="true"
-                      />
-                      <span className="body-5">{feature}</span>
-                    </li>
-                  ))}
+                  {plan.features.map((feature, index) =>
+                    isDash(feature) ? (
+                      <li
+                        key={`dash-${index}`}
+                        className="flex gap-2 text-muted-foreground/70"
+                      >
+                        <Minus
+                          className="mt-0.5 size-4 shrink-0 text-muted-foreground/60"
+                          aria-hidden="true"
+                        />
+                        <span className="body-5">{feature}</span>
+                      </li>
+                    ) : (
+                      <li key={feature} className="flex gap-2">
+                        <CheckCircle
+                          className="mt-0.5 size-4 shrink-0 text-brand"
+                          weight="fill"
+                          aria-hidden="true"
+                        />
+                        <span className="body-5">{feature}</span>
+                      </li>
+                    ),
+                  )}
                 </ul>
 
                 <div className="mt-auto pt-6">
