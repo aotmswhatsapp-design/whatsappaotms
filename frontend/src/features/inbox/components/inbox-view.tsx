@@ -89,14 +89,73 @@ export function InboxView({
    */
   const hiddenRef = React.useRef<Set<string>>(new Set());
 
+  /** The thread on screen. The polls read it without being re-created. */
+  const selectedRef = React.useRef<string | null>(selectedId);
+
+  /**
+   * Threads whose read receipt is in flight. Opening a conversation and a poll
+   * landing in the same second must not send two receipts, nor lose the second.
+   */
+  const readingRef = React.useRef<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    selectedRef.current = selectedId;
+  }, [selectedId]);
+
+  /**
+   * Marks a conversation read — here and on the server — and takes its number
+   * off the header count.
+   *
+   * The queue is its own snapshot, taken on a different beat: a customer who
+   * writes while the thread is open puts the badge back, and a list read that
+   * left before the first receipt landed puts it back too. Both are answered by
+   * asking again whenever the server still says the open thread is unread — a
+   * conversation you are looking at is read, and stays read.
+   */
+  const settleRead = React.useCallback((id: string, unread: number): void => {
+    if (unread <= 0 || readingRef.current.has(id)) return;
+
+    readingRef.current.add(id);
+
+    void (async () => {
+      try {
+        await markRead(id).catch(() => undefined);
+
+        setConversations((rows) =>
+          rows.map((row) => (row.id === id ? { ...row, unreadCount: 0 } : row)),
+        );
+        setSummary((current) =>
+          current && current.unread > 0
+            ? { ...current, unread: Math.max(0, current.unread - unread) }
+            : current,
+        );
+      } finally {
+        readingRef.current.delete(id);
+      }
+    })();
+  }, []);
+
   const refreshList = React.useCallback(async (): Promise<void> => {
     try {
       const next = await fetchConversations(filtersRef.current);
-      setConversations(next.conversations);
+      const open = selectedRef.current;
+
+      // Drawn without the badge even when this snapshot left the server before
+      // the receipt landed — the thread on screen is being read either way.
+      setConversations(
+        next.conversations.map((row) =>
+          row.id === open && row.unreadCount > 0
+            ? { ...row, unreadCount: 0 }
+            : row,
+        ),
+      );
+
+      const row = next.conversations.find((item) => item.id === open);
+      if (row) settleRead(row.id, row.unreadCount);
     } catch {
       // A failed background refresh keeps the rows already on screen.
     }
-  }, []);
+  }, [settleRead]);
 
   const refreshSummary = React.useCallback(async (): Promise<void> => {
     try {
@@ -176,6 +235,8 @@ export function InboxView({
           setThread((current) =>
             withoutHidden(hiddenRef.current, mergeThread(current, next)),
           );
+          // A message that arrived while this thread was on screen is read.
+          settleRead(selectedId, next.conversation.unreadCount);
         }
       } catch {
         // Polling is best effort; the next tick tries again.
@@ -190,7 +251,7 @@ export function InboxView({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [selectedId]);
+  }, [selectedId, settleRead]);
 
   // Nothing is pushed to the browser, so the queue and the unread counters
   // refresh themselves while the page is open. Without this, a message from a
@@ -225,41 +286,21 @@ export function InboxView({
       try {
         const next = await fetchThread(id);
         setThread(next);
-
-        if (next.conversation.unreadCount > 0) {
-          await markRead(id).catch(() => undefined);
-
-          setConversations((rows) =>
-            rows.map((row) =>
-              row.id === id ? { ...row, unreadCount: 0 } : row,
-            ),
-          );
-          setSummary((current) =>
-            current
-              ? {
-                  ...current,
-                  unread: Math.max(
-                    0,
-                    current.unread - next.conversation.unreadCount,
-                  ),
-                }
-              : current,
-          );
-        }
+        settleRead(id, next.conversation.unreadCount);
       } catch (cause) {
         setError(readError(cause));
       } finally {
         setThreadLoading(false);
       }
     },
-    [],
+    [settleRead],
   );
 
   // The link carries an id, not a loaded thread. It is opened from a timer
   // rather than straight from the effect for the same reason the polls above
   // are: opening sets the thread's own state, and React's lint rules reject a
-  // state update inside an effect body. `openConversation` is memoised with an
-  // empty list, so this runs once per linked id.
+  // state update inside an effect body. `openConversation` is memoised on a
+  // stable callback, so this runs once per linked id.
   React.useEffect(() => {
     if (!initialConversationId) return;
 
@@ -323,8 +364,15 @@ export function InboxView({
         ? { ...current, conversation }
         : current,
     );
+
+    const open = conversation.id === selectedRef.current;
+
     setConversations((rows) =>
-      rows.map((row) => (row.id === conversation.id ? conversation : row)),
+      rows.map((row) =>
+        row.id === conversation.id
+          ? { ...conversation, unreadCount: open ? 0 : conversation.unreadCount }
+          : row,
+      ),
     );
   }
 

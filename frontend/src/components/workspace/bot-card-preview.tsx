@@ -1,3 +1,5 @@
+import { ChevronLeft, MoreVertical } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import {
   shownButtons,
@@ -78,10 +80,8 @@ export function BotCardPreview({
     >
       {/* Hard-coded app colours on purpose: the inbox repaints `--brand` and
           friends, and this bar has to look the same on both screens. */}
-      <div className="flex items-center gap-2 bg-[#008069] px-3 py-2.5 text-white">
-        <span aria-hidden="true" className="text-lg leading-none">
-          ‹
-        </span>
+      <div className="flex items-center gap-2 border-b border-black/20 bg-[#008069] px-2.5 py-2.5 text-white">
+        <ChevronLeft aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
         <span
           aria-hidden="true"
           className="grid size-7 shrink-0 place-items-center rounded-full bg-white/25 text-[11px] font-semibold"
@@ -92,9 +92,7 @@ export function BotCardPreview({
           <p className="truncate text-[13px] font-medium">Your business</p>
           <p className="text-[10.5px] text-white/75">online</p>
         </div>
-        <span aria-hidden="true" className="text-base leading-none">
-          ⋮
-        </span>
+        <MoreVertical aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
       </div>
 
       <div className="space-y-2 bg-[#efeae2] px-3 py-5">
@@ -109,7 +107,7 @@ export function BotCardPreview({
         ) : shape === "numbered" ? (
           // The fallback is a plain text message, so it is drawn as one: the
           // numbers are the routing key, not decoration.
-          <div className="ml-auto max-w-[92%] min-w-0 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
+          <div className="ml-auto w-[260px] max-w-full min-w-0 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
             <p className="text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]">
               {[
                 info,
@@ -123,10 +121,10 @@ export function BotCardPreview({
           </div>
         ) : (
           // One message, one card: the picture is the header *inside* the
-          // bubble, and the buttons are rows at its foot. WhatsApp draws an
-          // interactive message this way; separate floating pills would
-          // describe a different kind of message than the one we send.
-          <div className="ml-auto max-w-[92%] min-w-0 overflow-hidden rounded-lg rounded-tr-none bg-white shadow-sm">
+          // bubble, and the choices sit at its foot as outlined pills. WhatsApp
+          // draws an interactive message this way; separate floating pills
+          // would describe a different kind of message than the one we send.
+          <div className="ml-auto w-[260px] max-w-full min-w-0 overflow-hidden rounded-lg rounded-tr-none bg-white shadow-sm">
             {card.imageUrl && shape !== "text" ? (
               // Meta fetches this URL from its own servers, so it is not a
               // local path and `next/image` would need a remote pattern for an
@@ -141,7 +139,7 @@ export function BotCardPreview({
 
             <div className="px-2.5 pt-2 pb-1.5">
               {title ? (
-                <p className="text-[13.5px] leading-snug font-semibold break-words whitespace-pre-wrap text-[#111b21]">
+                <p className="text-[13.5px] leading-snug font-normal break-words whitespace-pre-wrap text-[#111b21]">
                   {title}
                 </p>
               ) : null}
@@ -161,10 +159,10 @@ export function BotCardPreview({
             </div>
 
             {shape === "buttons" ? (
-              <div className="border-t border-black/10">
+              <div className="flex flex-wrap gap-1.5 border-t border-black/10 p-2">
                 {buttons.map((button) => (
                   <div
-                    className="border-b border-black/10 px-2.5 py-2 text-center text-[13px] font-medium break-words text-[#00a5f4] last:border-b-0"
+                    className="min-w-0 grow basis-[calc(50%-0.375rem)] rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal break-words text-[#111b21]"
                     key={button.id}
                   >
                     {button.label}
@@ -174,8 +172,10 @@ export function BotCardPreview({
             ) : null}
 
             {shape === "list" ? (
-              <div className="border-t border-black/10 px-2.5 py-2 text-center text-[13px] font-medium text-[#00a5f4]">
-                See options
+              <div className="border-t border-black/10 p-2">
+                <div className="rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal text-[#111b21]">
+                  See options
+                </div>
               </div>
             ) : null}
           </div>
