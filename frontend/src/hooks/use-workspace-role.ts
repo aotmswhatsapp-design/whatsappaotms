@@ -46,6 +46,9 @@ export function useWorkspaceRole(): RoleState {
   const pathname = usePathname();
   const [attempt, setAttempt] = React.useState(0);
 
+  /** Bumped when the store loses its answer behind this hook's back. */
+  const [cleared, setCleared] = React.useState(0);
+
   /**
    * The last answer that arrived, tagged with the request it answered. A stale
    * one — a navigation or a retry moved on — is ignored by the tag rather than
@@ -66,6 +69,41 @@ export function useWorkspaceRole(): RoleState {
     () => null,
   );
 
+  /**
+   * The store can lose its answer without this hook asking: another tab signs
+   * out, Supabase reports a session change, or a focus revalidation clears the
+   * cache and its own request then fails. None of those touch `attempt` or
+   * `pathname`, so the effect below would never run again — every owner-only
+   * control would stay disabled in "Checking your permissions…" until a
+   * reload, which is exactly how switching tabs used to freeze a screen.
+   * Coming back to the tab asks once more.
+   */
+  const hadAnswer = React.useRef(false);
+
+  React.useEffect(() => {
+    hadAnswer.current = answer !== null;
+  }, [answer]);
+
+  React.useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState !== "visible") return;
+
+      // Only a lost answer is news. A first load is already in flight, and
+      // asking twice would clear the request it is waiting on.
+      if (hadAnswer.current && readWorkspaceRole() === null) {
+        setCleared((count) => count + 1);
+      }
+    };
+
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, []);
+
   React.useEffect(() => {
     // Whatever is cached may describe the account this tab served before a
     // sign-out, or a workspace the caller has since left. Drop it before the
@@ -80,7 +118,7 @@ export function useWorkspaceRole(): RoleState {
       () => setAnswer({ attempt, pathname, failed: readWorkspaceRole() === null }),
       () => setAnswer({ attempt, pathname, failed: true }),
     );
-  }, [pathname, attempt]);
+  }, [pathname, attempt, cleared]);
 
   // Read together, never separately: a focus revalidation clears the store, and
   // a stale "ready" beside a null role would render the owner's controls to
@@ -94,6 +132,28 @@ export function useWorkspaceRole(): RoleState {
           answer.failed
         ? "failed"
         : "loading";
+
+  /**
+   * A failed read gets one more try by itself: the usual cause is a token
+   * refresh racing the request, which a moment later succeeds. The attempt is
+   * counted so a real outage cannot become a loop, and when it stays failed the
+   * screen offers Retry instead of spinning in "Checking…" forever.
+   */
+  const autoRetried = React.useRef(false);
+
+  React.useEffect(() => {
+    if (status !== "failed") {
+      autoRetried.current = false;
+      return;
+    }
+
+    if (autoRetried.current) return;
+
+    autoRetried.current = true;
+    const timer = window.setTimeout(() => setCleared((count) => count + 1), 1_500);
+
+    return () => window.clearTimeout(timer);
+  }, [status]);
 
   const retry = React.useCallback(() => {
     setAttempt((count) => count + 1);

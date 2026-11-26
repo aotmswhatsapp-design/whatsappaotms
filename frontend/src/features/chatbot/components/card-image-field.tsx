@@ -57,15 +57,6 @@ export function CardImageField({
 
   const picker = React.useRef<HTMLInputElement>(null);
 
-  // Read inside an upload's callback: the answer arrives after a re-render, and
-  // the decision "does this card already show a picture" must use the latest
-  // answer rather than the one from when the drop happened.
-  const chosen = React.useRef(value);
-
-  React.useEffect(() => {
-    chosen.current = value;
-  }, [value]);
-
   React.useEffect(() => {
     let live = true;
 
@@ -119,13 +110,11 @@ export function CardImageField({
               ...current.filter((image) => image.path !== stored.path),
             ]);
 
-            // The picture that was just dropped is the obvious choice, but a
-            // card that already shows one keeps it: growing the gallery must
-            // not quietly change what customers see.
-            if (!chosen.current) {
-              chosen.current = stored.url;
-              onChange(stored.url);
-            }
+            // The picture just dropped is the one the agent is looking at, so
+            // it becomes the card's picture: keeping an older one would hide
+            // the upload that prompted the change. The rest stay in the
+            // gallery to switch back to.
+            onChange(stored.url);
           } catch (error) {
             const message =
               error instanceof ApiError

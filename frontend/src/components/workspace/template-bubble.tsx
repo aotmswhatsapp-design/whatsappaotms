@@ -89,7 +89,7 @@ export function TemplateBubble({
           // outbound bubble sits in the app. `break-words` is what keeps a long
           // URL or an unfilled `{{token}}` inside the bubble instead of
           // stretching it past the wallpaper.
-          <div className="ml-auto max-w-[92%] min-w-0 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
+          <div className="ml-auto max-w-[92%] min-w-0 overflow-hidden rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
             {media}
 
             {header ? (
@@ -121,25 +121,31 @@ export function TemplateBubble({
                 ✓✓
               </span>
             </p>
+
+            {/* The choices belong to the message, so they are drawn inside its
+                bubble — the same shape the chatbot card uses, with the
+                negative margins cancelling the bubble's padding so the
+                divider reaches its edges. */}
+            {shown.length > 0 ? (
+              <div className="-mx-2.5 -mb-2 mt-1 flex flex-wrap gap-1.5 border-t border-black/10 p-2">
+                {shown.map((label, index) => (
+                  <div
+                    className="min-w-0 grow basis-[calc(50%-0.375rem)] rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal break-words text-[#111b21]"
+                    key={`${label}-${index}`}
+                  >
+                    {label}
+                  </div>
+                ))}
+
+                {collapsed ? (
+                  <div className="w-full rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-medium text-[#111b21]">
+                    See all options
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
-
-        {/* Buttons are their own white rows, not part of the bubble: that is
-            how a template arrives on a phone. */}
-        {shown.map((label, index) => (
-          <div
-            className="flex items-center justify-center rounded-lg bg-white px-3 py-2 text-center text-[13px] font-medium break-words text-[#00a5f4] shadow-sm"
-            key={`${label}-${index}`}
-          >
-            {label}
-          </div>
-        ))}
-
-        {collapsed ? (
-          <div className="flex items-center justify-center rounded-lg bg-white px-3 py-2 text-center text-[13px] font-medium text-[#00a5f4] shadow-sm">
-            See all options
-          </div>
-        ) : null}
       </div>
     </div>
   );
