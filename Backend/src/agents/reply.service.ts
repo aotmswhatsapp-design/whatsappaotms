@@ -1,6 +1,7 @@
 import { ConflictException, HttpException, Injectable } from "@nestjs/common";
 import type { Agent } from "@prisma/client";
 
+import { cardTurn, type CardTurn } from "../bots/bot.reply";
 import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
 import { windowOpen } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
@@ -228,7 +229,7 @@ export class ReplyService {
     const inbound = row.inboundMessageId
       ? await this.prisma.message.findUnique({
           where: { id: row.inboundMessageId },
-          select: { body: true },
+          select: { body: true, payload: true },
         })
       : null;
 
@@ -311,6 +312,22 @@ export class ReplyService {
         "handoff",
         routed,
       );
+      return;
+    }
+
+    // A tap is answered by the card it came from, not by a search for the words
+    // printed on the button. This waits until after routing because a tap can
+    // be the first thing a customer ever says — a template quick reply — and
+    // then the thread still needs an agent. Anything the card does not claim —
+    // "do you deliver?" typed under a menu — falls through to the answer below.
+    const turn = cardTurn({
+      body: inbound?.body ?? null,
+      payload: inbound?.payload ?? null,
+      lastOutbound: await this.lastOutbound(conversation.id),
+    });
+
+    if (turn.kind !== "none") {
+      await this.act(run.id, conversation.id, target, agent.id, turn, routed, started);
       return;
     }
 
@@ -480,6 +497,97 @@ export class ReplyService {
   // carry turns into. The conversation engine reads them for repeat detection
   // and for the selected menu, which is a different question from "what did
   // the customer say three messages ago".
+
+  /**
+   * The newest thing we sent, because a tap answers what is on the customer's
+   * screen. A reply that arrived after the card — an answer, a handoff line —
+   * matches no card and leaves the message to be answered normally, which is
+   * the right reading: the menu is no longer the last thing they were shown.
+   */
+  private async lastOutbound(conversationId: string): Promise<unknown> {
+    const row = await this.prisma.message.findFirst({
+      where: { conversationId, direction: "OUTBOUND" },
+      orderBy: { createdAt: "desc" },
+      select: { payload: true },
+    });
+
+    return row?.payload ?? null;
+  }
+
+  /**
+   * The effect of a tap. Every branch ends the run: a sentence and a card are
+   * `SENT`, a handoff is `SKIPPED` with the thread paused.
+   *
+   * A refused send becomes a handoff rather than silence — Meta rejecting a
+   * card means the customer's tap went nowhere, which is a person's problem to
+   * pick up, exactly like a failed answer.
+   */
+  private async act(
+    runId: string,
+    conversationId: string,
+    target: SendTarget,
+    agentId: string,
+    turn: Exclude<CardTurn, { kind: "none" }>,
+    usage: RunUsage,
+    started: number,
+  ): Promise<void> {
+    if (turn.kind === "handoff") {
+      await this.handoff(runId, conversationId, target, agentId, "handoff", {
+        ...usage,
+        latencyMs: Date.now() - started,
+      });
+      return;
+    }
+
+    try {
+      const sent =
+        turn.kind === "say"
+          ? await this.sender.text({
+              ...target,
+              body: turn.body,
+              quote: null,
+              agentId,
+            })
+          : await this.sender.interactive({
+              ...target,
+              flow: turn.flow,
+              card: turn.card,
+              quote: null,
+              agentId,
+            });
+
+      await this.prisma.agentRun.update({
+        where: { id: runId },
+        data: {
+          status: "SENT",
+          outboundMessageId: sent.id,
+          ...usage,
+          latencyMs: Date.now() - started,
+          reason: null,
+          error: null,
+        },
+      });
+    } catch (error) {
+      // The window can close between the gate above and this send.
+      if (error instanceof ConflictException) {
+        await this.skip(runId, "window-closed", {
+          ...usage,
+          latencyMs: Date.now() - started,
+        });
+        return;
+      }
+
+      await this.handoff(
+        runId,
+        conversationId,
+        target,
+        agentId,
+        "unavailable",
+        { ...usage, latencyMs: Date.now() - started },
+        sentenceOf(error),
+      );
+    }
+  }
 
   /**
    * One fixed line, then the thread is paused. A handoff is a success for the

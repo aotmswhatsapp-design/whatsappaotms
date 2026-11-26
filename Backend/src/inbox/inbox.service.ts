@@ -7,11 +7,13 @@ import {
 import type { ConversationStatus, Prisma } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
+import { snapshotIn } from "../bots/bot.snapshot";
 import { PrismaService } from "../prisma/prisma.service";
 import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateNoteDto } from "./dto/create-note.dto";
 import type { ListConversationsDto } from "./dto/list-conversations.dto";
+import type { SendCardDto } from "./dto/send-card.dto";
 import type { SendContactDto } from "./dto/send-contact.dto";
 import type { SendLocationDto } from "./dto/send-location.dto";
 import type { SendMediaDto } from "./dto/send-media.dto";
@@ -288,6 +290,53 @@ export class InboxService {
     });
 
     return { message };
+  }
+
+  /**
+   * One card of a flow: the picture, the information, and the buttons.
+   *
+   * The flow arrives with the request because there is nowhere to store it yet
+   * — `bot_cards` is a proposal, not a table. It is read by `snapshotIn` — the
+   * same function that reads it back out of `messages.payload` — and the card
+   * is sent from that reading, so what the customer sees and what a later tap
+   * is routed against are the same object.
+   *
+   * Deliberately does not pause the agent, unlike a text reply. A human sending
+   * a menu is not taking the thread over; the taps under that menu are the
+   * agent's to answer, and a paused thread would leave every one of them
+   * unanswered.
+   */
+  async sendCard(
+    claims: AuthClaims,
+    id: string,
+    dto: SendCardDto,
+  ): Promise<{ message: MessageView }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { conversationId, waId, account } = await this.forSending(workspaceId, id);
+
+    const snapshot = snapshotIn({ flow: dto.flow, cardId: dto.cardId });
+
+    if (!snapshot) {
+      throw new BadRequestException("That card could not be read.");
+    }
+
+    const card = snapshot.flow.cards.find((row) => row.id === snapshot.cardId);
+
+    if (!card) {
+      throw new BadRequestException("That card is not part of the flow.");
+    }
+
+    return {
+      message: await this.sender.interactive({
+        workspaceId,
+        conversationId,
+        waId,
+        account,
+        flow: snapshot.flow,
+        card,
+        quote: await this.quoteOf(conversationId, dto.quotedMessageId),
+      }),
+    };
   }
 
   async sendMedia(

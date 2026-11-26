@@ -32,8 +32,22 @@ export interface ContactCardsContents {
   contacts: ContactCard[];
 }
 
+/** The button or list row a customer tapped, with the id the business set on it. */
+export interface TapContents {
+  tap: {
+    /** What a flow is routed by. Never inferred from the title. */
+    id: string;
+    /** What the customer read, and what the thread shows. */
+    title: string;
+  };
+}
+
 /** `payload` on a message: the contents of a kind that is not text or a file. */
-export type ParsedContents = LocationContents | ContactCardsContents | null;
+export type ParsedContents =
+  | LocationContents
+  | ContactCardsContents
+  | TapContents
+  | null;
 
 export interface ParsedMessage {
   wamid: string;
@@ -211,7 +225,10 @@ function parseMessage(input: unknown): ParsedMessage | null {
     // that quotes names it in `context.id`.
     contextWamid:
       stringAt(reaction?.message_id) ?? stringAt(objectAt(message.context)?.id),
-    payload: locationOf(message.location) ?? contactCardsOf(message.contacts),
+    payload:
+      locationOf(message.location) ??
+      contactCardsOf(message.contacts) ??
+      tapOf(message),
   };
 }
 
@@ -297,6 +314,28 @@ function tapText(message: Json): string | null {
     stringAt(objectAt(interactive?.button_reply)?.title) ??
     stringAt(objectAt(interactive?.list_reply)?.title)
   );
+}
+
+/**
+ * The same tap, with the id beside the words.
+ *
+ * Without this the only thing a tap tells us is its label, so renaming a button
+ * breaks every flow that pointed at it and two buttons reading the same become
+ * one. A template quick reply carries the developer payload in `button.payload`;
+ * a reply button or list row carries it in `id`.
+ */
+function tapOf(message: Json): TapContents | null {
+  const interactive = objectAt(message.interactive);
+  const reply =
+    objectAt(interactive?.button_reply) ?? objectAt(interactive?.list_reply);
+  const button = objectAt(message.button);
+
+  const id = stringAt(reply?.id) ?? stringAt(button?.payload);
+  const title = stringAt(reply?.title) ?? stringAt(button?.text);
+
+  // Both halves are needed: an id with no words cannot be shown, and words with
+  // no id are the situation this exists to end.
+  return id && title ? { tap: { id, title } } : null;
 }
 
 function parseStatus(input: unknown): ParsedStatus | null {

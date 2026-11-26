@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { MessageKind } from "@prisma/client";
 
+import type { InteractiveMessage } from "../bots/bot.render";
 import {
   MetaRequestError,
   MetaShapeError,
@@ -80,6 +81,39 @@ export class InboxGraph {
           to: input.to,
           type: "text",
           text: { body: input.body, preview_url: false },
+          ...contextOf(input.contextWamid),
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
+  /**
+   * A card: reply buttons or a list.
+   *
+   * The payload is already in Meta's shape, built by `bot.render` where the
+   * three-button and ten-row limits live, so this only wraps and quotes it.
+   */
+  async sendInteractive(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    interactive: InteractiveMessage;
+    contextWamid: string | null;
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "interactive",
+          interactive: input.interactive,
           ...contextOf(input.contextWamid),
         },
       },

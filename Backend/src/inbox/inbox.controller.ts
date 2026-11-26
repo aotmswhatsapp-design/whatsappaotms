@@ -22,6 +22,7 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { CreateNoteDto } from "./dto/create-note.dto";
 import { ListConversationsDto } from "./dto/list-conversations.dto";
+import { SendCardDto } from "./dto/send-card.dto";
 import { SendContactDto } from "./dto/send-contact.dto";
 import { SendLocationDto } from "./dto/send-location.dto";
 import { SendMediaDto } from "./dto/send-media.dto";
@@ -87,6 +88,25 @@ export class InboxController {
     @Body() dto: SendTextDto,
   ) {
     return this.inbox.sendText(claims, id, dto);
+  }
+
+  /**
+   * POST /api/v1/inbox/conversations/:id/cards — a card: picture, information,
+   * buttons.
+   *
+   * The flow travels in the body because cards have no table yet. Which shape
+   * the ladder picks is not the caller's problem: three choices become buttons,
+   * ten become a list, and more become numbered text that the same router reads
+   * back.
+   */
+  @Post("conversations/:id/cards")
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
+  sendCard(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SendCardDto,
+  ) {
+    return this.inbox.sendCard(claims, id, dto);
   }
 
   /**

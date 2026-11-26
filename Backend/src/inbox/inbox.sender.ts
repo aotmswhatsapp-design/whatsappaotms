@@ -10,6 +10,9 @@ import {
 } from "@nestjs/common";
 import type { MessageKind, Prisma } from "@prisma/client";
 
+import type { BotCard, BotFlow } from "../bots/bot.card";
+import { renderCard } from "../bots/bot.render";
+import { snapshotOf } from "../bots/bot.snapshot";
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -115,6 +118,88 @@ export class InboxSender {
       });
 
       await this.bump(input.conversationId, sentAt, previewOf(input.body, "Message"));
+
+      return messageView(saved, quoteIndex(input.quote));
+    } catch (error) {
+      await this.markFailed(row.id, error);
+      throw toHttp(error);
+    }
+  }
+
+  /**
+   * A card: the information, the picture, and the buttons under them.
+   *
+   * The message is rendered here rather than passed in, so what is stored and
+   * what Meta receives can never disagree about the ladder — three buttons, a
+   * list, or numbered text.
+   *
+   * `payload` keeps the whole flow as it stood, not just the card that went out.
+   * A tap is then answered from the payload: the next card is already in it, so
+   * the conversation follows the menu the customer can see even after the
+   * business has edited it, and no card table is needed to route. `body` is the
+   * message as it reads in the thread, so the bubble and the queue preview need
+   * no rendering of their own.
+   */
+  async interactive(
+    input: SendTarget & {
+      flow: BotFlow;
+      card: BotCard;
+      quote: Quote | null;
+      agentId?: string;
+    },
+  ): Promise<MessageView> {
+    const rendered = renderCard(input.card);
+
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        // A card too large for buttons or rows is sent as text, and is stored
+        // as the text it was, so the thread shows what the customer read.
+        kind: rendered.kind === "text" ? "TEXT" : "INTERACTIVE",
+        status: "QUEUED",
+        body: rendered.body,
+        contextWamid: input.quote?.wamid ?? null,
+        payload: snapshotOf(input.flow, input.card.id) as unknown as Prisma.InputJsonValue,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid =
+        rendered.kind === "text"
+          ? await this.graph.sendText({
+              version: input.account.graphVersion,
+              token: this.tokenOf(input.account),
+              phoneNumberId: input.account.phoneNumberId,
+              to: input.waId,
+              body: rendered.body,
+              contextWamid: input.quote?.wamid ?? null,
+            })
+          : await this.graph.sendInteractive({
+              version: input.account.graphVersion,
+              token: this.tokenOf(input.account),
+              phoneNumberId: input.account.phoneNumberId,
+              to: input.waId,
+              interactive: rendered.interactive,
+              contextWamid: input.quote?.wamid ?? null,
+            });
+
+      const sentAt = new Date();
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt },
+        select: MESSAGE_SELECT,
+      });
+
+      await this.bump(
+        input.conversationId,
+        sentAt,
+        previewOf(rendered.body, `Card · ${input.card.title}`),
+      );
 
       return messageView(saved, quoteIndex(input.quote));
     } catch (error) {
