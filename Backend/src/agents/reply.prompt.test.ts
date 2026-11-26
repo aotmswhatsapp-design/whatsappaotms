@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { CSV_SHEET } from "./extract";
 import { contextBlock } from "./reply.prompt";
 import type { ContextChunk } from "./retrieval.service";
 
@@ -16,6 +17,11 @@ test("a page is named in the citation label", () => {
 test("a sheet and its row range are named", () => {
   const label = contextBlock([chunk({ sheet: "Wholesale", rowFrom: 12, rowTo: 24 })]);
   assert.ok(label.includes('[Price list · sheet "Wholesale" rows 12–24]'));
+});
+
+test("a CSV names records, because a quoted line break makes records and lines differ", () => {
+  const label = contextBlock([chunk({ sheet: CSV_SHEET, rowFrom: 2, rowTo: 21 })]);
+  assert.ok(label.includes("[Price list · CSV records 2–21]"));
 });
 
 test("a plain chunk keeps the bare title", () => {

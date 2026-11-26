@@ -169,9 +169,10 @@ test("indexing a CSV writes one chunk per row range, with its sheet and its meta
 
   await service.index("source-1");
 
-  // The row range is what a citation quotes, so it has to survive the write.
+  // The record range is what a citation quotes, so it has to survive the write.
+  // Record 1 is the header, so the first data record is number 2.
   assert.equal(chunks.length, 3);
-  assert.deepEqual(chunks.map((chunk) => [chunk.rowFrom, chunk.rowTo]), [[1, 20], [21, 40], [41, 45]]);
+  assert.deepEqual(chunks.map((chunk) => [chunk.rowFrom, chunk.rowTo]), [[2, 21], [22, 41], [42, 46]]);
   assert.ok(chunks.every((chunk) => chunk.sheet === "CSV"));
   assert.ok(chunks.every((chunk) => chunk.text.startsWith("Columns: item | price")));
 

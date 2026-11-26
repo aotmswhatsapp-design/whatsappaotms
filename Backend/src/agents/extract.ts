@@ -25,9 +25,25 @@ export interface SourceBlock {
   text: string;
   page?: number;
   sheet?: string;
+  /**
+   * The first and last row this block covers, in the file's own numbering:
+   * a worksheet row for XLSX, a record number for CSV. Blank rows keep their
+   * place, so a block that skips row 12 still says which rows it really spans.
+   * Not the position of the row inside the block.
+   */
   rowFrom?: number;
   rowTo?: number;
   heading?: string;
+}
+
+/** A CSV has no sheet, so it is indexed under this name; a citation reads it
+ *  as "records", because a quoted line break makes records and lines differ. */
+export const CSV_SHEET = "CSV";
+
+/** A row carrying its own number in the file, so blanks never renumber it. */
+export interface TableRow {
+  number: number;
+  cells: string[];
 }
 
 export type TableMeta = {
@@ -174,77 +190,150 @@ export function pagesToBlocks(pages: string[]): SourceBlock[] {
   return pages.flatMap((text, index) => (text.length > 0 ? [{ text, page: index + 1 }] : []));
 }
 
-/** A state machine over the whole text: a comma inside quotes is data, and a
- *  newline inside quotes is still the same cell. */
+/**
+ * A state machine over the whole text, RFC 4180 in the parts that change data:
+ * a quote opens a value and appears nowhere else, `""` inside a quoted value
+ * is one quote, and a comma or a line break inside quotes is content. A record
+ * ends only at a line break outside quotes, which is what makes record numbers
+ * mean the same thing to a reader as they do to this parser.
+ *
+ * Spaces around an unquoted value are trimmed, since spreadsheets add them by
+ * accident. A quoted value is kept exactly as written.
+ *
+ * A quote where RFC 4180 does not allow one is a refusal: repairing it would
+ * silently move values into neighbouring columns.
+ */
 export function parseCsv(raw: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
+  const records: string[][] = [];
+  let record: string[] = [];
   let cell = "";
   let quoted = false;
+  let state: "start" | "plain" | "quoted" | "closed" = "start";
+  let line = 1;
+
+  const endField = () => {
+    record.push(quoted ? cell : cell.trim());
+    cell = "";
+    quoted = false;
+    state = "start";
+  };
+
+  const endRecord = () => {
+    endField();
+    records.push(record);
+    record = [];
+  };
 
   for (let at = 0; at < raw.length; at += 1) {
     const char = raw[at];
 
-    if (quoted) {
+    if (state === "quoted") {
       if (char === '"') {
         if (raw[at + 1] === '"') { cell += '"'; at += 1; }
-        else quoted = false;
-      } else {
-        cell += char;
+        else state = "closed";
+        continue;
       }
+
+      if (char === "\r" || char === "\n") {
+        if (char === "\r" && raw[at + 1] === "\n") at += 1;
+        cell += "\n";
+        line += 1;
+        continue;
+      }
+
+      cell += char;
       continue;
     }
 
-    if (char === '"') { quoted = true; continue; }
-    if (char === ",") { row.push(cell.trim()); cell = ""; continue; }
-    if (char === "\n" || char === "\r") {
+    if (state === "closed") {
+      if (char === ",") { endField(); continue; }
+      if (char === "\r" || char === "\n") {
+        if (char === "\r" && raw[at + 1] === "\n") at += 1;
+        endRecord();
+        line += 1;
+        continue;
+      }
+
+      throw malformedCsv(line, "a closing quote must be followed by a comma or the end of the line");
+    }
+
+    if (char === '"') {
+      if (state !== "start") {
+        throw malformedCsv(line, "a quote may only open a value, so wrap the whole value in quotes");
+      }
+      state = "quoted";
+      quoted = true;
+      continue;
+    }
+
+    if (char === ",") { endField(); continue; }
+    if (char === "\r" || char === "\n") {
       if (char === "\r" && raw[at + 1] === "\n") at += 1;
-      row.push(cell.trim());
-      rows.push(row);
-      row = [];
-      cell = "";
+      endRecord();
+      line += 1;
       continue;
     }
 
+    state = "plain";
     cell += char;
   }
 
-  if (cell.length > 0 || row.length > 0) { row.push(cell.trim()); rows.push(row); }
+  if (state === "quoted") {
+    throw malformedCsv(line, "a quoted value was never closed");
+  }
 
-  return rows.filter((line) => line.some((value) => value.length > 0));
+  if (state !== "start" || record.length > 0) endRecord();
+
+  return records;
 }
 
-/** One block per run of rows, headers repeated, row range recorded. Empty
- *  cells are kept so every value stays under its own column. */
-export function sheetBlocks(name: string, headers: string[], rows: string[][]): SourceBlock[] {
+function malformedCsv(line: number, detail: string): ExtractError {
+  return new ExtractError(
+    "SOURCE_UNSUPPORTED",
+    `That CSV could not be read: ${detail} (line ${line}). A value containing a comma, a quote or a line break belongs inside double quotes, and a quote inside such a value is written as two quotes.`,
+  );
+}
+
+/** One block per run of rows, headers repeated, the covered rows recorded.
+ *  Empty cells are kept so every value stays under its own column. */
+export function sheetBlocks(name: string, headers: string[], rows: TableRow[]): SourceBlock[] {
   // A loop, not `Math.max(...rows.map(...))`: a quarter of a million rows
   // overflow the argument stack, and a CSV that large is inside the limit.
   let width = headers.length;
-  for (const row of rows) if (row.length > width) width = row.length;
+  for (const row of rows) if (row.cells.length > width) width = row.cells.length;
 
   const head = `Columns: ${Array.from({ length: width }, (_, at) => headers[at] ?? "").join(" | ")}`;
 
   return Array.from({ length: Math.ceil(rows.length / ROWS_PER_BLOCK) }, (_, block) => {
     const from = block * ROWS_PER_BLOCK;
     const slice = rows.slice(from, from + ROWS_PER_BLOCK);
-    const lines = slice.map((row) => Array.from({ length: width }, (_, at) => row[at] ?? "").join(" | "));
+    const lines = slice.map((row) => Array.from({ length: width }, (_, at) => row.cells[at] ?? "").join(" | "));
 
     return {
       text: `${head}\n${lines.join("\n")}`,
       sheet: name,
-      rowFrom: from + 1,
-      rowTo: from + slice.length,
+      // The rows' own numbers, not their positions in this block.
+      rowFrom: slice[0].number,
+      rowTo: slice[slice.length - 1].number,
     };
   });
 }
 
-export function csvBlocks(rows: string[][]): { blocks: SourceBlock[]; meta: TableMeta } {
-  const headers = rows[0] ?? [];
-  const data = rows.slice(1);
+export function csvBlocks(records: string[][]): { blocks: SourceBlock[]; meta: TableMeta } {
+  // The header is the first record that carries anything, and every record
+  // keeps the number it has in the file from there. A blank record is still a
+  // record: dropping it would move every citation after it onto the wrong one.
+  const head = records.findIndex((cells) => cells.some((value) => value.length > 0));
+  const headers = head >= 0 ? records[head] : [];
+
+  const data = records
+    .slice(head + 1)
+    .map((cells, at) => ({ number: head + at + 2, cells }))
+    .filter((row) => row.cells.some((value) => value.length > 0));
 
   return {
-    blocks: sheetBlocks("CSV", headers, data),
-    meta: { kind: "table", sheets: [{ name: "CSV", headers, rowCount: data.length }] },
+    blocks: sheetBlocks(CSV_SHEET, headers, data),
+    meta: { kind: "table", sheets: [{ name: CSV_SHEET, headers, rowCount: data.length }] },
   };
 }
 
@@ -346,21 +435,28 @@ async function xlsxBlocks(bytes: Buffer): Promise<{ blocks: SourceBlock[]; meta:
   const sheets: TableMeta["sheets"] = [];
 
   for (const sheet of workbook.worksheets) {
-    const rows: string[][] = [];
+    const rows: TableRow[] = [];
     let width = 0;
 
     sheet.eachRow({ includeEmpty: false }, (row) => {
       width = Math.max(width, row.cellCount);
       const cells: string[] = [];
       for (let column = 1; column <= row.cellCount; column += 1) cells.push(String(row.getCell(column).text ?? "").trim());
-      rows.push(cells);
+      // `row.number` is the worksheet's own number, so a blank row leaves a
+      // hole in the numbering instead of shifting everything after it.
+      rows.push({ number: row.number, cells });
     });
 
     if (rows.length === 0) continue;
 
-    const padded = rows.map((row) => Array.from({ length: width }, (_, at) => row[at] ?? ""));
-    const headers = padded[0] ?? [];
-    const data = padded.slice(1);
+    const padded = rows.map((row) => ({
+      number: row.number,
+      cells: Array.from({ length: width }, (_, at) => row.cells[at] ?? ""),
+    }));
+
+    const [first, ...rest] = padded;
+    const headers = first?.cells ?? [];
+    const data = rest.filter((row) => row.cells.some((value) => value.length > 0));
 
     blocks.push(...sheetBlocks(sheet.name, headers, data));
     sheets.push({ name: sheet.name, headers, rowCount: data.length });
