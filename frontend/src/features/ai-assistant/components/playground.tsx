@@ -1,22 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { CornerDownLeft, Loader2, Send, TriangleAlert } from "lucide-react";
+import {
+  ChevronDown,
+  CornerDownLeft,
+  Loader2,
+  Send,
+  TriangleAlert,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
 
 import { ApiError, askAgent, fetchSources } from "../api";
 import type { Agent, AskResult, Citation, Source } from "../types";
 
-const FIELD =
-  "w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
+/** The longest question the API accepts, mirrored so the counter cannot lie. */
+const MAX_QUESTION = 2_000;
+
+/** One line until the text needs more; the box scrolls rather than growing
+ *  the card and pushing the conversation out of view. */
+const COMPOSER =
+  "min-h-9 w-full min-w-0 flex-1 resize-none rounded-lg border border-input bg-background px-3 py-[7px] text-[13px] leading-snug text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
 
 interface Entry {
   id: string;
   question: string;
   result: AskResult;
+  at: Date;
 }
 
 /**
@@ -59,6 +70,14 @@ function rowRange(citation: Citation): string | null {
   return `${citation.rowFrom}–${citation.rowTo}`;
 }
 
+/** The bubble's clock, in the reader's own locale. */
+function clockOf(at: Date): string {
+  return at.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /**
  * The playground: the same retrieval and the same prompt as a live reply, with
  * the send step removed.
@@ -66,6 +85,11 @@ function rowRange(citation: Citation): string | null {
  * This is the screen that decides whether an agent is safe to activate — it
  * needs no WhatsApp traffic, and it shows the citations, so "it sounded right"
  * can be checked against what it actually read.
+ *
+ * Laid out as a conversation rather than a list of results: the question is
+ * what a customer would type, the answer is what they would receive, and the
+ * citations are a reference the answer can be opened up to rather than a block
+ * that crowds it out.
  */
 export function Playground({ agent }: { agent: Agent }) {
   const toast = useToast();
@@ -74,6 +98,7 @@ export function Playground({ agent }: { agent: Agent }) {
   const [entries, setEntries] = React.useState<Entry[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [sources, setSources] = React.useState<Record<string, Source>>({});
+  const scroller = React.useRef<HTMLDivElement | null>(null);
 
   // A citation says which slice it read but not what kind of file it came from,
   // and the row wording depends on that. The list is fetched once per agent;
@@ -94,6 +119,14 @@ export function Playground({ agent }: { agent: Agent }) {
     };
   }, [agent.id]);
 
+  // Newest at the bottom, like the thread it imitates. Only the message box is
+  // scrolled — `scrollIntoView` would move the page under a reader who is
+  // halfway down the screen.
+  React.useEffect(() => {
+    const box = scroller.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [entries.length, busy]);
+
   async function ask() {
     const trimmed = question.trim();
     if (!trimmed || busy) return;
@@ -104,8 +137,13 @@ export function Playground({ agent }: { agent: Agent }) {
       const result = await askAgent(agent.id, trimmed);
 
       setEntries((current) => [
-        { id: `${Date.now()}`, question: trimmed, result },
         ...current,
+        {
+          id: `${Date.now()}-${current.length}`,
+          question: trimmed,
+          result,
+          at: new Date(),
+        },
       ]);
       setQuestion("");
     } catch (caught) {
@@ -122,137 +160,210 @@ export function Playground({ agent }: { agent: Agent }) {
     }
   }
 
+  const initial = agent.name.trim().charAt(0).toUpperCase() || "A";
+
   return (
-    <div className="space-y-5">
-      <form
-        className="rounded-xl border border-border bg-card p-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void ask();
-        }}
-      >
-        <div className="flex items-end justify-between gap-3">
-          <label
-            className="text-[13px] font-medium text-foreground"
-            htmlFor="playground-question"
+    // 680px is the conversation's own width; the page around it is allowed to
+    // be wider, so the chat sits centred instead of stretching with the panel.
+    <div className="w-full px-3 sm:px-0">
+      <div className="mx-auto flex h-[min(68dvh,640px)] min-h-[420px] w-full max-w-[680px] flex-col overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-card px-3 py-2">
+          <span
+            aria-hidden="true"
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand"
           >
-            Ask what a customer would ask
-          </label>
-          <span className="text-[11.5px] tabular-nums text-muted-foreground">
-            {question.length} / 2,000
+            {initial}
           </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-medium text-foreground">
+              {agent.name}
+            </p>
+            <p className="truncate text-[11px] leading-tight text-muted-foreground">
+              Playground · nothing is sent to WhatsApp
+            </p>
+          </div>
+          {entries.length > 0 ? (
+            <Button
+              disabled={busy}
+              onClick={() => setEntries([])}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Clear
+            </Button>
+          ) : null}
         </div>
 
-        <textarea
-          className={cn(FIELD, "mt-1.5 min-h-[84px] resize-y py-2.5 leading-relaxed")}
-          disabled={busy}
-          id="playground-question"
-          maxLength={2_000}
-          onChange={(event) => setQuestion(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter sends, Shift+Enter breaks the line: the same shape as the
-            // inbox composer, so the habit carries over.
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void ask();
-            }
-          }}
-          placeholder="Do you deliver to Mumbai, and how much is a kilo?"
-          value={question}
-        />
+        <div
+          className="min-h-0 flex-1 overflow-y-auto bg-background px-3 py-3"
+          ref={scroller}
+        >
+          {entries.length === 0 && !busy ? (
+            <div className="grid min-h-full place-items-center px-4">
+              <p className="max-w-[36ch] text-center text-[12px] leading-relaxed text-muted-foreground">
+                Ask what a customer would ask. The agent answers from its own
+                material, and every answer keeps what it read one tap away.
+              </p>
+            </div>
+          ) : (
+            <ol className="flex flex-col gap-2.5">
+              {entries.map((entry) => (
+                <React.Fragment key={entry.id}>
+                  <li className="flex justify-end">
+                    <div className="max-w-[80%] rounded-xl rounded-br-sm bg-brand-soft px-3 py-2 text-foreground shadow-xs">
+                      <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+                        {entry.question}
+                      </p>
+                      <p className="mt-1 text-right text-[10px] tabular-nums text-muted-foreground">
+                        {clockOf(entry.at)}
+                      </p>
+                    </div>
+                  </li>
 
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-            Nothing is sent to WhatsApp. Every question is still recorded as a
-            run, so its tokens appear in Activity.
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="hidden items-center gap-1 text-[11px] text-muted-foreground sm:inline-flex">
-              <CornerDownLeft className="size-3" aria-hidden="true" />
-              Enter
-            </span>
-            <Button disabled={busy || !question.trim()} size="sm" type="submit" variant="brand">
+                  <li className="flex justify-start">
+                    <div className="max-w-[80%] rounded-xl rounded-bl-sm border border-border bg-card px-3 py-2 text-foreground shadow-xs">
+                      {entry.result.reason === "no-context" ? (
+                        <p className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-warning/45 bg-warning/10 px-2 py-0.5 text-[11px] font-medium">
+                          <TriangleAlert className="size-3" aria-hidden="true" />
+                          Nothing in the material answered this
+                        </p>
+                      ) : null}
+
+                      <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+                        {entry.result.answer}
+                      </p>
+
+                      {entry.result.citations.length > 0 ? (
+                        <details className="group mt-2 rounded-lg border border-border bg-background/70">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 text-[11px] font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+                            <span>
+                              Read from {entry.result.citations.length}{" "}
+                              {entry.result.citations.length === 1
+                                ? "reference"
+                                : "references"}
+                            </span>
+                            <ChevronDown
+                              aria-hidden="true"
+                              className="size-3 shrink-0 transition-transform group-open:rotate-180"
+                            />
+                          </summary>
+
+                          <ul className="space-y-1.5 border-t border-border p-2">
+                            {entry.result.citations.map((citation, index) => {
+                              const place = placeOf(
+                                citation,
+                                sources[citation.sourceId],
+                              );
+
+                              return (
+                                <li
+                                  className="rounded-md border border-border bg-card px-2 py-1.5"
+                                  key={`${entry.id}-${index}-${citation.sourceId}-${citation.score}`}
+                                >
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <p className="min-w-0 truncate text-[11.5px] font-medium text-foreground">
+                                      {citation.title}
+                                    </p>
+                                    <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
+                                      {citation.score.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  {place !== null ? (
+                                    <p className="truncate text-[10.5px] leading-tight text-muted-foreground">
+                                      {place}
+                                    </p>
+                                  ) : null}
+                                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                                    {citation.text}
+                                  </p>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </details>
+                      ) : null}
+
+                      <p className="mt-1.5 flex items-center justify-between gap-2 text-[10px] tabular-nums text-muted-foreground">
+                        <span>
+                          {entry.result.tokens.input.toLocaleString()} in ·{" "}
+                          {entry.result.tokens.output.toLocaleString()} out ·{" "}
+                          {entry.result.tokens.embedding.toLocaleString()}{" "}
+                          embedding
+                        </span>
+                        <span>{clockOf(entry.at)}</span>
+                      </p>
+                    </div>
+                  </li>
+                </React.Fragment>
+              ))}
+
+              {busy ? (
+                <li aria-live="polite" className="flex justify-start">
+                  <div className="inline-flex items-center gap-2 rounded-xl rounded-bl-sm border border-border bg-card px-3 py-2 text-[12px] text-muted-foreground">
+                    <Loader2
+                      aria-hidden="true"
+                      className="size-3.5 animate-spin"
+                    />
+                    Reading the material…
+                  </div>
+                </li>
+              ) : null}
+            </ol>
+          )}
+        </div>
+
+        <form
+          className="shrink-0 border-t border-border bg-card p-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void ask();
+          }}
+        >
+          <div className="flex items-end gap-2">
+            <label className="sr-only" htmlFor="playground-question">
+              Ask what a customer would ask
+            </label>
+            <textarea
+              className={COMPOSER}
+              disabled={busy}
+              id="playground-question"
+              maxLength={MAX_QUESTION}
+              onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter sends, Shift+Enter breaks the line: the same shape as
+                // the inbox composer, so the habit carries over.
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void ask();
+                }
+              }}
+              placeholder="Do you deliver to Mumbai, and how much is a kilo?"
+              rows={1}
+              value={question}
+            />
+            <Button
+              disabled={busy || !question.trim()}
+              size="sm"
+              type="submit"
+              variant="brand"
+            >
               {busy ? <Loader2 className="animate-spin" /> : <Send />}
               Ask
             </Button>
           </div>
-        </div>
-      </form>
 
-      {entries.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border bg-card/60 px-4 py-8 text-center text-[12.5px] leading-relaxed text-muted-foreground">
-          No question yet. Ask one whose answer you know is in the material, then
-          one that is not — the second should offer to hand the customer to a
-          person.
-        </p>
-      ) : null}
-
-      <ul className="space-y-4">
-        {entries.map((entry) => (
-          <li
-            className="rounded-xl border border-border bg-card p-4"
-            key={entry.id}
-          >
-            <p className="text-[12.5px] font-medium text-muted-foreground">
-              {entry.question}
-            </p>
-
-            {entry.result.reason === "no-context" ? (
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-warning/45 bg-warning/10 px-2.5 py-1 text-[11.5px] font-medium text-foreground">
-                <TriangleAlert className="size-3.5" aria-hidden="true" />
-                Nothing in the material answered this
-              </p>
-            ) : null}
-
-            <p className="mt-2 text-[13.5px] leading-relaxed whitespace-pre-wrap text-foreground">
-              {entry.result.answer}
-            </p>
-
-            {entry.result.citations.length > 0 ? (
-              <div className="mt-3 space-y-1.5">
-                <p className="text-[11.5px] font-medium text-muted-foreground">
-                  Read from
-                </p>
-                {entry.result.citations.map((citation, index) => {
-                  const place = placeOf(citation, sources[citation.sourceId]);
-
-                  return (
-                    <div
-                      className="rounded-lg border border-border bg-background px-2.5 py-2"
-                      key={`${entry.id}-${index}-${citation.sourceId}-${citation.score}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-[12px] font-medium text-foreground">
-                            {citation.title}
-                          </p>
-                          {place !== null ? (
-                            <p className="truncate text-[11px] text-muted-foreground">
-                              {place}
-                            </p>
-                          ) : null}
-                        </div>
-                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                          {citation.score.toFixed(2)}
-                        </span>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-muted-foreground">
-                        {citation.text}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            <p className="mt-3 text-[11px] tabular-nums text-muted-foreground">
-              {entry.result.tokens.input.toLocaleString()} in ·{" "}
-              {entry.result.tokens.output.toLocaleString()} out ·{" "}
-              {entry.result.tokens.embedding.toLocaleString()} embedding tokens
-            </p>
-          </li>
-        ))}
-      </ul>
+          <div className="mt-1 flex items-center justify-between gap-2 px-1 text-[10.5px] leading-tight text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <CornerDownLeft aria-hidden="true" className="size-2.5" />
+              Enter sends · Shift+Enter breaks the line
+            </span>
+            <span className="tabular-nums">
+              {question.length} / {MAX_QUESTION.toLocaleString()}
+            </span>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
