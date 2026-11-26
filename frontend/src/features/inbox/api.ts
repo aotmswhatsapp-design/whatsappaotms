@@ -1,5 +1,5 @@
 import { request, upload } from "@/lib/api/http";
-import type { BotFlow, BotView } from "@/lib/bots/card";
+import type { BotCard, BotFlow, BotView } from "@/lib/bots/card";
 
 export { ApiError } from "@/lib/api/http";
 
@@ -106,6 +106,13 @@ export interface InboxMessage {
   quotedMessageId: string | null;
   /** Contents of a location pin or a contact card; null for every other kind. */
   payload: MessagePayload;
+  /**
+   * The bot card this message carried, as it was sent. Null for everything
+   * that is not a card — a card's payload column holds the whole flow, so the
+   * location/contact reader above answers null for it, and the bubble draws
+   * this instead.
+   */
+  card: BotCard | null;
 }
 
 /** One card from a contact message. */

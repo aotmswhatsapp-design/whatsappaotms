@@ -6,6 +6,9 @@ import type {
   Prisma,
 } from "@prisma/client";
 
+import type { BotCard } from "../bots/bot.card";
+import { snapshotIn } from "../bots/bot.snapshot";
+
 /**
  * The shapes the browser consumes, plus the Prisma selections that feed them.
  *
@@ -181,6 +184,15 @@ export interface MessageView {
   quotedMessageId: string | null;
   /** Contents of a location or a contact card; null for every other kind. */
   payload: MessagePayload;
+  /**
+   * The bot card this message carried, exactly as it was sent — the picture,
+   * the header, the information and the buttons that went with it.
+   *
+   * Null for everything that is not a card. A card's `payload` column holds
+   * the whole flow (so a tap can be routed against what the customer saw), and
+   * `payload` above stays null for it: the bubble draws this card instead.
+   */
+  card: BotCard | null;
 }
 
 export interface NoteView {
@@ -253,7 +265,21 @@ export function messageView(
       ? (byWamid?.get(row.contextWamid) ?? null)
       : null,
     payload: payloadView(row.kind, row.payload),
+    card: cardOf(row.payload),
   };
+}
+
+/**
+ * The card a stored snapshot names.
+ *
+ * Read with `snapshotIn` — the same reader that routes the customer's tap — so
+ * the thread draws the card the buttons were sent with, not a newer edit of
+ * it. The column holds the whole flow; the bubble needs only the one card.
+ */
+function cardOf(raw: Prisma.JsonValue): BotCard | null {
+  const snapshot = snapshotIn(raw);
+
+  return snapshot?.flow.cards.find((card) => card.id === snapshot.cardId) ?? null;
 }
 
 /** A location and a contact card are read back as the shape the bubble draws. */

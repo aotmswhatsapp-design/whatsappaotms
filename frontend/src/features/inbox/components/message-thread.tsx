@@ -19,6 +19,10 @@ import {
   Trash2,
 } from "lucide-react";
 
+import {
+  BotCardBody,
+  isInteractive,
+} from "@/components/workspace/bot-card-preview";
 import { EmptyState } from "@/components/workspace/empty-state";
 import {
   DropdownMenu,
@@ -684,6 +688,11 @@ function Bubble({
   onHide: (message: InboxMessage) => void;
 }) {
   const outbound = message.direction === "OUTBOUND";
+  // A card arrives with its picture and its choices only when it was sent as
+  // an interactive message. A card with no buttons, or with more rows than a
+  // list holds, went out as plain text — `body` already holds that text, so
+  // drawing the card too would show the customer a message they never got.
+  const card = message.card && isInteractive(message.card) ? message.card : null;
 
   return (
     <div
@@ -736,7 +745,18 @@ function Bubble({
               `body` repeats the first line of those contents (a pin's name, a
               card's names), so it is the payload or the body, never both. */}
           <MessageContents message={message} />
-          {message.payload ? null : <MessageLabel kind={message.kind} />}
+          {message.payload || card ? null : <MessageLabel kind={message.kind} />}
+
+          {/* The card as it was sent: the picture header, the header line, the
+              information and the pills under it. `BotCardBody` is the same
+              markup `BotCardPreview` draws in the builder and the send panel,
+              so one card reads the same in all three places. The bubble's own
+              time and ticks stay below it — the card carries no timestamp. */}
+          {card ? (
+            <div className="mb-1.5">
+              <BotCardBody card={card} className="w-[17rem] max-w-full" />
+            </div>
+          ) : null}
 
           {/* A template send says which template produced it, and — when the
               override was used — what the whole bubble opened. */}
@@ -752,7 +772,7 @@ function Bubble({
             </p>
           ) : null}
 
-          {message.body && !message.payload ? (
+          {message.body && !message.payload && !card ? (
             <p className="mt-0.5 break-words whitespace-pre-wrap leading-relaxed">
               {message.body}
             </p>

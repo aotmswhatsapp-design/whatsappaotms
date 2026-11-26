@@ -1,4 +1,5 @@
 import { ChevronLeft, MoreVertical } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -26,6 +27,18 @@ export function shapeOfCard(card: BotCard): CardShape {
   if (buttons <= MAX_LIST_ROWS) return "list";
 
   return "numbered";
+}
+
+/**
+ * True when this card is sent as a WhatsApp interactive message — the shape
+ * that carries a picture header and tappable choices. A card with no buttons,
+ * or with more rows than a list holds, arrives as plain text instead, and the
+ * thread already shows that text.
+ */
+export function isInteractive(card: BotCard): boolean {
+  const shape = shapeOfCard(card);
+
+  return shape === "buttons" || shape === "list";
 }
 
 /** One sentence for the owner, naming the shape and why. */
@@ -128,61 +141,11 @@ export function BotCardPreview({
           // The picture is drawn even when the card has no buttons, so picking
           // one always shows what was picked; `shapeNote` says plainly that
           // such a card still arrives as plain text.
-          <div className="ml-auto w-[260px] max-w-full min-w-0 overflow-hidden rounded-lg rounded-tr-none bg-white shadow-sm">
-            {card.imageUrl ? (
-              // Meta fetches this URL from its own servers, so it is not a
-              // local path and `next/image` would need a remote pattern for an
-              // origin we do not control.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                alt=""
-                className="block aspect-[1.91/1] w-full object-cover"
-                src={card.imageUrl}
-              />
-            ) : null}
-
-            <div className="px-2.5 pt-2 pb-1.5">
-              {title ? (
-                <p className="text-[13.5px] leading-snug font-normal break-words whitespace-pre-wrap text-[#111b21]">
-                  {title}
-                </p>
-              ) : null}
-
-              {/* Meta rejects a blank body, so a card with no information is
-                  sent with its title as the body — which is what this shows. */}
-              <p
-                className={cn(
-                  "text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]",
-                  title ? "mt-1" : null,
-                )}
-              >
-                {info || title || "Menu"}
-              </p>
-
-              <Timestamp />
-            </div>
-
-            {shape === "buttons" ? (
-              <div className="flex flex-wrap gap-1.5 border-t border-black/10 p-2">
-                {buttons.map((button) => (
-                  <div
-                    className="min-w-0 grow basis-[calc(50%-0.375rem)] rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal break-words text-[#111b21]"
-                    key={button.id}
-                  >
-                    {button.label}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {shape === "list" ? (
-              <div className="border-t border-black/10 p-2">
-                <div className="rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal text-[#111b21]">
-                  See options
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <BotCardBody
+            card={card}
+            className="ml-auto w-[260px] max-w-full rounded-tr-none"
+            footer={<Timestamp />}
+          />
         )}
       </div>
     </div>
@@ -197,5 +160,93 @@ function Timestamp() {
         ✓✓
       </span>
     </p>
+  );
+}
+
+/**
+ * The card itself — picture, header, information and choices — without the
+ * phone frame around it.
+ *
+ * `BotCardPreview` wraps it in the app bar for the builder and the send panel;
+ * the inbox thread puts the same markup inside a real conversation bubble, so
+ * a card sent once reads identically in all three places. `footer` is the
+ * preview's own timestamp line; the thread's bubble carries its time and ticks
+ * outside the card.
+ */
+export function BotCardBody({
+  card,
+  footer,
+  className,
+}: {
+  card: BotCard;
+  footer?: ReactNode;
+  className?: string;
+}) {
+  const shape = shapeOfCard(card);
+  const buttons = shownButtons(card);
+  const title = card.title.trim();
+  const info = card.info.trim();
+
+  return (
+    <div
+      className={cn(
+        "min-w-0 overflow-hidden rounded-lg bg-white shadow-sm",
+        className,
+      )}
+    >
+      {card.imageUrl ? (
+        // Meta fetches this URL from its own servers, so it is not a local
+        // path and `next/image` would need a remote pattern for an origin we
+        // do not control.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          className="block aspect-[1.91/1] w-full object-cover"
+          src={card.imageUrl}
+        />
+      ) : null}
+
+      <div className="px-2.5 pt-2 pb-1.5">
+        {title ? (
+          <p className="text-[13.5px] leading-snug font-normal break-words whitespace-pre-wrap text-[#111b21]">
+            {title}
+          </p>
+        ) : null}
+
+        {/* Meta rejects a blank body, so a card with no information is sent
+            with its title as the body — which is what this shows. */}
+        <p
+          className={cn(
+            "text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]",
+            title ? "mt-1" : null,
+          )}
+        >
+          {info || title || "Menu"}
+        </p>
+
+        {footer}
+      </div>
+
+      {shape === "buttons" ? (
+        <div className="flex flex-wrap gap-1.5 border-t border-black/10 p-2">
+          {buttons.map((button) => (
+            <div
+              className="min-w-0 grow basis-[calc(50%-0.375rem)] rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal break-words text-[#111b21]"
+              key={button.id}
+            >
+              {button.label}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {shape === "list" ? (
+        <div className="border-t border-black/10 p-2">
+          <div className="rounded-full border border-[#111b21]/45 px-2.5 py-1.5 text-center text-[12px] leading-tight font-normal text-[#111b21]">
+            See options
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
