@@ -66,7 +66,7 @@ export const plans: PricingPlan[] = [
       "-",
       "Email support",
     ],
-    modules: moduleAccess("Chatbot flows", "Automation rules"),
+    modules: moduleAccess(),
     buttonText: "Choose Starter",
     href: "/contact",
     isPopular: false,
