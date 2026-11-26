@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { AuthModule } from "../auth/auth.module";
+import { BotsModule } from "../bots/bots.module";
 import { InboxModule } from "../inbox/inbox.module";
 import { MEDIA_BUCKET, MediaStorage } from "../inbox/media.storage";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
@@ -19,12 +20,13 @@ import { LocalKnowledgeSearch } from "./search/local.search";
 
 /**
  * AuthModule supplies the guard, WorkspacesModule the tenant, and InboxModule
- * the sender `ReplyService` answers through. Everything else is this module's
- * own. The agents run in this process on a timer, so there is no client to
- * share and no queue to reach.
+ * the sender `ReplyService` answers through. BotsModule lends the flow store, so
+ * a keyword rule can answer a card without a second copy of that SQL. Everything
+ * else is this module's own. The agents run in this process on a timer, so there
+ * is no client to share and no queue to reach.
  */
 @Module({
-  imports: [AuthModule, WorkspacesModule, InboxModule],
+  imports: [AuthModule, WorkspacesModule, InboxModule, BotsModule],
   controllers: [AgentsController, KnowledgeController, AiController],
   providers: [
     AgentsService,

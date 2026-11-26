@@ -44,12 +44,30 @@ export interface BotCard {
   buttons: BotButton[];
 }
 
+/**
+ * "When the customer says this, send that."
+ *
+ * The reply is a card of the same flow, so a rule is a trigger list and a
+ * pointer — never a second copy of a message that could drift from the card the
+ * business edits.
+ */
+export interface BotRule {
+  id: string;
+  /** Words or short phrases. Any one of them fires the rule. */
+  triggers: string[];
+  /** The card of this flow that goes out. */
+  replyCardId: string;
+  enabled: boolean;
+}
+
 /** Where the bot starts. */
 export interface BotFlow {
   id: string;
   /** Null means the bot has no entry card and cannot greet anyone yet. */
   rootCardId: string | null;
   cards: BotCard[];
+  /** Tried in order: the first rule that matches answers. */
+  rules: BotRule[];
 }
 
 /** What `GET /v1/agents/:id/bot` answers with. */
@@ -71,7 +89,7 @@ export function newBotId(prefix: string): string {
 }
 
 export function emptyFlow(agentId: string): BotFlow {
-  return { id: agentId, rootCardId: null, cards: [] };
+  return { id: agentId, rootCardId: null, cards: [], rules: [] };
 }
 
 export function newCard(): BotCard {
@@ -86,6 +104,29 @@ export function newCard(): BotCard {
 
 export function newButton(): BotButton {
   return { id: newBotId("btn"), label: "", action: { kind: "handoff" } };
+}
+
+/** A rule with nothing typed yet, already pointing at a card that exists. */
+export function newRule(replyCardId: string): BotRule {
+  return { id: newBotId("rule"), triggers: [], replyCardId, enabled: true };
+}
+
+/**
+ * The trigger box is one text field: "hi, hello, hey".
+ *
+ * Commas and newlines both separate, so a pasted list works, and blank entries
+ * disappear instead of becoming a trigger that can never fire.
+ */
+export function triggersOf(text: string): string[] {
+  return text
+    .split(/[,\n]/u)
+    .map((trigger) => trigger.trim())
+    .filter((trigger) => trigger.length > 0);
+}
+
+/** The same list back as one editable line. */
+export function triggerText(rule: BotRule): string {
+  return rule.triggers.join(", ");
 }
 
 /**

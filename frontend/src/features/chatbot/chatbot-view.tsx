@@ -25,14 +25,17 @@ import { useWorkspaceRole } from "@/hooks/use-workspace-role";
 import {
   emptyFlow,
   newCard,
+  newRule,
   type BotAction,
   type BotCard,
   type BotFlow,
+  type BotRule,
 } from "@/lib/bots/card";
 import { cn } from "@/lib/utils";
 
 import { ApiError, fetchAgents, fetchBot, saveBot, type BotAgent } from "./api";
 import { CardEditor } from "./components/card-editor";
+import { RuleList } from "./components/rule-list";
 
 const nav = getNavItem("/workspace/chatbot");
 
@@ -44,13 +47,14 @@ interface Loaded {
 }
 
 /**
- * The chatbot screen: one flow per agent, a handful of cards, and the picture
- * of what the customer will actually receive.
+ * The chatbot screen: one flow per agent — its cards, the keyword rules that
+ * answer on their own, and the picture of what a customer will actually
+ * receive.
  *
- * It authors only. Nothing here triggers by itself — an owner sends a card into
- * a conversation from the Inbox, and the taps under it are answered by the same
- * router the inbox already uses. Automatic triggers are a later step, and a
- * switch that claimed to turn them on would be lying until then.
+ * Two ways a customer meets this bot. A rule fires from an inbound message with
+ * nobody present: "hi" gets the welcome card and the assistant stays quiet. A
+ * card can also be sent by hand into a conversation from the Inbox, and the taps
+ * under it are answered by the same router.
  *
  * Writing is the owner's, server-side. The role is read here for the same
  * reason: a control that always answers 403 is worse than no control. While the
@@ -210,12 +214,15 @@ export function ChatbotView() {
    * The server refuses a button that opens a card outside the flow, so leaving
    * the reference behind would make the whole flow unsavable until the owner
    * found the one broken button. Handing off to a person is the safe landing:
-   * it is the one action that cannot point anywhere wrong.
+   * it is the one action that cannot point anywhere wrong. A rule that replied
+   * with the card goes with it for the same reason — a rule with no card can
+   * never answer, and the server will not save one.
    */
   function removeCard(id: string): void {
     edit((flow) => ({
       ...flow,
       rootCardId: flow.rootCardId === id ? null : flow.rootCardId,
+      rules: flow.rules.filter((rule) => rule.replyCardId !== id),
       cards: flow.cards
         .filter((card) => card.id !== id)
         .map((card) => ({
@@ -229,6 +236,30 @@ export function ChatbotView() {
             return action ? { ...button, action } : button;
           }),
         })),
+    }));
+  }
+
+  function addRule(): void {
+    const first = draft?.cards[0];
+
+    // A rule needs a card to send, and the cards section is where one comes
+    // from. The button is disabled until there is one; this is the guard.
+    if (!first) return;
+
+    edit((flow) => ({ ...flow, rules: [...flow.rules, newRule(first.id)] }));
+  }
+
+  function updateRule(next: BotRule): void {
+    edit((flow) => ({
+      ...flow,
+      rules: flow.rules.map((rule) => (rule.id === next.id ? next : rule)),
+    }));
+  }
+
+  function removeRule(id: string): void {
+    edit((flow) => ({
+      ...flow,
+      rules: flow.rules.filter((rule) => rule.id !== id),
     }));
   }
 
@@ -254,9 +285,11 @@ export function ChatbotView() {
       toast.push({
         title: "Flow saved",
         description:
-          view.flow.cards.length > 0
-            ? "Send any of its cards from the Inbox, on the Chatbot tab of the reply box."
-            : "This agent now has an empty flow, so the Inbox offers no cards for it.",
+          view.flow.cards.length === 0
+            ? "This agent now has an empty flow, so the Inbox offers no cards for it."
+            : view.flow.rules.length > 0
+              ? "Its rules now answer on their own, and any card can still be sent from the Inbox."
+              : "Send any of its cards from the Inbox, on the Chatbot tab of the reply box.",
         tone: "success",
       });
     } catch (caught) {
@@ -299,7 +332,7 @@ export function ChatbotView() {
             Refresh
           </Button>
         }
-        description="The cards a customer can walk through. You write them here and send one from the Inbox; a tap on a button moves to the next card, opens a link, or puts a person in the thread."
+        description="The cards a customer can walk through, and the words that answer on their own. A rule sends its card the moment a message matches; a card sent from the Inbox is followed by taps on its buttons, which move to the next card, open a link, or put a person in the thread."
         eyebrow={nav.group}
         title={nav.title}
       />
@@ -483,6 +516,15 @@ export function ChatbotView() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
               <div className="space-y-4">
+                <RuleList
+                  disabled={!canManage || saving}
+                  flow={draft ?? emptyFlow(agentId)}
+                  onAdd={addRule}
+                  onChange={updateRule}
+                  onEditCard={setSelectedCardId}
+                  onRemove={removeRule}
+                />
+
                 <section className="rounded-xl border border-border bg-card p-3">
                   <div className="flex items-center justify-between gap-2 px-1">
                     <h2 className="text-sm font-semibold text-foreground">
@@ -590,8 +632,8 @@ export function ChatbotView() {
 
                 <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5">
                   <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-                    Sending is manual and deliberate: open the conversation in
-                    the{" "}
+                    Sending a card by hand is deliberate: open the conversation
+                    in the{" "}
                     <Link
                       className="font-medium text-brand underline-offset-2 hover:underline"
                       href="/workspace/inbox"
@@ -599,9 +641,10 @@ export function ChatbotView() {
                       Inbox
                     </Link>
                     , choose <span className="font-medium">Chatbot</span> in the
-                    reply box, and pick a card. The customer&apos;s taps are
-                    answered from the flow as it was sent, so editing a card
-                    later never changes what an old tap meant.
+                    reply box, and pick a card. Rules need nobody: a customer
+                    message that matches one is answered on its own. Either way,
+                    taps are answered from the flow as it was sent, so editing a
+                    card later never changes what an old tap meant.
                   </p>
                 </div>
               </div>

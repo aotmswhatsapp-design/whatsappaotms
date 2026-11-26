@@ -43,12 +43,37 @@ export interface BotCard {
   buttons: BotButton[];
 }
 
+/**
+ * "When the customer says this, send that."
+ *
+ * The reply is a card of the same flow rather than a copy of one: the builder
+ * already edits cards, and a rule that carried its own message would be a second
+ * editor that could disagree with the first. `enabled` is kept because a rule is
+ * usually rewritten rather than deleted, and a half-edited rule must not answer
+ * anybody while it is being changed.
+ */
+export interface BotRule {
+  id: string;
+  /** Words or short phrases, in the customer's own language. Any one fires. */
+  triggers: string[];
+  /** The card of this flow that goes out when a trigger matches. */
+  replyCardId: string;
+  enabled: boolean;
+}
+
 /** Where the bot starts. */
 export interface BotFlow {
   id: string;
   /** Null means the bot has no entry card and cannot greet anyone yet. */
   rootCardId: string | null;
   cards: BotCard[];
+  /**
+   * Keyword rules, in the order they are tried: the first match answers.
+   *
+   * Reading a flow written before rules existed yields `[]`, so nothing that
+   * already works changes behaviour until a rule is added.
+   */
+  rules: BotRule[];
 }
 
 /**

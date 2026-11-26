@@ -95,7 +95,7 @@ test("a saved flow comes back from the table", async () => {
 test("the flow id is the agent's, whatever the client sent", async () => {
   const bots = build();
   const view = await bots.save(CLAIMS, "agent-1", {
-    flow: { id: "client-generated", rootCardId: null, cards: [] } satisfies BotFlow,
+    flow: { id: "client-generated", rootCardId: null, cards: [], rules: [] } satisfies BotFlow,
   });
 
   assert.equal(view.flow.id, "agent-1");
@@ -134,6 +134,48 @@ test("a flow that points outside itself is refused before anything is written", 
   );
 
   assert.equal(prisma.rows.size, 0);
+});
+
+test("a rule that replies with a card outside the flow is refused", async () => {
+  const prisma = new FakePrisma();
+
+  await assert.rejects(
+    () =>
+      build(prisma).save(CLAIMS, "agent-1", {
+        flow: {
+          id: "agent-1",
+          rootCardId: null,
+          cards: [card("c-root")],
+          rules: [
+            { id: "r-1", triggers: ["hi"], replyCardId: "c-missing", enabled: true },
+          ],
+        },
+      }),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_FLOW_INVALID",
+  );
+});
+
+test("a saved rule comes back with its triggers in order", async () => {
+  const bots = build();
+
+  await bots.save(CLAIMS, "agent-1", {
+    flow: {
+      id: "agent-1",
+      rootCardId: null,
+      cards: [card("c-welcome")],
+      rules: [
+        { id: "r-1", triggers: ["hi", "hello"], replyCardId: "c-welcome", enabled: true },
+      ],
+    },
+  });
+
+  const view = await bots.read(CLAIMS, "agent-1");
+
+  assert.deepEqual(view.flow.rules, [
+    { id: "r-1", triggers: ["hi", "hello"], replyCardId: "c-welcome", enabled: true },
+  ]);
 });
 
 test("a database without the table answers 503 with the migration that installs it", async () => {

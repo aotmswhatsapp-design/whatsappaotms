@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { BotAction, BotCard, BotButton, BotFlow } from "./bot.card";
+import type { BotAction, BotCard, BotButton, BotFlow, BotRule } from "./bot.card";
 import { emptyFlow, flowProblem, MAX_CARDS } from "./bot.flow";
 
 const button = (id: string, label: string, action: BotAction): BotButton => ({
@@ -18,16 +18,45 @@ const card = (id: string, buttons: BotButton[] = []): BotCard => ({
   buttons,
 });
 
-const flow = (cards: BotCard[], rootCardId: string | null = null): BotFlow => ({
+const flow = (
+  cards: BotCard[],
+  rootCardId: string | null = null,
+  rules: BotRule[] = [],
+): BotFlow => ({
   id: "agent-1",
   rootCardId,
   cards,
+  rules,
+});
+
+const rule = (id: string, triggers: string[], replyCardId: string): BotRule => ({
+  id,
+  triggers,
+  replyCardId,
+  enabled: true,
 });
 
 test("a new agent starts with an empty flow that is still its own", () => {
   const fresh = emptyFlow("agent-7");
 
-  assert.deepEqual(fresh, { id: "agent-7", rootCardId: null, cards: [] });
+  assert.deepEqual(fresh, { id: "agent-7", rootCardId: null, cards: [], rules: [] });
+});
+
+test("a rule that replies with a card of the flow is accepted", () => {
+  const accepted = flow([card("c-root"), card("c-welcome")], null, [
+    rule("r-hi", ["hi", "hello"], "c-welcome"),
+  ]);
+
+  assert.equal(flowProblem(accepted), null);
+});
+
+test("a rule no message could ever fire is refused", () => {
+  const refused = flow([card("c-root")], null, [rule("r-1", ["  ", "!!"], "c-root")]);
+
+  assert.equal(
+    flowProblem(refused),
+    "A rule has no trigger, so no customer message can ever fire it.",
+  );
 });
 
 test("a flow whose cards link to each other is accepted", () => {

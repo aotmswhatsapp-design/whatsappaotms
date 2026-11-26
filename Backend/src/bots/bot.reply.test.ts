@@ -8,6 +8,7 @@ import { snapshotOf } from "./bot.snapshot";
 const flow = (): BotFlow => ({
   id: "f-menu",
   rootCardId: "c-menu",
+  rules: [],
   cards: [
     {
       id: "c-menu",

@@ -1,5 +1,6 @@
-import type { BotCard, BotFlow } from "./bot.card";
+import type { BotCard, BotFlow, BotRule } from "./bot.card";
 import { BODY_CHARS, MAX_LIST_ROWS, TEXT_CHARS } from "./bot.limits";
+import { wordsOf } from "./bot.rules";
 
 /**
  * The most cards one flow may hold.
@@ -18,7 +19,7 @@ export const MAX_CARDS = MAX_LIST_ROWS;
  * on `agent_id`), so the flow's identity cannot drift from the agent's.
  */
 export function emptyFlow(agentId: string): BotFlow {
-  return { id: agentId, rootCardId: null, cards: [] };
+  return { id: agentId, rootCardId: null, cards: [], rules: [] };
 }
 
 /**
@@ -52,6 +53,40 @@ export function flowProblem(flow: BotFlow): string | null {
     const problem = cardProblem(card, cardIds);
 
     if (problem) return problem;
+  }
+
+  const ruleIds = new Set<string>();
+
+  for (const rule of flow.rules) {
+    if (ruleIds.has(rule.id)) {
+      return `Two rules share the id ${rule.id}.`;
+    }
+
+    ruleIds.add(rule.id);
+
+    const problem = ruleProblem(rule, cardIds);
+
+    if (problem) return problem;
+  }
+
+  return null;
+}
+
+/**
+ * A rule nobody could ever fire, or one whose card was deleted.
+ *
+ * Both are silent in production — the rule simply never answers — which is
+ * exactly the kind of dead configuration that is worth refusing at save time.
+ */
+function ruleProblem(rule: BotRule, cardIds: Set<string>): string | null {
+  const triggers = rule.triggers.filter((trigger) => wordsOf(trigger).length > 0);
+
+  if (triggers.length === 0) {
+    return "A rule has no trigger, so no customer message can ever fire it.";
+  }
+
+  if (!cardIds.has(rule.replyCardId)) {
+    return "A rule replies with a card that is not part of this flow.";
   }
 
   return null;

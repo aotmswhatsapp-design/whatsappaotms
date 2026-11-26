@@ -1,4 +1,4 @@
-import type { BotAction, BotButton, BotCard, BotFlow } from "./bot.card";
+import type { BotAction, BotButton, BotCard, BotFlow, BotRule } from "./bot.card";
 
 /**
  * What a sent card leaves in `messages.payload`.
@@ -60,7 +60,39 @@ function flowAt(value: unknown): BotFlow | null {
     .map(cardAt)
     .filter((card): card is BotCard => card !== null);
 
-  return { id, rootCardId: stringAt(flow.rootCardId), cards };
+  // Absent on every row written before rules existed, and that is not an error:
+  // a flow with no rules behaves exactly as it always did.
+  const rules = Array.isArray(flow.rules)
+    ? flow.rules.map(ruleAt).filter((rule): rule is BotRule => rule !== null)
+    : [];
+
+  return { id, rootCardId: stringAt(flow.rootCardId), cards, rules };
+}
+
+/**
+ * A stored keyword rule, read defensively.
+ *
+ * A rule with no trigger can never fire and a rule with no card can never
+ * answer, so both are dropped here rather than turned into silence. Saving
+ * refuses them too; this is the reader for rows written by hand.
+ */
+function ruleAt(value: unknown): BotRule | null {
+  const rule = objectAt(value);
+  const id = stringAt(rule?.id);
+  const replyCardId = stringAt(rule?.replyCardId);
+
+  if (!rule || !id || !replyCardId) return null;
+
+  const triggers = Array.isArray(rule.triggers)
+    ? rule.triggers.filter(
+        (word): word is string =>
+          typeof word === "string" && word.trim().length > 0,
+      )
+    : [];
+
+  if (triggers.length === 0) return null;
+
+  return { id, triggers, replyCardId, enabled: rule.enabled !== false };
 }
 
 function cardAt(value: unknown): BotCard | null {

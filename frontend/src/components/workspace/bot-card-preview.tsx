@@ -32,7 +32,9 @@ export function shapeNote(card: BotCard): string {
 
   switch (shapeOfCard(card)) {
     case "text":
-      return "Arrives as plain text: a card with no buttons has nothing to tap.";
+      return card.imageUrl
+        ? "Arrives as plain text, without the picture: an image with nothing to tap leaves the customer no way to say which part they meant."
+        : "Arrives as plain text: a card with no buttons has nothing to tap.";
     case "buttons":
       return `Arrives with ${buttons} reply ${buttons === 1 ? "button" : "buttons"}.`;
     case "list":
@@ -120,7 +122,11 @@ export function BotCardPreview({
             <Timestamp />
           </div>
         ) : (
-          <div className="ml-auto max-w-[92%] min-w-0 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
+          // One message, one card: the picture is the header *inside* the
+          // bubble, and the buttons are rows at its foot. WhatsApp draws an
+          // interactive message this way; separate floating pills would
+          // describe a different kind of message than the one we send.
+          <div className="ml-auto max-w-[92%] min-w-0 overflow-hidden rounded-lg rounded-tr-none bg-white shadow-sm">
             {card.imageUrl && shape !== "text" ? (
               // Meta fetches this URL from its own servers, so it is not a
               // local path and `next/image` would need a remote pattern for an
@@ -128,50 +134,52 @@ export function BotCardPreview({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 alt=""
-                className="mb-1 aspect-[1.91/1] w-full rounded-md object-cover"
+                className="block aspect-[1.91/1] w-full object-cover"
                 src={card.imageUrl}
               />
             ) : null}
 
-            {title ? (
-              <p className="text-[13.5px] leading-snug font-semibold break-words whitespace-pre-wrap text-[#111b21]">
-                {title}
+            <div className="px-2.5 pt-2 pb-1.5">
+              {title ? (
+                <p className="text-[13.5px] leading-snug font-semibold break-words whitespace-pre-wrap text-[#111b21]">
+                  {title}
+                </p>
+              ) : null}
+
+              {/* Meta rejects a blank body, so a card with no information is
+                  sent with its title as the body — which is what this shows. */}
+              <p
+                className={cn(
+                  "text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]",
+                  title ? "mt-1" : null,
+                )}
+              >
+                {info || title || "Menu"}
               </p>
+
+              <Timestamp />
+            </div>
+
+            {shape === "buttons" ? (
+              <div className="border-t border-black/10">
+                {buttons.map((button) => (
+                  <div
+                    className="border-b border-black/10 px-2.5 py-2 text-center text-[13px] font-medium break-words text-[#00a5f4] last:border-b-0"
+                    key={button.id}
+                  >
+                    {button.label}
+                  </div>
+                ))}
+              </div>
             ) : null}
 
-            {/* Meta rejects a blank body, so a card with no information is sent
-                with its title as the body — which is what this shows. */}
-            <p
-              className={cn(
-                "text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]",
-                title ? "mt-1" : null,
-              )}
-            >
-              {info || title || "Menu"}
-            </p>
-
-            <Timestamp />
+            {shape === "list" ? (
+              <div className="border-t border-black/10 px-2.5 py-2 text-center text-[13px] font-medium text-[#00a5f4]">
+                See options
+              </div>
+            ) : null}
           </div>
         )}
-
-        {/* Three reply buttons arrive as their own rows; the rest move behind a
-            single opener. */}
-        {shape === "buttons"
-          ? buttons.map((button) => (
-              <div
-                className="flex items-center justify-center rounded-lg bg-white px-3 py-2 text-center text-[13px] font-medium break-words text-[#00a5f4] shadow-sm"
-                key={button.id}
-              >
-                {button.label}
-              </div>
-            ))
-          : null}
-
-        {shape === "list" ? (
-          <div className="flex items-center justify-center rounded-lg bg-white px-3 py-2 text-center text-[13px] font-medium text-[#00a5f4] shadow-sm">
-            See options
-          </div>
-        ) : null}
       </div>
     </div>
   );

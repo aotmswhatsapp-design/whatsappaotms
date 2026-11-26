@@ -2,6 +2,9 @@ import { ConflictException, HttpException, Injectable } from "@nestjs/common";
 import type { Agent } from "@prisma/client";
 
 import { cardTurn, type CardTurn } from "../bots/bot.reply";
+import type { BotCard, BotFlow } from "../bots/bot.card";
+import { ruleReply } from "../bots/bot.rules";
+import { BotStore } from "../bots/bot.store";
 import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
 import { windowOpen } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
@@ -54,6 +57,7 @@ export class ReplyService {
     private readonly sender: InboxSender,
     private readonly retrieval: RetrievalService,
     private readonly router: AgentRouter,
+    private readonly store: BotStore,
   ) {}
 
   /**
@@ -314,6 +318,17 @@ export class ReplyService {
       return;
     }
 
+    // A keyword rule answers before the knowledge base is searched: the business
+    // wrote both the trigger and the card, so the sentence is theirs and cannot
+    // be contradicted by a retrieval miss. After the tap check on purpose — a
+    // customer picking a button meant exactly that button, not a keyword.
+    const ruled = await this.ruleTurn(agent.id, question);
+
+    if (ruled) {
+      await this.act(run.id, conversation.id, target, agent.id, ruled, started);
+      return;
+    }
+
     try {
       // Cosmetic and already failure-tolerant; it must never stop a reply.
       await this.sender.typing(target);
@@ -453,6 +468,32 @@ export class ReplyService {
   // carry turns into. The conversation engine reads them for repeat detection
   // and for the selected menu, which is a different question from "what did
   // the customer say three messages ago".
+
+  /**
+   * The card the agent's keyword rules send for this message, or null.
+   *
+   * The flow is read here rather than carried on the run because it is the
+   * business's current wording: a rule edited five seconds ago is the one that
+   * should answer. A database that cannot be read (a missing table, a dropped
+   * connection) means "no rules" rather than a handoff — the customer's
+   * question is still better answered from the knowledge base than by a pause.
+   */
+  private async ruleTurn(
+    agentId: string,
+    question: string,
+  ): Promise<{ kind: "card"; flow: BotFlow; card: BotCard } | null> {
+    let flow: BotFlow | null = null;
+
+    try {
+      flow = await this.store.read(agentId);
+    } catch {
+      return null;
+    }
+
+    const match = flow ? ruleReply(flow, question) : null;
+
+    return match && flow ? { kind: "card", flow, card: match.card } : null;
+  }
 
   /**
    * The newest thing we sent, because a tap answers what is on the customer's
