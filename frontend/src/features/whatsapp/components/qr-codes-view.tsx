@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   Check,
   Copy,
@@ -16,6 +15,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { useAccess } from "@/components/workspace/access-provider";
+import { ConnectWhatsAppAction } from "@/components/workspace/connect-whatsapp";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,9 @@ const FORMATS: { value: QrFormat; label: string }[] = [
  * no scan statistics, so this screen deliberately shows none.
  */
 export function QrCodesView() {
+  const { role } = useAccess();
+  const owner = role === "OWNER";
+
   const [list, setList] = React.useState<QrCodeList | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -108,14 +112,16 @@ export function QrCodesView() {
   if (!list || !list.connected) {
     return (
       <EmptyState
-        action={
-          <Button asChild variant="brand">
-            <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
-          </Button>
+        action={<ConnectWhatsAppAction />}
+        description={
+          owner
+            ? "QR codes and short links belong to a WhatsApp number, so there is nothing to create until one is connected."
+            : "QR codes and short links belong to the workspace's WhatsApp number. The owner has not connected it yet, so there is nothing to create."
         }
-        description="QR codes and short links belong to a WhatsApp number, so there is nothing to create until one is connected."
         icon={QrCodeIcon}
-        title="Connect a WhatsApp number"
+        title={
+          owner ? "Connect a WhatsApp number" : "Waiting for the owner to connect"
+        }
       />
     );
   }

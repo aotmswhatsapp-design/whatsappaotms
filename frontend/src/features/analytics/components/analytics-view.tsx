@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   CircleAlert,
   Coins,
@@ -13,6 +12,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useAccess } from "@/components/workspace/access-provider";
+import { ConnectWhatsAppAction } from "@/components/workspace/connect-whatsapp";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { StatCard } from "@/components/workspace/stat-card";
 import { formatMoney } from "@/lib/money";
@@ -53,6 +54,9 @@ const DATE_INPUT =
  * because zero is a figure and this is an absence.
  */
 export function AnalyticsView() {
+  const { role } = useAccess();
+  const owner = role === "OWNER";
+
   // Null means "whatever the server defaults to": the last thirty days. The
   // dates are not computed while rendering, because this screen is prerendered
   // at build time and `new Date()` there would freeze a build-day date into
@@ -164,14 +168,16 @@ export function AnalyticsView() {
   if (!report.connected) {
     return (
       <EmptyState
-        action={
-          <Button asChild variant="brand">
-            <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
-          </Button>
+        action={<ConnectWhatsAppAction />}
+        description={
+          owner
+            ? "Spend and delivery figures belong to a WhatsApp Business account. Connect a number and press Sync: Meta reports the last ninety days of template activity, and this screen stores it."
+            : "Spend and delivery figures belong to the workspace's WhatsApp Business account. The owner has not connected the number yet, so there is nothing to sync."
         }
-        description="Spend and delivery figures belong to a WhatsApp Business account. Connect a number and press Sync: Meta reports the last ninety days of template activity, and this screen stores it."
         icon={Coins}
-        title="Connect a WhatsApp number"
+        title={
+          owner ? "Connect a WhatsApp number" : "Waiting for the owner to connect"
+        }
       />
     );
   }

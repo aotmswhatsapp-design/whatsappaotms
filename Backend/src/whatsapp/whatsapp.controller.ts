@@ -14,7 +14,7 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
-import { Roles } from "../workspaces/workspace-roles.decorator";
+import { RequiresModule, Roles } from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
 import { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
@@ -75,8 +75,13 @@ export class WhatsAppController {
   /**
    * GET /api/v1/whatsapp/connection — the stored connection, the stage it
    * belongs to, and the two values Meta's console asks for.
+   *
+   * Owner-only: the payload carries the full verify token for a manually
+   * connected number, so an invited member reads the connection through
+   * `/status` (the safe subset) and never through this route.
    */
   @Get("connection")
+  @Roles("OWNER")
   connection(@CurrentUser() claims: AuthClaims) {
     return this.whatsapp.connection(claims);
   }
@@ -107,12 +112,14 @@ export class WhatsAppController {
    * Meta reports no scan statistics.
    */
   @Get("qr-codes")
+  @RequiresModule("qr-codes")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   qrCodes(@CurrentUser() claims: AuthClaims) {
     return this.whatsapp.qrCodes(claims);
   }
 
   @Post("qr-codes")
+  @RequiresModule("qr-codes")
   @Roles("OWNER")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   createQrCode(
@@ -124,6 +131,7 @@ export class WhatsAppController {
 
   /** PATCH, not PUT: the prefilled message is the only field being replaced. */
   @Patch("qr-codes/:code")
+  @RequiresModule("qr-codes")
   @Roles("OWNER")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   updateQrCode(
@@ -135,6 +143,7 @@ export class WhatsAppController {
   }
 
   @Delete("qr-codes/:code")
+  @RequiresModule("qr-codes")
   @Roles("OWNER")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   deleteQrCode(@CurrentUser() claims: AuthClaims, @Param("code") code: string) {

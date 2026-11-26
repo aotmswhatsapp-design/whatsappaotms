@@ -5,6 +5,8 @@ import Link from "next/link";
 import { FileText, Loader2, Plus, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useAccess } from "@/components/workspace/access-provider";
+import { ConnectWhatsAppAction } from "@/components/workspace/connect-whatsapp";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +36,9 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
  * done with them here.
  */
 export function TemplatesView() {
+  const { role } = useAccess();
+  const owner = role === "OWNER";
+
   const [list, setList] = React.useState<TemplateListPayload | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -118,14 +123,16 @@ export function TemplatesView() {
   if (list && !list.connected && templates.length === 0) {
     return (
       <EmptyState
-        action={
-          <Button asChild variant="brand">
-            <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
-          </Button>
+        action={<ConnectWhatsAppAction />}
+        description={
+          owner
+            ? "Templates belong to a WhatsApp Business account: connect a number, and the ones already in Meta — including any made in WhatsApp Manager — appear here with their review status."
+            : "Templates belong to the workspace's WhatsApp Business account. The owner has not connected the number yet, so there is nothing to list — nobody has to add an account of their own."
         }
-        description="Templates belong to a WhatsApp Business account: connect a number, and the ones already in Meta — including any made in WhatsApp Manager — appear here with their review status."
         icon={FileText}
-        title="Connect a WhatsApp number"
+        title={
+          owner ? "Connect a WhatsApp number" : "Waiting for the owner to connect"
+        }
       />
     );
   }

@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Search } from "lucide-react";
 
-import { workspaceNavItems } from "@/config/workspace-nav";
+import { useAccess } from "@/components/workspace/access-provider";
+import { workspaceNavItems, navItemsForModules } from "@/config/workspace-nav";
 import { cn } from "@/lib/utils";
 
 /**
  * ⌘K / Ctrl-K destination switcher. Backed by the same nav config as the
- * sidebar, so anything reachable by mouse is reachable by keyboard search.
+ * sidebar, so anything reachable by mouse is reachable by keyboard search —
+ * and, like the sidebar, only the modules this role may open.
  *
  * The query/cursor state lives in `PaletteBody`, which Radix unmounts on close
  * — that is what resets the palette between openings, with no effect needed.
@@ -43,18 +45,25 @@ export function CommandPalette({
 
 function PaletteBody({ onDone }: { onDone: () => void }) {
   const router = useRouter();
+  const { modules } = useAccess();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
 
+  // Only what the role may open: the palette is a shortcut, not a back door.
+  const destinations = useMemo(
+    () => (modules === null ? workspaceNavItems : navItemsForModules(modules)),
+    [modules],
+  );
+
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return workspaceNavItems;
-    return workspaceNavItems.filter((item) =>
+    if (!term) return destinations;
+    return destinations.filter((item) =>
       `${item.title} ${item.group} ${item.description}`
         .toLowerCase()
         .includes(term),
     );
-  }, [query]);
+  }, [query, destinations]);
 
   const openItem = (href: string) => {
     onDone();

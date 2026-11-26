@@ -25,6 +25,10 @@ enum GlobalRole {
 enum WorkspaceRole {
   OWNER
   ADMIN
+  /// The PRD's Manager: campaigns, contacts, analytics and assignment,
+  /// without the workspace-wide reach of an ADMIN.
+  MANAGER
+  /// The PRD's Support Agent.
   AGENT
 }
 
@@ -87,6 +91,11 @@ model Workspace {
   agents        Agent[]
   botFlows      BotFlow[]
 
+  /// The owner's module toggles, one row per role and module. Absent rows fall
+  /// back to the defaults in `Backend/src/workspaces/modules.ts`, so a workspace
+  /// that never opened the permissions screen needs no rows at all.
+  roleAccess WorkspaceRoleAccess[]
+
   /// Cost and usage snapshots. Kept per workspace so no report can ever
   /// straddle two tenants.
   templateStats TemplateDailyStat[]
@@ -100,6 +109,26 @@ model Workspace {
 
   @@index([ownerId])
   @@map("workspaces")
+}
+
+/// One module switched on or off for one role.
+///
+/// Only the deviations are stored: a row exists when the owner changed a
+/// module from its default. The reader merges these rows over the defaults, so
+/// adding a module later does not silently vanish from every workspace.
+/// Ownership is never stored here — an OWNER sees every module by definition.
+model WorkspaceRoleAccess {
+  workspaceId String        @map("workspace_id") @db.Uuid
+  role        WorkspaceRole
+  /// One of `MODULE_KEYS`; a hand-edited unknown key is ignored on read.
+  module      String
+  enabled     Boolean       @default(true)
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, role, module])
+  @@map("workspace_role_access")
 }
 
 /// One row per workspace, created on the first successful save rather than on

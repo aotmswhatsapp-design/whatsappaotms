@@ -20,6 +20,8 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
+import { RequiresModule } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { CreateNoteDto } from "./dto/create-note.dto";
 import { ListConversationsDto } from "./dto/list-conversations.dto";
 import { SendCardDto } from "./dto/send-card.dto";
@@ -37,9 +39,15 @@ import { InboxService } from "./inbox.service";
  * The inbox's HTTP surface. Every route resolves its workspace from the token,
  * so a conversation id from another tenant answers 404 exactly like a missing
  * one.
+ *
+ * The whole surface sits behind the `inbox` module: an owner who switches the
+ * inbox off for a role takes the queue, the threads and the sends away with it.
+ * What an Agent may *see* inside an allowed inbox is narrowed in the service —
+ * assignment decides the queue, not the route.
  */
 @Controller("v1/inbox")
-@UseGuards(SupabaseAuthGuard)
+@RequiresModule("inbox")
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class InboxController {
   constructor(private readonly inbox: InboxService) {}
 

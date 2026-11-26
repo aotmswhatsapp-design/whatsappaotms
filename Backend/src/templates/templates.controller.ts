@@ -20,7 +20,7 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
-import { Roles } from "../workspaces/workspace-roles.decorator";
+import { RequiresModule, Roles } from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { CreateTemplateDto } from "./dto/create-template.dto";
 import { UpdateTemplateDto } from "./dto/update-template.dto";
@@ -30,6 +30,12 @@ import { TemplatesService, type UploadedTemplateImage } from "./templates.servic
 /**
  * The templates surface. Both routes are scoped to the caller's workspace, so
  * one customer can never read or submit into another's Meta account.
+ *
+ * Only the management half — submit, edit, delete, enable insights — sits
+ * behind the `templates` module. Reading the catalogue does not: the inbox
+ * composer and the campaign builder both need an approved template to send,
+ * and an Agent who may answer a customer must not be refused the list of
+ * messages they are allowed to answer with.
  */
 @Controller("v1/templates")
 @UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
@@ -53,6 +59,7 @@ export class TemplatesController {
    * carrying Meta's own sentence when it refused the template itself.
    */
   @Post()
+  @RequiresModule("templates")
   @Roles("ADMIN")
   @HttpCode(201)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
@@ -66,6 +73,7 @@ export class TemplatesController {
    * call names, plus a signed URL the builder paints immediately.
    */
   @Post("media")
+  @RequiresModule("templates")
   @Roles("ADMIN")
   @HttpCode(201)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
@@ -123,6 +131,7 @@ export class TemplatesController {
    * for the WABA. One-way, which is why the screen asks before calling it.
    */
   @Post("insights")
+  @RequiresModule("templates")
   @Roles("ADMIN")
   @HttpCode(200)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -162,6 +171,7 @@ export class TemplatesController {
    * Meta's own sentence when it refused the content.
    */
   @Patch(":id")
+  @RequiresModule("templates")
   @Roles("ADMIN")
   @HttpCode(200)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
@@ -179,6 +189,7 @@ export class TemplatesController {
    * the reason, and a Meta refusal answers 502 with its sentence.
    */
   @Delete(":id")
+  @RequiresModule("templates")
   @Roles("ADMIN")
   @HttpCode(200)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })

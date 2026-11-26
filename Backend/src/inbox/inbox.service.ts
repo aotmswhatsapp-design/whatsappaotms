@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -107,7 +108,9 @@ export class InboxService {
     claims: AuthClaims,
     query: ListConversationsDto,
   ): Promise<{ conversations: ConversationView[] }> {
-    const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
+    const { workspaceId, userId, role } = await this.workspaces.primaryFor(
+      claims,
+    );
 
     const where: Prisma.ConversationWhereInput = { workspaceId };
 
@@ -147,6 +150,12 @@ export class InboxService {
       ];
     }
 
+    // An Agent works a queue, not the whole archive: their own threads plus the
+    // ones nobody has picked up. Manager and Admin read every conversation.
+    // Prisma ANDs a top-level `AND` with the search's top-level `OR`, so a
+    // search term narrows the queue and can never widen it back out.
+    if (role === "AGENT") where.AND = [agentQueue(userId)];
+
     const rows = await this.prisma.conversation.findMany({
       where,
       orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
@@ -158,7 +167,15 @@ export class InboxService {
   }
 
   async summary(claims: AuthClaims): Promise<SummaryPayload> {
-    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { workspaceId, userId, role } = await this.workspaces.primaryFor(
+      claims,
+    );
+
+    // The counters describe the queue the caller can open, so an Agent's badge
+    // counts only their own and unclaimed threads — the same rule as `list`.
+    const scope: Prisma.ConversationWhereInput = { workspaceId };
+
+    if (role === "AGENT") scope.AND = [agentQueue(userId)];
 
     const [account, grouped, totals] = await Promise.all([
       defaultAccount(this.prisma, workspaceId, {
@@ -170,11 +187,11 @@ export class InboxService {
       }),
       this.prisma.conversation.groupBy({
         by: ["status"],
-        where: { workspaceId },
+        where: scope,
         _count: { _all: true },
       }),
       this.prisma.conversation.aggregate({
-        where: { workspaceId },
+        where: scope,
         _count: { _all: true },
         _sum: { unreadCount: true },
       }),
@@ -551,7 +568,9 @@ export class InboxService {
     id: string,
     dto: UpdateConversationDto,
   ): Promise<{ conversation: ConversationView }> {
-    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { workspaceId, userId, role } = await this.workspaces.primaryFor(
+      claims,
+    );
     const conversation = await this.mustConversation(workspaceId, id);
 
     const data: Prisma.ConversationUpdateInput = {};
@@ -559,6 +578,16 @@ export class InboxService {
     if (dto.status) data.status = dto.status;
 
     if (dto.assignedToUserId !== undefined) {
+      // Handing work to somebody else is a Manager's right (§3.4). An Agent
+      // may still take an unclaimed thread for themselves, which is what the
+      // queue's "pick up" affordance does.
+      if (role === "AGENT" && dto.assignedToUserId !== userId) {
+        throw new ForbiddenException({
+          code: "ASSIGN_REQUIRED",
+          message: "Only a manager can hand a conversation to somebody else.",
+        });
+      }
+
       if (dto.assignedToUserId === null) {
         data.assignedTo = { disconnect: true };
       } else {
@@ -888,6 +917,22 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value,
   );
+}
+
+/**
+ * The queue a Support Agent works: what is theirs, plus what nobody owns yet.
+ *
+ * Closed unclaimed threads are left out — the archive is a Manager's to read,
+ * and an Agent's badge should not count it. A thread assigned to a colleague
+ * is invisible here, which is the whole point of assignment.
+ */
+function agentQueue(userId: string): Prisma.ConversationWhereInput {
+  return {
+    OR: [
+      { assignedToUserId: userId },
+      { assignedToUserId: null, status: { not: "CLOSED" } },
+    ],
+  };
 }
 
 /** Meta's review states in the sentence a sender can act on. */

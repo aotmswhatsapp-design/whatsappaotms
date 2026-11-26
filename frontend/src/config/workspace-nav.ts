@@ -16,6 +16,8 @@ import {
   Workflow,
 } from "lucide-react";
 
+import type { ModuleKey } from "./modules";
+
 /**
  * Single source of truth for the workspace chrome. The sidebar, the command
  * palette and each page header all read from here, so a module can never be
@@ -30,6 +32,13 @@ export interface WorkspaceNavItem {
   /** Shown in the command palette and as the page subtitle. */
   description: string;
   icon: LucideIcon;
+  /**
+   * The module the owner switches per role. Absent means the page is always
+   * reachable — only the Overview takes that path, because every member needs
+   * a landing page. The value is matched against the API's registry, so the
+   * sidebar and the endpoints behind it cannot disagree about what is open.
+   */
+  module?: ModuleKey;
   /**
    * Items that carry a live state show a status dot. Only the WhatsApp item
    * has one today; the value names the feature whose status the shell reads,
@@ -62,18 +71,21 @@ export const workspaceNav: WorkspaceNavGroup[] = [
         href: "/workspace/inbox",
         description: "Every WhatsApp conversation in one queue",
         icon: Inbox,
+        module: "inbox",
       },
       {
         title: "Contacts",
         href: "/workspace/contacts",
         description: "Import, tag and manage your contact list",
         icon: Contact,
+        module: "contacts",
       },
       {
         title: "QR codes",
         href: "/workspace/qr-codes",
         description: "Codes and short links that open a chat",
         icon: QrCode,
+        module: "qr-codes",
       },
     ],
   },
@@ -87,24 +99,28 @@ export const workspaceNav: WorkspaceNavGroup[] = [
         href: "/workspace/campaigns",
         description: "Send approved templates to segmented lists",
         icon: Megaphone,
+        module: "campaigns",
       },
       {
         title: "Templates",
         href: "/workspace/templates",
         description: "Meta-approved messages and their variables",
         icon: FileText,
+        module: "templates",
       },
       {
         title: "Chatbot",
         href: "/workspace/chatbot",
         description: "Cards a customer walks through, sent from the Inbox",
         icon: Bot,
+        module: "chatbot",
       },
       {
         title: "Automations",
         href: "/workspace/automations",
         description: "Triggers, schedules and follow-ups",
         icon: Workflow,
+        module: "automations",
       },
     ],
   },
@@ -118,12 +134,14 @@ export const workspaceNav: WorkspaceNavGroup[] = [
         href: "/workspace/ai",
         description: "Suggested replies, summaries and a knowledge base",
         icon: Sparkles,
+        module: "ai",
       },
       {
         title: "Analytics",
         href: "/workspace/analytics",
         description: "Delivery, read rates and agent performance",
         icon: BarChart3,
+        module: "analytics",
       },
     ],
   },
@@ -139,25 +157,29 @@ export const workspaceNav: WorkspaceNavGroup[] = [
         href: "/workspace/whatsapp",
         description: "Connect your WhatsApp Business account",
         icon: PlugZap,
+        module: "whatsapp",
         statusKey: "whatsapp",
       },
       {
-        title: "Team",
+        title: "Team & permissions",
         href: "/workspace/team",
-        description: "Invite agents and assign roles",
+        description: "Invite members, assign roles and choose what each one sees",
         icon: Users,
+        module: "team",
       },
       {
         title: "Billing",
         href: "/workspace/billing",
         description: "Plan, usage and invoices",
         icon: CreditCard,
+        module: "billing",
       },
       {
         title: "Business profile",
         href: "/workspace/profile",
         description: "Your workspace details and the profile customers see",
         icon: Building2,
+        module: "profile",
       },
     ],
   },
@@ -167,6 +189,47 @@ export const workspaceNav: WorkspaceNavGroup[] = [
 export const workspaceNavItems = workspaceNav.flatMap((group) =>
   group.items.map((item) => ({ ...item, group: group.label })),
 );
+
+/**
+ * The navigation one role may see.
+ *
+ * Built from the modules the owner switched on rather than from a static
+ * route list, and groups left with nothing are dropped so a role never opens
+ * a heading with no destinations under it.
+ */
+export function navForModules(
+  modules: readonly ModuleKey[],
+): WorkspaceNavGroup[] {
+  const allowed = new Set<ModuleKey>(modules);
+
+  return workspaceNav
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => item.module === undefined || allowed.has(item.module),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+/** The same filter, flattened, for the command palette. */
+export function navItemsForModules(modules: readonly ModuleKey[]) {
+  return navForModules(modules).flatMap((group) =>
+    group.items.map((item) => ({ ...item, group: group.label })),
+  );
+}
+
+/**
+ * The module a path opens, if any. Pages outside the registry (`/workspace`
+ * itself, `/workspace/join`) answer null and are never gated.
+ */
+export function moduleForPath(pathname: string): ModuleKey | null {
+  const item = workspaceNavItems.find((entry) =>
+    isNavItemActive(entry.href, pathname),
+  );
+
+  return item?.module ?? null;
+}
 
 /**
  * Page headers read their title, group and description from the nav config so

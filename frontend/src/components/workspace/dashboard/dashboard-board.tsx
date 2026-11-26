@@ -20,6 +20,8 @@ import {
   DraggableWidgetGrid,
   type WidgetItem,
 } from "@/components/ui/draggable-widget-grid";
+import { useAccess, useModule } from "@/components/workspace/access-provider";
+import { ConnectWhatsAppAction } from "@/components/workspace/connect-whatsapp";
 import { EmptyState } from "@/components/workspace/empty-state";
 import {
   ApiError,
@@ -69,6 +71,14 @@ export function DashboardBoard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+
+  // The dashboard is the landing page for every role, but the figures behind it
+  // are a module the owner hands out per role. Without it the grid would mount
+  // and eat a 403, so the home screen says where the work actually is.
+  const { role } = useAccess();
+  const analytics = useModule("analytics");
+  const inbox = useModule("inbox");
+  const owner = role === "OWNER";
 
   useEffect(() => {
     let active = true;
@@ -274,6 +284,23 @@ export function DashboardBoard() {
     [data],
   );
 
+  if (!analytics) {
+    return (
+      <EmptyState
+        action={
+          inbox ? (
+            <Button asChild variant="outline">
+              <Link href="/workspace/inbox">Open the inbox</Link>
+            </Button>
+          ) : undefined
+        }
+        description="The figures on this page are a module the owner chooses per role, and yours does not include it. Everything you can reach is in the sidebar."
+        icon={BarChart3}
+        title="This is your workspace home"
+      />
+    );
+  }
+
   if (loading && !data) {
     return (
       <div className="grid h-64 place-items-center rounded-xl border border-border bg-card">
@@ -311,14 +338,14 @@ export function DashboardBoard() {
   if (data && !data.connected) {
     return (
       <EmptyState
-        action={
-          <Button asChild variant="brand">
-            <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
-          </Button>
+        action={<ConnectWhatsAppAction />}
+        description={
+          owner
+            ? "This dashboard reads live from the WhatsApp Business account behind your number: messages sent and delivered, who wrote in, and what Meta billed. Connect a number to see your own traffic instead of an empty grid."
+            : "The workspace owner connects the WhatsApp number. Once it is in, this dashboard reads the traffic behind it — nobody has to add a number of their own."
         }
-        description="This dashboard reads live from the WhatsApp Business account behind your number: messages sent and delivered, who wrote in, and what Meta billed. Connect a number to see your own traffic instead of an empty grid."
         icon={BarChart3}
-        title="Connect a WhatsApp number"
+        title={owner ? "Connect a WhatsApp number" : "Waiting for the owner to connect"}
       />
     );
   }

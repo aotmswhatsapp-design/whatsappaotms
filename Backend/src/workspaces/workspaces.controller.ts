@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
@@ -18,6 +19,7 @@ import {
   AcceptInvitationDto,
   ChangeMemberRoleDto,
   InviteMemberDto,
+  SetRolePermissionsDto,
 } from "./dto/team.dto";
 import { Roles } from "./workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "./workspace-roles.guard";
@@ -39,6 +41,43 @@ export class WorkspacesController {
   @Get()
   view(@CurrentUser() claims: AuthClaims) {
     return this.workspaces.view(claims);
+  }
+
+  /**
+   * GET /api/v1/workspaces/access — the modules the caller may open.
+   *
+   * What the shell builds its sidebar from. Every member may read their own:
+   * it is the list of pages they are allowed to see, never anybody else's.
+   */
+  @Get("access")
+  access(@CurrentUser() claims: AuthClaims) {
+    return this.workspaces.access(claims);
+  }
+
+  /**
+   * GET /api/v1/workspaces/permissions — every role's modules, for the owner's
+   * screen. The registry comes with it so the screen needs no second read.
+   */
+  @Get("permissions")
+  @Roles("OWNER")
+  permissions(@CurrentUser() claims: AuthClaims) {
+    return this.workspaces.permissions(claims);
+  }
+
+  /**
+   * PUT /api/v1/workspaces/permissions — the owner's toggles.
+   *
+   * A role that is not named keeps its current modules. An OWNER is never
+   * listed: ownership sees every module by definition, which is also what stops
+   * the owner from locking themselves out of the workspace.
+   */
+  @Put("permissions")
+  @Roles("OWNER")
+  setPermissions(
+    @CurrentUser() claims: AuthClaims,
+    @Body() dto: SetRolePermissionsDto,
+  ) {
+    return this.workspaces.setPermissions(claims, dto.roles);
   }
 
   /**
@@ -72,7 +111,7 @@ export class WorkspacesController {
     return this.workspaces.accept(claims, dto.token);
   }
 
-  /** PATCH /api/v1/workspaces/members/:userId — change a role between ADMIN and AGENT. */
+  /** PATCH /api/v1/workspaces/members/:userId — change a role between ADMIN, MANAGER and AGENT. */
   @Patch("members/:userId")
   @Roles("OWNER")
   changeRole(

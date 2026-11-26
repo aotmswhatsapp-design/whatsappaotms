@@ -24,6 +24,7 @@ import {
   fetchTeam,
   inviteMember,
   inviteUrl,
+  MEMBER_ROLES,
   removeMember,
   revokeInvitation,
   ROLE_HINTS,
@@ -33,6 +34,7 @@ import {
   type MemberRole,
   type TeamWorkspace,
 } from "../api";
+import { PermissionsCard } from "./permissions-card";
 
 const FIELD =
   "mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
@@ -69,6 +71,8 @@ export function TeamView({ viewerId }: { viewerId: string }) {
   const [workspace, setWorkspace] = React.useState<TeamWorkspace | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [attempt, setAttempt] = React.useState(0);
+  // Declared before the loading return: a hook cannot live below it.
+  const [tab, setTab] = React.useState<"members" | "permissions">("members");
 
   React.useEffect(() => {
     let active = true;
@@ -167,33 +171,72 @@ export function TeamView({ viewerId }: { viewerId: string }) {
     );
   }
 
+  const viewingPermissions = canManage && tab === "permissions";
+
   return (
     <div className="space-y-6">
       {canManage ? (
-        <InviteCard onCreated={addInvitation} />
-      ) : (
-        <p className="rounded-xl border border-border bg-card px-4 py-3 text-[13px] leading-relaxed text-muted-foreground">
-          You are on this team as {ROLE_LABELS[workspace.role]}. The workspace
-          owner invites people, changes roles and removes access.
-        </p>
-      )}
-
-      <MembersTable
-        canManage={canManage}
-        members={workspace.members}
-        onMemberChanged={replaceMember}
-        onMemberRemoved={dropMember}
-        onToast={toast.push}
-        viewerId={viewerId}
-      />
-
-      {canManage ? (
-        <InvitationsTable
-          invitations={workspace.invitations}
-          onRemoved={dropInvitation}
-          onToast={toast.push}
-        />
+        <div
+          aria-label="Team settings"
+          className="inline-flex rounded-lg border border-border bg-secondary p-1"
+          role="tablist"
+        >
+          {(
+            [
+              ["members", "Members"],
+              ["permissions", "Permissions"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              aria-selected={tab === value}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
+                tab === value
+                  ? "bg-card text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setTab(value)}
+              role="tab"
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       ) : null}
+
+      {viewingPermissions ? (
+        <PermissionsCard />
+      ) : (
+        <>
+          {canManage ? (
+            <InviteCard onCreated={addInvitation} />
+          ) : (
+            <p className="rounded-xl border border-border bg-card px-4 py-3 text-[13px] leading-relaxed text-muted-foreground">
+              You are on this team as {ROLE_LABELS[workspace.role]}. The
+              workspace owner invites people, changes roles and removes access.
+            </p>
+          )}
+
+          <MembersTable
+            canManage={canManage}
+            members={workspace.members}
+            onMemberChanged={replaceMember}
+            onMemberRemoved={dropMember}
+            onToast={toast.push}
+            viewerId={viewerId}
+          />
+
+          {canManage ? (
+            <InvitationsTable
+              invitations={workspace.invitations}
+              onRemoved={dropInvitation}
+              onToast={toast.push}
+            />
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -298,8 +341,11 @@ function InviteCard({
             onChange={(event) => setRole(event.target.value as MemberRole)}
             value={role}
           >
-            <option value="AGENT">{ROLE_LABELS.AGENT}</option>
-            <option value="ADMIN">{ROLE_LABELS.ADMIN}</option>
+            {MEMBER_ROLES.map((option) => (
+              <option key={option} value={option}>
+                {ROLE_LABELS[option]}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -441,8 +487,11 @@ function MembersTable({
         onChange={(event) => setRole(member, event.target.value as MemberRole)}
         value={member.role}
       >
-        <option value="AGENT">{ROLE_LABELS.AGENT}</option>
-        <option value="ADMIN">{ROLE_LABELS.ADMIN}</option>
+        {MEMBER_ROLES.map((option) => (
+          <option key={option} value={option}>
+            {ROLE_LABELS[option]}
+          </option>
+        ))}
       </select>
     ),
 

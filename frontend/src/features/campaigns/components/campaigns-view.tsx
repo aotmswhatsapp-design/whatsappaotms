@@ -6,6 +6,7 @@ import { Loader2, Megaphone, Plus, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { useAccess } from "@/components/workspace/access-provider";
 import { DataTable } from "@/components/workspace/data-table";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { PageHeader } from "@/components/workspace/page-header";
@@ -61,6 +62,8 @@ const COLUMNS = [
  */
 export function CampaignsView() {
   const toast = useToast();
+  const { role } = useAccess();
+  const owner = role === "OWNER";
   const [campaigns, setCampaigns] = React.useState<Campaign[] | null>(null);
   const [options, setOptions] = React.useState<CampaignOptions | null>(null);
   const [optionsFailed, setOptionsFailed] = React.useState(false);
@@ -125,7 +128,9 @@ export function CampaignsView() {
 
   const blocker = options
     ? !options.channel.connected
-      ? "Connect a WhatsApp number before a campaign can send."
+      ? owner
+        ? "Connect a WhatsApp number before a campaign can send."
+        : "The workspace owner has not connected a WhatsApp number yet, so this campaign can be prepared but not sent."
       : options.templates.length === 0
         ? "No approved template yet — submit one and wait for Meta's review."
         : null
@@ -197,7 +202,7 @@ export function CampaignsView() {
       {blocker ? (
         <p className="rounded-lg border border-warning/45 bg-warning/10 px-3 py-2 text-[12.5px] leading-relaxed text-foreground">
           {blocker}{" "}
-          {options && !options.channel.connected ? (
+          {owner && options && !options.channel.connected ? (
             <Link className="font-medium underline underline-offset-4" href="/workspace/whatsapp">
               Connect WhatsApp
             </Link>

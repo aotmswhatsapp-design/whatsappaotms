@@ -2,12 +2,17 @@ import type { Metadata } from "next";
 
 import { PageHeader } from "@/components/workspace/page-header";
 import { getNavItem } from "@/config/workspace-nav";
-import { WhatsAppConnection } from "@/features/whatsapp/components/whatsapp-connection";
+import { WhatsAppPanel } from "@/features/whatsapp/components/whatsapp-panel";
 
 const nav = getNavItem("/workspace/whatsapp");
 
 export const metadata: Metadata = { title: nav.title };
 
+/**
+ * The connection is the workspace's, so the wizard is the owner's alone. An
+ * invited member sees the same number read-only instead of being asked to
+ * connect one of their own — the panel decides from the caller's role.
+ */
 export default function WhatsAppPage() {
   return (
     <div className="space-y-6">
@@ -17,7 +22,7 @@ export default function WhatsAppPage() {
         title={nav.title}
       />
 
-      <WhatsAppConnection />
+      <WhatsAppPanel />
     </div>
   );
 }

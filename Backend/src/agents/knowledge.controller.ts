@@ -22,7 +22,10 @@ import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import type { UploadedMedia } from "../inbox/inbox.sender";
-import { Roles } from "../workspaces/workspace-roles.decorator";
+import {
+  RequiresModule,
+  Roles,
+} from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { AddTextSourceDto } from "./dto/add-text-source.dto";
 import {
@@ -67,6 +70,7 @@ const acceptUpload = (
  * list while the runner works.
  */
 @Controller("v1/agents/:id/sources")
+@RequiresModule("ai")
 @UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}

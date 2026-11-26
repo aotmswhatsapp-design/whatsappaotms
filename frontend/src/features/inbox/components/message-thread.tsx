@@ -17,12 +17,14 @@ import {
   SmilePlus,
   StickyNote,
   Trash2,
+  UserRound,
 } from "lucide-react";
 
 import {
   BotCardBody,
   isInteractive,
 } from "@/components/workspace/bot-card-preview";
+import { useAccess } from "@/components/workspace/access-provider";
 import { EmptyState } from "@/components/workspace/empty-state";
 import {
   DropdownMenu,
@@ -89,6 +91,7 @@ const STATUS_ROWS: { value: ConversationStatus; label: string }[] = [
 export function MessageThread({
   thread,
   agents,
+  viewerId,
   loading,
   onBack,
   onChanged,
@@ -100,6 +103,8 @@ export function MessageThread({
 }: {
   thread: ThreadPayload | null;
   agents: InboxAgent[];
+  /** The signed-in member, so an agent can only claim a thread for themselves. */
+  viewerId?: string | null;
   loading: boolean;
   onBack: () => void;
   onChanged: (conversation: Conversation) => void;
@@ -112,6 +117,7 @@ export function MessageThread({
   onMessageHidden: (messageId: string) => void;
 }) {
   const toast = useToast();
+  const { role } = useAccess();
   const scroller = React.useRef<HTMLDivElement>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [aiBusy, setAiBusy] = React.useState(false);
@@ -223,6 +229,14 @@ export function MessageThread({
   }
 
   const conversation = thread.conversation;
+
+  /**
+   * Reassignment belongs to a manager. An agent's queue lists their own and
+   * still-open conversations, so the only move left to them is claiming one —
+   * the API refuses everything else with `ASSIGN_REQUIRED`.
+   */
+  const isAgent = role === "AGENT";
+  const mine = conversation.assignedTo !== null && conversation.assignedTo.id === viewerId;
 
   // The pill is hidden for the one pause this session cleared, whether that
   // clearing has reached the server's own read yet or not.
@@ -472,35 +486,50 @@ export function MessageThread({
               </select>
             </Field>
 
-            <Field>
-              <select
-                aria-label="Assigned agent"
-                className={cn(
-                  "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border border-border bg-secondary pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
-                  "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/25",
-                  conversation.assignedTo ? "text-foreground" : "text-muted-foreground",
-                )}
-                value={conversation.assignedTo?.id ?? ""}
-                onChange={(event) =>
-                  void patch({ assignedToUserId: event.target.value || null })
+            {isAgent ? (
+              <AgentAssignment
+                assignedTo={conversation.assignedTo}
+                mine={mine}
+                onClaim={
+                  viewerId
+                    ? () => void patch({ assignedToUserId: viewerId })
+                    : undefined
                 }
-              >
-                <option value="">Unassigned</option>
-                {agents.map((agent) => (
-                  <option key={agent.userId} value={agent.userId}>
-                    {agent.name ?? agent.email}
-                  </option>
-                ))}
-                {conversation.assignedTo &&
-                !agents.some(
-                  (agent) => agent.userId === conversation.assignedTo?.id,
-                ) ? (
-                  <option value={conversation.assignedTo.id}>
-                    {conversation.assignedTo.name ?? conversation.assignedTo.email}
-                  </option>
-                ) : null}
-              </select>
-            </Field>
+              />
+            ) : (
+              <Field>
+                <select
+                  aria-label="Assigned agent"
+                  className={cn(
+                    "h-8 max-w-40 min-w-0 appearance-none truncate rounded-full border border-border bg-secondary pr-6 pl-2.5 text-[11px] font-medium outline-none transition-colors",
+                    "focus-visible:border-brand/40 focus-visible:ring-[3px] focus-visible:ring-ring/25",
+                    conversation.assignedTo
+                      ? "text-foreground"
+                      : "text-muted-foreground",
+                  )}
+                  value={conversation.assignedTo?.id ?? ""}
+                  onChange={(event) =>
+                    void patch({ assignedToUserId: event.target.value || null })
+                  }
+                >
+                  <option value="">Unassigned</option>
+                  {agents.map((agent) => (
+                    <option key={agent.userId} value={agent.userId}>
+                      {agent.name ?? agent.email}
+                    </option>
+                  ))}
+                  {conversation.assignedTo &&
+                  !agents.some(
+                    (agent) => agent.userId === conversation.assignedTo?.id,
+                  ) ? (
+                    <option value={conversation.assignedTo.id}>
+                      {conversation.assignedTo.name ??
+                        conversation.assignedTo.email}
+                    </option>
+                  ) : null}
+                </select>
+              </Field>
+            )}
           </div>
 
           <DropdownMenu>
@@ -543,34 +572,52 @@ export function MessageThread({
                   </DropdownMenuItem>
                 ))}
 
-                <DropdownMenuLabel>Assigned to</DropdownMenuLabel>
-                <DropdownMenuItem
-                  onSelect={() => void patch({ assignedToUserId: null })}
-                >
-                  <Check
-                    aria-hidden="true"
-                    className={conversation.assignedTo ? "opacity-0" : "opacity-100"}
-                  />
-                  Unassigned
-                </DropdownMenuItem>
-                {agents.map((agent) => (
-                  <DropdownMenuItem
-                    key={agent.userId}
-                    onSelect={() => void patch({ assignedToUserId: agent.userId })}
-                  >
-                    <Check
-                      aria-hidden="true"
-                      className={
-                        conversation.assignedTo?.id === agent.userId
-                          ? "opacity-100"
-                          : "opacity-0"
-                      }
-                    />
-                    <span className="min-w-0 truncate">
-                      {agent.name ?? agent.email}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
+                {isAgent ? (
+                  conversation.assignedTo === null && viewerId ? (
+                    <>
+                      <DropdownMenuLabel>Assignment</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onSelect={() => void patch({ assignedToUserId: viewerId })}
+                      >
+                        <UserRound aria-hidden="true" />
+                        Assign to me
+                      </DropdownMenuItem>
+                    </>
+                  ) : null
+                ) : (
+                  <>
+                    <DropdownMenuLabel>Assigned to</DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={() => void patch({ assignedToUserId: null })}
+                    >
+                      <Check
+                        aria-hidden="true"
+                        className={
+                          conversation.assignedTo ? "opacity-0" : "opacity-100"
+                        }
+                      />
+                      Unassigned
+                    </DropdownMenuItem>
+                    {agents.map((agent) => (
+                      <DropdownMenuItem
+                        key={agent.userId}
+                        onSelect={() => void patch({ assignedToUserId: agent.userId })}
+                      >
+                        <Check
+                          aria-hidden="true"
+                          className={
+                            conversation.assignedTo?.id === agent.userId
+                              ? "opacity-100"
+                              : "opacity-0"
+                          }
+                        />
+                        <span className="min-w-0 truncate">
+                          {agent.name ?? agent.email}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
                 {aiPaused ? (
                   <DropdownMenuItem onSelect={() => void resumeAgent()}>
                     <Bot aria-hidden="true" />
@@ -1059,6 +1106,63 @@ function WindowCountdown({ lastInboundAt }: { lastInboundAt: string | null }) {
 
 function errorText(error: unknown): string {
   return error instanceof ApiError ? error.message : "Try again.";
+}
+
+/**
+ * The assignment control an agent gets: a claim button while the thread is
+ * open to anyone, and a read-only chip once it is theirs. Names the holder
+ * rather than showing a picker the API would refuse — an agent cannot hand a
+ * conversation to a colleague.
+ */
+function AgentAssignment({
+  assignedTo,
+  mine,
+  onClaim,
+}: {
+  assignedTo: Conversation["assignedTo"];
+  mine: boolean;
+  onClaim?: () => void;
+}) {
+  if (mine) {
+    return (
+      <span className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-border bg-secondary px-2.5 text-[11px] font-medium text-foreground">
+        <UserRound aria-hidden="true" className="size-3.5" />
+        Assigned to you
+      </span>
+    );
+  }
+
+  if (assignedTo) {
+    return (
+      <span
+        className="inline-flex h-8 min-w-0 items-center truncate rounded-full border border-border bg-secondary px-2.5 text-[11px] font-medium text-muted-foreground"
+        title={`${assignedTo.name ?? assignedTo.email} answers this conversation`}
+      >
+        <span className="min-w-0 truncate">
+          {assignedTo.name ?? assignedTo.email}
+        </span>
+      </span>
+    );
+  }
+
+  if (!onClaim) {
+    return (
+      <span className="inline-flex h-8 shrink-0 items-center rounded-full border border-border bg-secondary px-2.5 text-[11px] font-medium text-muted-foreground">
+        Unassigned
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-brand/40 px-2.5 text-[11px] font-medium text-brand outline-none transition-colors hover:bg-brand/10 focus-visible:ring-[3px] focus-visible:ring-ring/25"
+      onClick={onClaim}
+    >
+      <UserRound aria-hidden="true" className="size-3.5" />
+      Assign to me
+    </button>
+  );
 }
 
 /**

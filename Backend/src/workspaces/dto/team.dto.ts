@@ -1,17 +1,25 @@
 import { Transform } from "class-transformer";
-import { IsEmail, IsIn, IsString, MaxLength, MinLength } from "class-validator";
+import {
+  IsEmail,
+  IsIn,
+  IsObject,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === "string" ? value.trim() : value;
 
 /**
- * The two roles an invitation may grant.
+ * The roles an invitation may grant, in the order the PRD describes them.
  *
  * Ownership is deliberately absent: a workspace has one owner, and handing it
- * over is not something a link should be able to do. `ADMIN` is the PRD's
- * Manager, `AGENT` its Support Agent.
+ * over is not something a link should be able to do. `ADMIN` runs the product
+ * but not the WhatsApp connection, `MANAGER` is the PRD's Manager, and `AGENT`
+ * its Support Agent.
  */
-export const TEAM_ROLES = ["ADMIN", "AGENT"] as const;
+export const TEAM_ROLES = ["ADMIN", "MANAGER", "AGENT"] as const;
 
 export type TeamRole = (typeof TEAM_ROLES)[number];
 
@@ -38,4 +46,16 @@ export class AcceptInvitationDto {
   @MinLength(20)
   @MaxLength(200)
   token!: string;
+}
+
+/**
+ * One role's module list per key: `{ roles: { AGENT: ["inbox"] } }`.
+ *
+ * The shape is checked here and the module keys are checked in the service,
+ * which is where the registry lives — a decorator cannot enumerate a list that
+ * is allowed to grow between releases.
+ */
+export class SetRolePermissionsDto {
+  @IsObject()
+  roles!: Record<string, unknown>;
 }

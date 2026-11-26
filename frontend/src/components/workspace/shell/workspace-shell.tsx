@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 
 import {
@@ -11,7 +12,13 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AccessProvider,
+  ModuleUnavailable,
+  useAccess,
+} from "@/components/workspace/access-provider";
 import { site } from "@/config/site";
+import { moduleForPath } from "@/config/workspace-nav";
 import type { SessionUser } from "@/lib/auth/types";
 import { SidebarNav } from "./sidebar-nav";
 import { WorkspaceTopBar } from "./top-bar";
@@ -23,6 +30,10 @@ import { WorkspaceTopBar } from "./top-bar";
  * The marketing navbar is deliberately not part of this shell — the workspace
  * owns its own navigation, and "Back to website" in the sidebar footer keeps
  * the public site reachable.
+ *
+ * The access provider sits inside the shell rather than in the layout because
+ * everything below it — the nav, the palette and the page gate — reads the
+ * same one answer.
  */
 export function WorkspaceShell({
   user,
@@ -31,14 +42,39 @@ export function WorkspaceShell({
   user: SessionUser | null;
   children: ReactNode;
 }) {
+  return (
+    <AccessProvider>
+      <WorkspaceChrome user={user}>{children}</WorkspaceChrome>
+    </AccessProvider>
+  );
+}
+
+function WorkspaceChrome({
+  user,
+  children,
+}: {
+  user: SessionUser | null;
+  children: ReactNode;
+}) {
   const [navOpen, setNavOpen] = useState(false);
+  const pathname = usePathname();
+  const { modules, failed } = useAccess();
+
+  // The nav waits for the answer; the page does too, so a module the owner
+  // switched off is never mounted and never fires a request it would lose.
+  const settled = modules !== null || failed;
+  // Not named `module`: Next's linter reserves that identifier for its own
+  // webpack hook and warns on any assignment to it.
+  const routeModule = moduleForPath(pathname);
+  const hidden =
+    routeModule !== null && modules !== null && !modules.includes(routeModule);
 
   return (
     <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
       <aside className="hidden border-r border-border bg-background lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
         <SidebarBrand />
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <SidebarNav />
+          <SidebarNav modules={modules} />
         </div>
         <SidebarFooter />
       </aside>
@@ -50,7 +86,13 @@ export function WorkspaceShell({
             lost a fifth of the window to margin. Prose pages keep their own
             `max-w` on the copy, so they centre instead of stretching. */}
         <main className="mx-auto w-full max-w-[104rem] flex-1 px-4 py-6 text-[15px] sm:px-6 lg:px-8 lg:py-8">
-          {children}
+          {!settled ? (
+            <PageSkeleton />
+          ) : hidden && routeModule !== null ? (
+            <ModuleUnavailable module={routeModule} />
+          ) : (
+            children
+          )}
         </main>
       </div>
 
@@ -62,11 +104,24 @@ export function WorkspaceShell({
           </SheetDescription>
           <SidebarBrand />
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <SidebarNav onNavigate={() => setNavOpen(false)} />
+            <SidebarNav
+              modules={modules}
+              onNavigate={() => setNavOpen(false)}
+            />
           </div>
           <SidebarFooter />
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+/** Shown for the moment the access answer takes, so nothing flickers open. */
+function PageSkeleton() {
+  return (
+    <div aria-hidden="true" className="space-y-4">
+      <div className="h-9 w-52 animate-pulse rounded-lg bg-secondary" />
+      <div className="h-56 animate-pulse rounded-xl border border-border bg-card" />
     </div>
   );
 }

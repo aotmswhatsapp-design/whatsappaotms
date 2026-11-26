@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -12,6 +13,17 @@ import { Prisma, type PlanTier, type WorkspaceRole } from "@prisma/client";
 import type { AuthClaims } from "../auth/auth.types";
 import { UsersService } from "../auth/users.service";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  ALL_MODULES,
+  CONFIGURABLE_ROLES,
+  MODULE_DEFAULTS,
+  MODULE_KEYS,
+  MODULE_LABELS,
+  effectiveModules,
+  moduleIn,
+  type ConfigurableRole,
+  type ModuleKey,
+} from "./modules";
 
 /** Who is asking, and which tenant the answer belongs to. */
 export interface WorkspaceContext {
@@ -56,6 +68,24 @@ export interface WorkspaceView {
   invitations: InvitationView[];
 }
 
+/** What one caller may open, as the shell draws its sidebar from. */
+export interface AccessView {
+  role: WorkspaceRole;
+  /** Module keys in registry order; an OWNER gets every one. */
+  modules: ModuleKey[];
+}
+
+/** The owner's matrix, with the registry so the screen needs no second read. */
+export interface PermissionsView {
+  modules: { key: ModuleKey; label: string }[];
+  roles: Record<ConfigurableRole, ModuleKey[]>;
+  /**
+   * False when the toggles table is not installed yet, so the screen can say
+   * plainly that it is showing defaults and cannot save.
+   */
+  stored: boolean;
+}
+
 /** A link that is not used within a week is no longer worth honouring. */
 const INVITE_DAYS = 7;
 
@@ -73,6 +103,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 @Injectable()
 export class WorkspacesService {
   private readonly logger = new Logger(WorkspacesService.name);
+
+  /** The missing-table warning is worth saying once, not once per request. */
+  private warnedMissingAccess = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -193,6 +226,117 @@ export class WorkspacesService {
   /** The caller's role, for the guard. Null means no workspace yet. */
   async roleFor(userId: string): Promise<WorkspaceRole | null> {
     return (await this.membershipOf(userId))?.role ?? null;
+  }
+
+  /** The caller's membership, for the guard. Null means no workspace yet. */
+  async membershipFor(
+    userId: string,
+  ): Promise<{ workspaceId: string; role: WorkspaceRole } | null> {
+    return this.membershipOf(userId);
+  }
+
+  /**
+   * The modules one role may open here.
+   *
+   * Read on every module-gated request. A database without the toggles
+   * migration answers the seeded defaults instead of failing: the page is
+   * gated either way, and an optional table must not take the inbox down.
+   */
+  async modulesFor(
+    workspaceId: string,
+    role: WorkspaceRole,
+  ): Promise<ModuleKey[]> {
+    if (role === "OWNER") return [...ALL_MODULES];
+
+    const { rows } = await this.accessRows(workspaceId);
+
+    return effectiveModules(role, rows);
+  }
+
+  /** What the caller may open, for the shell's sidebar. */
+  async access(claims: AuthClaims): Promise<AccessView> {
+    const { workspaceId, role } = await this.primaryFor(claims);
+
+    return { role, modules: await this.modulesFor(workspaceId, role) };
+  }
+
+  /**
+   * The owner's matrix. Only the permissions screen reads it; a member needs
+   * nothing more than their own `access`.
+   */
+  async permissions(claims: AuthClaims): Promise<PermissionsView> {
+    const { workspaceId } = await this.primaryFor(claims);
+    const { rows, stored } = await this.accessRows(workspaceId);
+
+    const forRole = (role: ConfigurableRole) =>
+      effectiveModules(
+        role,
+        rows.filter((row) => row.role === role),
+      );
+
+    return {
+      modules: MODULE_KEYS.map((key) => ({ key, label: MODULE_LABELS[key] })),
+      roles: {
+        ADMIN: forRole("ADMIN"),
+        MANAGER: forRole("MANAGER"),
+        AGENT: forRole("AGENT"),
+      },
+      stored,
+    };
+  }
+
+  /**
+   * Replaces the toggles for every role the request names.
+   *
+   * A role left out is untouched, so a screen that only edits one role cannot
+   * blank the others. Only rows that differ from the defaults are written: the
+   * reader lays them over the defaults, and a module added later stays visible
+   * until the owner says otherwise.
+   */
+  async setPermissions(
+    claims: AuthClaims,
+    roles: Record<string, unknown>,
+  ): Promise<PermissionsView> {
+    const { workspaceId } = await this.primaryFor(claims);
+    const { stored } = await this.accessRows(workspaceId);
+
+    if (!stored) {
+      throw new ConflictException({
+        code: "ROLE_ACCESS_MISSING",
+        message:
+          "The permission table is not installed yet, so only the seeded defaults are in force.",
+      });
+    }
+
+    const wanted = readPermissionInput(roles);
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const role of CONFIGURABLE_ROLES) {
+        const modules = wanted[role];
+
+        if (!modules) continue;
+
+        const defaults = new Set<ModuleKey>(MODULE_DEFAULTS[role]);
+        const chosen = new Set<ModuleKey>(modules);
+
+        await tx.workspaceRoleAccess.deleteMany({ where: { workspaceId, role } });
+
+        const rows = MODULE_KEYS.filter(
+          (key) => chosen.has(key) !== defaults.has(key),
+        ).map((key) => ({
+          workspaceId,
+          role,
+          module: key,
+          enabled: chosen.has(key),
+        }));
+
+        if (rows.length > 0) {
+          await tx.workspaceRoleAccess.createMany({ data: rows });
+        }
+      }
+    });
+
+    return this.permissions(claims);
   }
 
   /**
@@ -446,6 +590,33 @@ export class WorkspacesService {
     return { ok: true };
   }
 
+  private async accessRows(
+    workspaceId: string,
+  ): Promise<{
+    rows: { role: WorkspaceRole; module: string; enabled: boolean }[];
+    stored: boolean;
+  }> {
+    try {
+      const rows = await this.prisma.workspaceRoleAccess.findMany({
+        where: { workspaceId },
+        select: { role: true, module: true, enabled: true },
+      });
+
+      return { rows, stored: true };
+    } catch (error) {
+      if (!missingAccessTable(error)) throw error;
+
+      if (!this.warnedMissingAccess) {
+        this.warnedMissingAccess = true;
+        this.logger.warn(
+          "workspace_role_access is missing; role modules fall back to the seeded defaults.",
+        );
+      }
+
+      return { rows: [], stored: false };
+    }
+  }
+
   private membershipOf(
     userId: string,
   ): Promise<{ workspaceId: string; role: WorkspaceRole } | null> {
@@ -487,4 +658,68 @@ function invitationView(row: {
 /** Stored, never the token itself — a dump of the table cannot be replayed. */
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * A database that predates the toggles migration: the request is answered from
+ * the seeded defaults rather than failing. Prisma reports P2021; the message
+ * check covers a driver that answers in words instead.
+ */
+function missingAccessTable(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2021") return true;
+  }
+
+  return error instanceof Error && /relation .* does not exist/i.test(error.message);
+}
+
+/**
+ * A submitted role→modules map, checked before anything is written.
+ *
+ * A role that is absent is left alone; a role that is present must be a list of
+ * modules this build knows, so a typo cannot create a route into nothing.
+ */
+function readPermissionInput(
+  roles: Record<string, unknown>,
+): Partial<Record<ConfigurableRole, ModuleKey[]>> {
+  const wanted: Partial<Record<ConfigurableRole, ModuleKey[]>> = {};
+
+  for (const role of CONFIGURABLE_ROLES) {
+    const value = roles[role];
+
+    if (value === undefined) continue;
+
+    if (!Array.isArray(value)) {
+      throw new BadRequestException({
+        code: "ROLE_ACCESS_INVALID",
+        message: `The modules for ${role} must be a list.`,
+      });
+    }
+
+    const modules: ModuleKey[] = [];
+
+    for (const entry of value) {
+      const key = moduleIn(entry);
+
+      if (!key) {
+        throw new BadRequestException({
+          code: "ROLE_ACCESS_INVALID",
+          message: `There is no workspace module called “${String(entry)}”.`,
+        });
+      }
+
+      if (!modules.includes(key)) modules.push(key);
+    }
+
+    wanted[role] = modules;
+  }
+
+  if (Object.keys(wanted).length === 0) {
+    throw new BadRequestException({
+      code: "ROLE_ACCESS_INVALID",
+      message: "Name at least one role to change.",
+    });
+  }
+
+  return wanted;
 }

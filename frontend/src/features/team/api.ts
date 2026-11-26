@@ -2,26 +2,45 @@ import { request } from "@/lib/api/http";
 
 export { ApiError } from "@/lib/api/http";
 
+// The permissions screen's two calls belong to the workspace access contract,
+// not to this feature; re-exported so the team screens import one module.
+export {
+  fetchPermissions,
+  savePermissions,
+  type PermissionsView,
+  type RolePermissions,
+} from "@/lib/access/api";
+
 /**
- * The PRD's three roles, under the names the schema stores. `ADMIN` is the
- * Business Owner's Manager and `AGENT` is the Support Agent.
+ * The PRD's three roles plus ownership, under the names the schema stores:
+ * `OWNER` is the Business Owner, `ADMIN` the day-to-day admin, `MANAGER` the
+ * PRD's Manager and `AGENT` the Support Agent.
  */
-export type TeamRole = "OWNER" | "ADMIN" | "AGENT";
+export type TeamRole = "OWNER" | "ADMIN" | "MANAGER" | "AGENT";
 
 /** Ownership is not handed out by an invitation, so it is not offerable. */
 export type MemberRole = Exclude<TeamRole, "OWNER">;
 
+/** The order the role pickers offer: least access first, ownership last. */
+export const MEMBER_ROLES: readonly MemberRole[] = [
+  "AGENT",
+  "MANAGER",
+  "ADMIN",
+];
+
 export const ROLE_LABELS: Record<TeamRole, string> = {
   OWNER: "Owner",
-  ADMIN: "Manager",
+  ADMIN: "Admin",
+  MANAGER: "Manager",
   AGENT: "Agent",
 };
 
 /** What each role may do, in the words the invite form uses. */
 export const ROLE_HINTS: Record<TeamRole, string> = {
-  OWNER: "Manages the workspace: team, connection, agents and campaigns.",
-  ADMIN: "Runs campaigns, templates and the inbox. Cannot change the team.",
-  AGENT: "Answers conversations, including the ones the AI handed over.",
+  OWNER: "Owns the workspace and its WhatsApp number: team, connection and billing.",
+  ADMIN: "Runs campaigns, templates, the chatbot and the inbox, but cannot connect the number.",
+  MANAGER: "Runs campaigns, owns contacts and reads analytics. Hands conversations to agents.",
+  AGENT: "Answers conversations assigned to them and the unclaimed ones. Leaves notes.",
 };
 
 export interface Member {

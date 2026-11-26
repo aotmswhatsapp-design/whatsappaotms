@@ -11,7 +11,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { StatusDot, type StatusDotTone } from "@/components/ui/status-dot";
-import { isNavItemActive, workspaceNav, type WorkspaceNavItem } from "@/config/workspace-nav";
+import type { ModuleKey } from "@/config/modules";
+import {
+  isNavItemActive,
+  navForModules,
+  type WorkspaceNavItem,
+} from "@/config/workspace-nav";
 import { useWhatsAppStatus } from "@/hooks/use-whatsapp-status";
 import type { ConnectionStatus } from "@/lib/api/whatsapp-status";
 import { cn } from "@/lib/utils";
@@ -44,19 +49,42 @@ function dotFor(
  * Grouped workspace navigation. Groups collapse, the group holding the current
  * route is always open, and the active item is marked with `aria-current`.
  *
+ * The items are the modules the owner switched on for the caller's role — not
+ * the static route list — so a screen the API would refuse is never offered.
+ * While the answer is in flight (`modules === null`) the sidebar shows a few
+ * placeholder rows instead of guessing, which would flash every item first.
+ *
  * Open state is controlled with per-group overrides rather than `defaultOpen`,
  * because the sidebar does not remount between routes: without this, jumping to
  * a page inside a collapsed group (from the command palette, for example) would
  * leave the active link hidden.
  */
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarNav({
+  modules,
+  onNavigate,
+}: {
+  modules: readonly ModuleKey[] | null;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const whatsapp = useWhatsAppStatus();
 
+  if (modules === null) return <NavSkeleton />;
+
+  const groups = navForModules(modules);
+
+  if (groups.length === 0) {
+    return (
+      <p className="px-3 py-6 text-[13px] text-muted-foreground">
+        The owner has not enabled any modules for your role yet.
+      </p>
+    );
+  }
+
   return (
     <nav aria-label="Workspace" className="px-2.5 pb-4">
-      {workspaceNav.map((group) => {
+      {groups.map((group) => {
         const groupActive = group.items.some((item) =>
           isNavItemActive(item.href, pathname),
         );
@@ -132,5 +160,19 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         );
       })}
     </nav>
+  );
+}
+
+/** Placeholder rows for the one request the sidebar waits on. */
+function NavSkeleton() {
+  return (
+    <div aria-hidden="true" className="space-y-2 px-2.5 py-4">
+      {[0, 1, 2, 3, 4].map((row) => (
+        <div
+          key={row}
+          className="h-9 animate-pulse rounded-lg bg-secondary"
+        />
+      ))}
+    </div>
   );
 }

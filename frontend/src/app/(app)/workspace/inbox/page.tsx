@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { getNavItem } from "@/config/workspace-nav";
 import { InboxView } from "@/features/inbox/components/inbox-view";
+import { getSessionUser } from "@/lib/auth/session";
 
 const nav = getNavItem("/workspace/inbox");
 
@@ -49,5 +50,14 @@ async function LinkedThread({
     ? conversation[0]
     : conversation;
 
-  return <InboxView initialConversationId={initialConversationId} />;
+  // The thread needs to know which member is reading it: an agent may only
+  // claim a conversation for themselves.
+  const user = await getSessionUser();
+
+  return (
+    <InboxView
+      initialConversationId={initialConversationId}
+      viewerId={user?.id ?? null}
+    />
+  );
 }

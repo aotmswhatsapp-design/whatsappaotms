@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { Inbox, Loader2 } from "lucide-react";
 
 import { StatusDot } from "@/components/ui/status-dot";
-import { Button } from "@/components/ui/button";
+import { useAccess } from "@/components/workspace/access-provider";
+import { ConnectWhatsAppAction } from "@/components/workspace/connect-whatsapp";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { cn } from "@/lib/utils";
 
@@ -47,10 +47,16 @@ const LIST_MAX = 640;
  */
 export function InboxView({
   initialConversationId,
+  viewerId,
 }: {
   /** `/workspace/inbox?conversation=<id>`, from a run's `Open` link. */
   initialConversationId?: string;
+  /** The signed-in member; the thread's own queue is scoped by the server. */
+  viewerId?: string | null;
 }) {
+  const { role } = useAccess();
+  const owner = role === "OWNER";
+
   const [summary, setSummary] = React.useState<InboxSummary | null>(null);
   const [agents, setAgents] = React.useState<InboxAgent[]>([]);
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
@@ -458,14 +464,16 @@ export function InboxView({
     return (
       <div className="grid h-full place-items-center p-6">
         <EmptyState
+          action={<ConnectWhatsAppAction />}
           className="w-full max-w-md"
-          description="The inbox reads and replies from the number you connect on the WhatsApp page. Connect it once and every customer message lands here."
+          description={
+            owner
+              ? "The inbox reads and replies from the number you connect on the WhatsApp page. Connect it once and every customer message lands here."
+              : "The workspace owner has not connected the WhatsApp number yet. Once it is in, customer messages land here — you work the owner's number, never one of your own."
+          }
           icon={Inbox}
-          title="Connect a WhatsApp number"
-          action={
-            <Button asChild variant="brand">
-              <Link href="/workspace/whatsapp">Connect WhatsApp</Link>
-            </Button>
+          title={
+            owner ? "Connect a WhatsApp number" : "No WhatsApp number connected"
           }
         />
       </div>
@@ -580,6 +588,7 @@ export function InboxView({
             agents={agents}
             loading={threadLoading}
             thread={thread}
+            viewerId={viewerId}
             onBack={() => setSelectedId(null)}
             onChanged={handleChanged}
             onDeleted={handleDeleted}

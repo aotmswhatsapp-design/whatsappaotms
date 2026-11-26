@@ -5,6 +5,8 @@ import { SyncTrigger } from "@prisma/client";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
+import { RequiresModule } from "../workspaces/workspace-roles.decorator";
+import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { AnalyticsReportService } from "./analytics.report";
 import { AnalyticsService } from "./analytics.service";
 import { AnalyticsSyncService } from "./analytics.sync";
@@ -12,9 +14,14 @@ import { AnalyticsSyncService } from "./analytics.sync";
 /**
  * The analytics routes. Scoped to the caller's workspace, so the numbers come
  * from that workspace's own Meta account and nowhere else.
+ *
+ * Gated by the `analytics` module: the figures are the owner's to hand out per
+ * role, and a role without the module should not be able to read them just
+ * because it can guess the URL.
  */
 @Controller("v1/analytics")
-@UseGuards(SupabaseAuthGuard)
+@RequiresModule("analytics")
+@UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class AnalyticsController {
   constructor(
     private readonly analytics: AnalyticsService,

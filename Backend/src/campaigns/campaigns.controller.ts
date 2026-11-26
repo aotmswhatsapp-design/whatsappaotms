@@ -18,7 +18,7 @@ import { Throttle } from "@nestjs/throttler";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
-import { Roles } from "../workspaces/workspace-roles.decorator";
+import { RequiresModule, Roles } from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { CampaignsService } from "./campaigns.service";
 import { AddRecipientsDto } from "./dto/add-recipients.dto";
@@ -38,6 +38,7 @@ import { UpdateCampaignDto } from "./dto/update-campaign.dto";
  * `options` and `audience` are never read as campaign ids.
  */
 @Controller("v1/campaigns")
+@RequiresModule("campaigns")
 @UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
 export class CampaignsController {
   constructor(private readonly campaigns: CampaignsService) {}
@@ -68,7 +69,7 @@ export class CampaignsController {
 
   /** POST /api/v1/campaigns — a draft, or a scheduled campaign. */
   @Post()
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   create(@CurrentUser() claims: AuthClaims, @Body() dto: CreateCampaignDto) {
     return this.campaigns.create(claims, dto);
@@ -86,7 +87,7 @@ export class CampaignsController {
 
   /** PATCH /api/v1/campaigns/:id — a draft or a scheduled campaign only. */
   @Patch(":id")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   update(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -97,7 +98,7 @@ export class CampaignsController {
 
   /** DELETE /api/v1/campaigns/:id — a draft or a scheduled campaign only. */
   @Delete(":id")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   remove(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -110,7 +111,7 @@ export class CampaignsController {
    * by hand or from a spreadsheet. Duplicates come back in the report.
    */
   @Post(":id/recipients")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @HttpCode(200)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   addRecipients(
@@ -123,7 +124,7 @@ export class CampaignsController {
 
   /** DELETE /api/v1/campaigns/:id/recipients/:recipientId — before the send. */
   @Delete(":id/recipients/:recipientId")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   removeRecipient(
     @CurrentUser() claims: AuthClaims,
     @Param("id", ParseUUIDPipe) id: string,
@@ -134,7 +135,7 @@ export class CampaignsController {
 
   /** POST /api/v1/campaigns/:id/start — snapshot the audience and begin. */
   @Post(":id/start")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   start(
@@ -145,7 +146,7 @@ export class CampaignsController {
   }
 
   @Post(":id/pause")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @HttpCode(200)
   pause(
     @CurrentUser() claims: AuthClaims,
@@ -155,7 +156,7 @@ export class CampaignsController {
   }
 
   @Post(":id/resume")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @HttpCode(200)
   resume(
     @CurrentUser() claims: AuthClaims,
@@ -165,7 +166,7 @@ export class CampaignsController {
   }
 
   @Post(":id/cancel")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @HttpCode(200)
   cancel(
     @CurrentUser() claims: AuthClaims,
@@ -179,7 +180,7 @@ export class CampaignsController {
    * recipient and is not counted.
    */
   @Post(":id/test")
-  @Roles("ADMIN")
+  @Roles("MANAGER")
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   test(

@@ -21,7 +21,10 @@ import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import type { AuthClaims } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { MAX_IMAGE_BYTES } from "../templates/template-media";
-import { Roles } from "../workspaces/workspace-roles.decorator";
+import {
+  RequiresModule,
+  Roles,
+} from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { BotsService, type UploadedBotImage } from "./bots.service";
 import { SaveBotDto } from "./dto/save-bot.dto";
@@ -31,7 +34,9 @@ import { SaveBotDto } from "./dto/save-bot.dto";
  *
  * Reading is open to every member — the Inbox offers these cards to whoever is
  * working the thread — while writing is the owner's, because it changes what a
- * customer is shown.
+ * customer is shown. For that reason the `chatbot` module gate sits on the
+ * writes only: shutting the editor to a role must not take the cards out of
+ * an inbox that role is allowed to work.
  */
 @Controller("v1/agents/:agentId/bot")
 @UseGuards(SupabaseAuthGuard, WorkspaceRolesGuard)
@@ -49,6 +54,7 @@ export class BotsController {
 
   /** PUT /api/v1/agents/:agentId/bot — the whole flow, replacing the stored one. */
   @Put()
+  @RequiresModule("chatbot")
   @Roles("OWNER")
   save(
     @CurrentUser() claims: AuthClaims,
@@ -66,6 +72,7 @@ export class BotsController {
    * picture changes what a customer is shown.
    */
   @Post("media")
+  @RequiresModule("chatbot")
   @Roles("OWNER")
   @HttpCode(201)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
@@ -109,6 +116,7 @@ export class BotsController {
    * be shown.
    */
   @Delete("media")
+  @RequiresModule("chatbot")
   @Roles("OWNER")
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   removeImage(
