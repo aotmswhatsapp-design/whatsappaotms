@@ -18,13 +18,13 @@ import type { UploadedMedia } from "../inbox/inbox.sender";
 import { MediaStorage } from "../inbox/media.storage";
 import { AiError, ExtractError } from "./ai.errors";
 import { OpenAiProvider, toVector } from "./ai.openai";
-import { extractDocument } from "./extract";
+import { extractSource, type Extracted } from "./extract";
 import { OpenAiMediaExtractor, resolveMime } from "./extract.media";
 import { MAX_SOURCE_BYTES, inspectUpload, type InspectedFile } from "./knowledge.file";
 import {
   MAX_CHUNKS,
+  chunkBlocks,
   estimateTokens,
-  splitText,
 } from "./knowledge.chunk";
 import type { AddTextSourceDto } from "./dto/add-text-source.dto";
 
@@ -370,21 +370,34 @@ export class KnowledgeService {
     if (!source || source.status !== "PROCESSING") return;
 
     try {
-      const text =
+      const extracted: Extracted =
         source.text && source.text.length > 0
-          ? source.text
+          ? {
+              blocks: [{ text: source.text }],
+              meta: (source.meta as SourceMeta | null) ?? null,
+              extractTokens: source.extractTokens,
+            }
           : await this.readSource(source);
 
-      const chunks = splitText(text);
+      // A long extraction is the one phase with no paid call to renew the
+      // lease, so renew it here: otherwise a 24 MB PDF looks like a dead
+      // process and a second worker starts the same work (B-16).
+      await this.prisma.knowledgeSource.updateMany({
+        where: { id: source.id, status: "PROCESSING" },
+        data: { updatedAt: new Date() },
+      });
 
-      if (chunks.length === 0) {
+      const drafts = chunkBlocks(extracted.blocks);
+      const text = extracted.blocks.map((block) => block.text).join("\n\n");
+
+      if (drafts.length === 0) {
         throw new ExtractError("SOURCE_EMPTY", "There was no readable text in that source.");
       }
 
-      if (chunks.length > MAX_CHUNKS) {
+      if (drafts.length > MAX_CHUNKS) {
         throw new ExtractError(
           "SOURCE_TOO_LARGE",
-          `That document splits into ${chunks.length} chunks, over the ${MAX_CHUNKS} limit. Split it or upload the part that matters.`,
+          `That document splits into ${drafts.length} chunks, over the ${MAX_CHUNKS} limit. Split it or upload the part that matters.`,
         );
       }
 
@@ -392,11 +405,16 @@ export class KnowledgeService {
       await this.prisma.knowledgeChunk.deleteMany({ where: { sourceId: source.id } });
 
       await this.prisma.knowledgeChunk.createMany({
-        data: chunks.map((chunk, ord) => ({
+        data: drafts.map((chunk, ord) => ({
           sourceId: source.id,
           ord,
-          text: chunk,
-          tokens: estimateTokens(chunk),
+          text: chunk.text,
+          tokens: estimateTokens(chunk.text),
+          page: chunk.page ?? null,
+          sheet: chunk.sheet ?? null,
+          rowFrom: chunk.rowFrom ?? null,
+          rowTo: chunk.rowTo ?? null,
+          heading: chunk.heading ?? null,
         })),
       });
 
@@ -443,6 +461,8 @@ export class KnowledgeService {
           charCount: text.length,
           chunkCount: rows.length,
           embedTokens,
+          extractTokens: extracted.extractTokens,
+          meta: extracted.meta ?? undefined,
           status: "READY",
           error: null,
           indexedAt: new Date(),
@@ -475,6 +495,9 @@ export class KnowledgeService {
           mime: true,
           storagePath: true,
           text: true,
+          meta: true,
+          extractTokens: true,
+          replacesSourceId: true,
           status: true,
           agent: { select: { model: true } },
         },
@@ -492,7 +515,7 @@ export class KnowledgeService {
     mime: string | null;
     storagePath: string | null;
     agent: { model: string };
-  }): Promise<string> {
+  }): Promise<Extracted> {
     if (source.kind === "TEXT") {
       throw new ExtractError("SOURCE_EMPTY", "That note had no text.");
     }
@@ -508,15 +531,18 @@ export class KnowledgeService {
     const mime = resolveMime(source.mime, source.title);
 
     if (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/")) {
-      return (await this.media.read({
+      const read = await this.media.read({
         bytes,
         mime,
         name: source.title,
         model: source.agent.model,
-      })).text;
+      });
+
+      // Task 3 records what the read cost; until then the column keeps 0.
+      return { blocks: [{ text: read.text }], meta: null, extractTokens: 0 };
     }
 
-    return extractDocument({ bytes, mime, name: source.title });
+    return extractSource({ bytes, mime, name: source.title });
   }
 
   /**

@@ -67,7 +67,7 @@ export function systemPrompt(input: {
   return blocks.filter((block) => block !== null).join("\n\n");
 }
 
-function contextBlock(chunks: ContextChunk[]): string {
+export function contextBlock(chunks: ContextChunk[]): string {
   if (chunks.length === 0) return "Reference material: (none was found for this question.)";
 
   let used = 0;
@@ -77,10 +77,24 @@ function contextBlock(chunks: ContextChunk[]): string {
     if (used + chunk.text.length > MAX_CONTEXT_CHARS) break;
 
     used += chunk.text.length;
-    lines.push(`[${chunk.title}]\n${chunk.text}`);
+    lines.push(`[${labelOf(chunk)}]\n${chunk.text}`);
   }
 
   return `Reference material:\n\n${lines.join("\n\n---\n\n")}`;
+}
+
+/** Where the words came from, in the same brackets as the title. Only the
+ *  retrieved slice is named — `meta` is never pasted in wholesale (D4). */
+function labelOf(chunk: ContextChunk): string {
+  const where: string[] = [];
+
+  if (chunk.page) where.push(`page ${chunk.page}`);
+  if (chunk.sheet) {
+    where.push(`sheet "${chunk.sheet}"${chunk.rowFrom ? ` rows ${chunk.rowFrom}–${chunk.rowTo}` : ""}`);
+  }
+  if (chunk.heading && chunk.heading !== chunk.title) where.push(chunk.heading);
+
+  return where.length > 0 ? `${chunk.title} · ${where.join(" · ")}` : chunk.title;
 }
 
 /** The last few turns, oldest first. A customer is `user`; we are `assistant`. */

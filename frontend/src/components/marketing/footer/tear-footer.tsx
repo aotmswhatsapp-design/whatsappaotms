@@ -543,12 +543,12 @@ function grainTile(): string {
 }
 
 export function TearFooter({
-  brand = "Your Company",
-  name = "Your Company",
+  brand = "AOTMS",
+  name = "AOTMS",
   logo,
   logoHref = "/",
   socials = [],
-  email = "hello@example.com",
+  email = "aotms@aotms.com",
   newsletter = DEFAULT_NEWSLETTER,
   status = null,
   mark,

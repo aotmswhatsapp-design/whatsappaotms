@@ -15,33 +15,90 @@ const logger = new Logger("Extract");
  * no native module. `.xls` is deliberately absent — `exceljs` reads the
  * zipped `.xlsx` format only.
  *
+ * Text leaves here as blocks, not as one string: a page number or a heading is
+ * evidence of where an answer came from, and joining pages erases it.
+ *
  * The extension allowlist lives in `knowledge.file.ts`, beside the signature
  * check that has to agree with it.
  */
-export async function extractDocument(file: {
+export interface SourceBlock {
+  text: string;
+  page?: number;
+  sheet?: string;
+  rowFrom?: number;
+  rowTo?: number;
+  heading?: string;
+}
+
+export type TableMeta = {
+  kind: "table";
+  sheets: { name: string; headers: string[]; rowCount: number }[];
+};
+
+export interface Extracted {
+  blocks: SourceBlock[];
+  meta: TableMeta | null;
+  /** Tokens spent reading an image or a voice note; 0 for documents. */
+  extractTokens: number;
+}
+
+/** 20 rows per block: enough to be a paragraph of meaning, small enough that
+ *  a retrieved chunk is still one answer's worth of rows. */
+const ROWS_PER_BLOCK = 20;
+
+export async function extractSource(file: {
   bytes: Buffer;
   mime: string;
   name: string;
-}): Promise<string> {
+}): Promise<Extracted> {
   const extension = extensionOf(file.name);
 
   switch (extension) {
     case "txt":
+      return {
+        blocks: [{ text: expectText(decode(file.bytes), "That file was empty.") }],
+        meta: null,
+        extractTokens: 0,
+      };
+
     case "md":
-      return expectText(decode(file.bytes), "That file was empty.");
+      return {
+        blocks: expectBlocks(markdownBlocks(decode(file.bytes)), "That file was empty."),
+        meta: null,
+        extractTokens: 0,
+      };
 
-    case "csv":
-      return expectText(csvToText(decode(file.bytes)), "That CSV was empty.");
-
-    case "docx": {
-      const text = await readable(() => docxText(file.bytes), file.name);
-      return expectText(text, "That document was empty.");
+    case "csv": {
+      const parsed = csvBlocks(parseCsv(decode(file.bytes)));
+      return {
+        blocks: expectBlocks(parsed.blocks, "That CSV was empty."),
+        meta: parsed.meta,
+        extractTokens: 0,
+      };
     }
+
+    case "docx":
+      return {
+        blocks: expectBlocks(await readable(() => docxBlocks(file.bytes), file.name), "That document was empty."),
+        meta: null,
+        extractTokens: 0,
+      };
 
     case "xlsx": {
-      const text = await readable(() => sheetText(file.bytes), file.name);
-      return expectText(text, "That workbook was empty.");
+      const parsed = await readable(() => xlsxBlocks(file.bytes), file.name);
+      return {
+        blocks: expectBlocks(parsed.blocks, "That workbook was empty."),
+        meta: parsed.meta,
+        extractTokens: 0,
+      };
     }
+
+    case "pdf":
+      return {
+        blocks: await readable(() => pdfBlocks(file.bytes), file.name),
+        meta: null,
+        extractTokens: 0,
+      };
 
     case "xls":
       throw new ExtractError(
@@ -49,17 +106,29 @@ export async function extractDocument(file: {
         "The old .xls format cannot be read. Open it in Excel and save it as .xlsx, then upload that.",
       );
 
-    case "pdf": {
-      const text = await readable(() => pdfText(file.bytes), file.name);
-      return expectText(text, "That PDF was empty.");
-    }
-
     default:
       throw new ExtractError(
         "SOURCE_UNSUPPORTED",
         `A ${extension ? `.${extension}` : "file of that type"} is not one the agent can read.`,
       );
   }
+}
+
+function expectBlocks(blocks: SourceBlock[], sentence: string): SourceBlock[] {
+  if (blocks.every((block) => block.text.trim().length === 0)) {
+    throw new ExtractError("SOURCE_EMPTY", sentence);
+  }
+
+  return blocks.filter((block) => block.text.trim().length > 0);
+}
+
+/** Kept for callers that want one string; the pipeline uses blocks. */
+export async function extractDocument(file: {
+  bytes: Buffer;
+  mime: string;
+  name: string;
+}): Promise<string> {
+  return (await extractSource(file)).blocks.map((block) => block.text).join("\n\n");
 }
 
 /** UTF-8, with the byte-order mark an exported CSV often carries. */
@@ -81,10 +150,10 @@ function expectText(text: string, sentence: string): string {
  * module. The detail goes to the log, where an operator can act on it; the
  * caller gets a code the upload route can turn into a sentence.
  */
-async function readable(
-  run: () => Promise<string>,
+async function readable<T>(
+  run: () => Promise<T>,
   name: string,
-): Promise<string> {
+): Promise<T> {
   try {
     return await run();
   } catch (error) {
@@ -101,40 +170,38 @@ async function readable(
   }
 }
 
-/**
- * A CSV loses its meaning when the commas stay in: "Delivery,50" reads as one
- * phrase. Cells joined with a separator read as a row, which is what a person
- * asking "how much is delivery" is searching for. Quoted cells are respected.
- */
-function csvToText(raw: string): string {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => cellsOf(line).join(" | ").trim())
-    .filter((line) => line.replace(/\|/g, "").trim().length > 0)
-    .join("\n");
+export function pagesToBlocks(pages: string[]): SourceBlock[] {
+  return pages.flatMap((text, index) => (text.length > 0 ? [{ text, page: index + 1 }] : []));
 }
 
-function cellsOf(line: string): string[] {
-  const cells: string[] = [];
+/** A state machine over the whole text: a comma inside quotes is data, and a
+ *  newline inside quotes is still the same cell. */
+export function parseCsv(raw: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let cell = "";
   let quoted = false;
 
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
+  for (let at = 0; at < raw.length; at += 1) {
+    const char = raw[at];
 
-    if (char === '"') {
-      // A doubled quote inside a quoted cell is one literal quote.
-      if (quoted && line[index + 1] === '"') {
-        cell += '"';
-        index += 1;
+    if (quoted) {
+      if (char === '"') {
+        if (raw[at + 1] === '"') { cell += '"'; at += 1; }
+        else quoted = false;
       } else {
-        quoted = !quoted;
+        cell += char;
       }
       continue;
     }
 
-    if (char === "," && !quoted) {
-      cells.push(cell.trim());
+    if (char === '"') { quoted = true; continue; }
+    if (char === ",") { row.push(cell.trim()); cell = ""; continue; }
+    if (char === "\n" || char === "\r") {
+      if (char === "\r" && raw[at + 1] === "\n") at += 1;
+      row.push(cell.trim());
+      rows.push(row);
+      row = [];
       cell = "";
       continue;
     }
@@ -142,19 +209,131 @@ function cellsOf(line: string): string[] {
     cell += char;
   }
 
-  cells.push(cell.trim());
+  if (cell.length > 0 || row.length > 0) { row.push(cell.trim()); rows.push(row); }
 
-  return cells.filter((value) => value.length > 0);
+  return rows.filter((line) => line.some((value) => value.length > 0));
 }
 
-async function docxText(bytes: Buffer): Promise<string> {
-  const result = await mammoth.extractRawText({ buffer: bytes });
+/** One block per run of rows, headers repeated, row range recorded. Empty
+ *  cells are kept so every value stays under its own column. */
+export function sheetBlocks(name: string, headers: string[], rows: string[][]): SourceBlock[] {
+  // A loop, not `Math.max(...rows.map(...))`: a quarter of a million rows
+  // overflow the argument stack, and a CSV that large is inside the limit.
+  let width = headers.length;
+  for (const row of rows) if (row.length > width) width = row.length;
 
-  return result.value.trim();
+  const head = `Columns: ${Array.from({ length: width }, (_, at) => headers[at] ?? "").join(" | ")}`;
+
+  return Array.from({ length: Math.ceil(rows.length / ROWS_PER_BLOCK) }, (_, block) => {
+    const from = block * ROWS_PER_BLOCK;
+    const slice = rows.slice(from, from + ROWS_PER_BLOCK);
+    const lines = slice.map((row) => Array.from({ length: width }, (_, at) => row[at] ?? "").join(" | "));
+
+    return {
+      text: `${head}\n${lines.join("\n")}`,
+      sheet: name,
+      rowFrom: from + 1,
+      rowTo: from + slice.length,
+    };
+  });
 }
 
-/** One heading per sheet, then each row's cells on one line. */
-async function sheetText(bytes: Buffer): Promise<string> {
+export function csvBlocks(rows: string[][]): { blocks: SourceBlock[]; meta: TableMeta } {
+  const headers = rows[0] ?? [];
+  const data = rows.slice(1);
+
+  return {
+    blocks: sheetBlocks("CSV", headers, data),
+    meta: { kind: "table", sheets: [{ name: "CSV", headers, rowCount: data.length }] },
+  };
+}
+
+/** h1-h6, paragraphs and table rows, in document order. Mammoth wraps a cell
+ *  body in its own <p>, so tables are matched as a whole before paragraphs. */
+export function docxHtmlToBlocks(html: string): SourceBlock[] {
+  const blocks: SourceBlock[] = [];
+  let heading: string | undefined;
+  const token = /<table[\s\S]*?<\/table>|<h([1-6])[^>]*>([\s\S]*?)<\/h\1>|<p[^>]*>([\s\S]*?)<\/p>/gi;
+
+  for (const match of html.matchAll(token)) {
+    if (match[0].startsWith("<table")) {
+      for (const row of match[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+        const cells = [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => plain(cell[1]));
+        if (cells.length > 0) blocks.push(heading ? { text: cells.join(" | "), heading } : { text: cells.join(" | ") });
+      }
+      continue;
+    }
+
+    const text = plain(match[1] ? match[2] : match[3]);
+    if (text.length === 0) continue;
+
+    if (match[1]) {
+      heading = text;
+      blocks.push({ text, heading });
+    } else {
+      blocks.push(heading ? { text, heading } : { text });
+    }
+  }
+
+  return blocks;
+}
+
+function plain(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function docxBlocks(bytes: Buffer): Promise<SourceBlock[]> {
+  const html = await mammoth.convertToHtml({ buffer: bytes });
+  const blocks = docxHtmlToBlocks(html.value);
+
+  if (blocks.length > 0) return blocks;
+
+  // A document mammoth cannot convert still has paragraphs; do not lose them.
+  const raw = await mammoth.extractRawText({ buffer: bytes });
+  return raw.value.split(/\n{2,}/).map((text) => ({ text: text.trim() })).filter((block) => block.text.length > 0);
+}
+
+/** A markdown heading owns the text beneath it. */
+function markdownBlocks(text: string): SourceBlock[] {
+  const blocks: SourceBlock[] = [];
+  let heading: string | undefined;
+  let buffer: string[] = [];
+
+  const flush = () => {
+    const body = buffer.join("\n").trim();
+    if (body.length > 0) blocks.push(heading ? { text: body, heading } : { text: body });
+    buffer = [];
+  };
+
+  for (const line of text.split("\n")) {
+    const found = /^#{1,6}\s+(.+)$/.exec(line);
+
+    if (found) {
+      flush();
+      heading = found[1].trim();
+      blocks.push({ text: heading, heading });
+      continue;
+    }
+
+    buffer.push(line);
+  }
+
+  flush();
+  return blocks;
+}
+
+/** Headers from row 1, data from row 2, every column read so an empty cell
+ *  keeps its place under the right header. */
+async function xlsxBlocks(bytes: Buffer): Promise<{ blocks: SourceBlock[]; meta: TableMeta }> {
   const workbook = new ExcelJS.Workbook();
 
   // exceljs declares `interface Buffer extends ArrayBuffer {}` of its own, so
@@ -163,26 +342,35 @@ async function sheetText(bytes: Buffer): Promise<string> {
   // `Buffer` declarations lining up.
   await workbook.xlsx.load(new Uint8Array(bytes).buffer);
 
-  const sheets: string[] = [];
+  const blocks: SourceBlock[] = [];
+  const sheets: TableMeta["sheets"] = [];
 
   for (const sheet of workbook.worksheets) {
-    const lines: string[] = [];
+    const rows: string[][] = [];
+    let width = 0;
 
     sheet.eachRow({ includeEmpty: false }, (row) => {
+      width = Math.max(width, row.cellCount);
       const cells: string[] = [];
-
-      row.eachCell({ includeEmpty: false }, (cell) => {
-        const text = String(cell.text ?? "").trim();
-        if (text.length > 0) cells.push(text);
-      });
-
-      if (cells.length > 0) lines.push(cells.join(" | "));
+      for (let column = 1; column <= row.cellCount; column += 1) cells.push(String(row.getCell(column).text ?? "").trim());
+      rows.push(cells);
     });
 
-    if (lines.length > 0) sheets.push(`## ${sheet.name}\n${lines.join("\n")}`);
+    if (rows.length === 0) continue;
+
+    const padded = rows.map((row) => Array.from({ length: width }, (_, at) => row[at] ?? ""));
+    const headers = padded[0] ?? [];
+    const data = padded.slice(1);
+
+    blocks.push(...sheetBlocks(sheet.name, headers, data));
+    sheets.push({ name: sheet.name, headers, rowCount: data.length });
   }
 
-  return sheets.join("\n\n");
+  if (blocks.length === 0) {
+    throw new ExtractError("SOURCE_EMPTY", "That workbook was empty.");
+  }
+
+  return { blocks, meta: { kind: "table", sheets } };
 }
 
 /**
@@ -190,7 +378,7 @@ async function sheetText(bytes: Buffer): Promise<string> {
  * scanned PDF, which has no text layer, cannot be read at all until a renderer
  * exists. It says so instead of indexing nothing.
  */
-async function pdfText(bytes: Buffer): Promise<string> {
+async function pdfBlocks(bytes: Buffer): Promise<SourceBlock[]> {
   const pdfjs = await import("pdfjs-dist");
 
   // The loading task is what owns the worker, so it is the thing to destroy —
@@ -217,7 +405,8 @@ async function pdfText(bytes: Buffer): Promise<string> {
         .replace(/\s+/g, " ")
         .trim();
 
-      if (line.length > 0) pages.push(line);
+      // Pushed even when empty: the index of the array is the page number.
+      pages.push(line);
 
       page.cleanup();
     }
@@ -225,12 +414,14 @@ async function pdfText(bytes: Buffer): Promise<string> {
     await task.destroy();
   }
 
-  if (pages.length === 0) {
+  const blocks = pagesToBlocks(pages);
+
+  if (blocks.length === 0) {
     throw new ExtractError(
       "SOURCE_UNSUPPORTED",
       "That PDF has no text layer, so nothing could be read. It is probably a scan; upload page images or a text export instead.",
     );
   }
 
-  return pages.join("\n\n");
+  return blocks;
 }

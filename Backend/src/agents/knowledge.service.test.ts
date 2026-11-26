@@ -136,6 +136,53 @@ test("an oversized file is a 413 with SOURCE_TOO_LARGE", async () => {
   assert.equal(storage.uploaded.length, 0);
 });
 
+test("indexing a CSV writes one chunk per row range, with its sheet and its meta", async () => {
+  const { prisma, storage, service } = build();
+  const csv = ["item,price", ...Array.from({ length: 45 }, (_, at) => `item ${at + 1},${(at + 1) * 10}`)].join("\n");
+
+  (prisma.knowledgeSource as any).findUnique = async () => ({
+    id: "source-1",
+    kind: "FILE",
+    title: "prices.csv",
+    mime: "text/csv",
+    storagePath: "workspaces/ws-a/agents/agent-1/knowledge/source-1/original.csv",
+    text: null,
+    meta: null,
+    extractTokens: 0,
+    replacesSourceId: null,
+    status: "PROCESSING",
+    agent: { model: "gpt-4o-mini" },
+  });
+  (storage as any).download = async () => Buffer.from(csv);
+
+  const chunks: any[] = [];
+  (prisma.knowledgeChunk as any).createMany = async ({ data }: any) => {
+    chunks.push(...data);
+    return { count: data.length };
+  };
+
+  const writes: any[] = [];
+  (prisma.knowledgeSource as any).updateMany = async ({ data }: any) => {
+    writes.push(data);
+    return { count: 1 };
+  };
+
+  await service.index("source-1");
+
+  // The row range is what a citation quotes, so it has to survive the write.
+  assert.equal(chunks.length, 3);
+  assert.deepEqual(chunks.map((chunk) => [chunk.rowFrom, chunk.rowTo]), [[1, 20], [21, 40], [41, 45]]);
+  assert.ok(chunks.every((chunk) => chunk.sheet === "CSV"));
+  assert.ok(chunks.every((chunk) => chunk.text.startsWith("Columns: item | price")));
+
+  const ready = writes.find((data) => data.status === "READY");
+  assert.deepEqual(ready?.meta, {
+    kind: "table",
+    sheets: [{ name: "CSV", headers: ["item", "price"], rowCount: 45 }],
+  });
+  assert.equal(ready?.extractTokens, 0);
+});
+
 test("retrieval is scoped by workspace as well as agent", async () => {
   const captured: string[] = [];
   const prisma = {

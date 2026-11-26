@@ -1,3 +1,5 @@
+import type { SourceBlock } from "./extract";
+
 /**
  * Splitting text for retrieval.
  *
@@ -86,4 +88,64 @@ function boundaryOf(text: string, from: number, to: number): number | null {
 /** Four characters per token is the usual English average, and an estimate. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+export interface ChunkDraft {
+  text: string;
+  page?: number;
+  sheet?: string;
+  rowFrom?: number;
+  rowTo?: number;
+  heading?: string;
+}
+
+/**
+ * Blocks to chunks, without ever claiming a page it does not have.
+ *
+ * Two blocks are packed only when they share a page, a sheet and a heading and
+ * neither is part of a table: a row range that spans two blocks is a range the
+ * citation would have to invent, and a repeated "Columns:" line in the middle
+ * of a chunk reads like a second table.
+ */
+export function chunkBlocks(blocks: SourceBlock[]): ChunkDraft[] {
+  const chunks: ChunkDraft[] = [];
+  let open: ChunkDraft | null = null;
+
+  const flush = () => {
+    if (open && open.text.trim().length > 0) chunks.push(open);
+    open = null;
+  };
+
+  for (const block of blocks) {
+    const pieces = block.text.length <= CHUNK_CHARS ? [block.text] : splitText(block.text);
+
+    for (const piece of pieces) {
+      const compatible =
+        open !== null &&
+        open.page === block.page &&
+        open.sheet === block.sheet &&
+        open.heading === block.heading &&
+        open.rowFrom === undefined &&
+        block.rowFrom === undefined &&
+        open.text.length + piece.length + 2 <= CHUNK_CHARS;
+
+      if (compatible && open) {
+        open.text = `${open.text}\n\n${piece}`;
+        continue;
+      }
+
+      flush();
+      open = {
+        text: piece,
+        ...(block.page !== undefined ? { page: block.page } : {}),
+        ...(block.sheet !== undefined ? { sheet: block.sheet } : {}),
+        ...(block.rowFrom !== undefined ? { rowFrom: block.rowFrom } : {}),
+        ...(block.rowTo !== undefined ? { rowTo: block.rowTo } : {}),
+        ...(block.heading !== undefined ? { heading: block.heading } : {}),
+      };
+    }
+  }
+
+  flush();
+  return chunks;
 }

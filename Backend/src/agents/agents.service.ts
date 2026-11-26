@@ -84,7 +84,17 @@ export interface AgentDetail {
 
 export interface AskResult {
   answer: string;
-  citations: { sourceId: string; title: string; score: number; text: string }[];
+  citations: {
+    sourceId: string;
+    title: string;
+    score: number;
+    text: string;
+    /** Where the retrieved slice came from; null when the extractor had none. */
+    page: number | null;
+    sheet: string | null;
+    rowFrom: number | null;
+    rowTo: number | null;
+  }[];
   tokens: { input: number; output: number; embedding: number };
   reason: string | null;
 }
@@ -390,6 +400,10 @@ export class AgentsService {
         title: chunk.title,
         score: Math.round(chunk.score * 1000) / 1000,
         text: chunk.text.slice(0, 400),
+        page: chunk.page,
+        sheet: chunk.sheet,
+        rowFrom: chunk.rowFrom,
+        rowTo: chunk.rowTo,
       }));
       const tokens = {
         input: result.tokensIn,
