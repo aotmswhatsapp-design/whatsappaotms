@@ -37,6 +37,8 @@ export interface TemplateFacts {
   components: unknown;
   /** True when we hold a sample for this row's IMAGE header. */
   hasMedia: boolean;
+  /** Where that copy lives, so an edit can keep the image it already has. */
+  mediaPath: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +78,16 @@ export function fetchTemplates(refresh = false): Promise<TemplateListPayload> {
     `/v1/templates${refresh ? "?refresh=1" : ""}`,
     { method: "GET" },
   );
+}
+
+/**
+ * A fresh signed URL for the stored sample. It dies in five minutes, so the
+ * edit screen asks on mount rather than holding one from the list.
+ */
+export function fetchTemplateMediaUrl(
+  id: string,
+): Promise<{ url: string; mime: string | null }> {
+  return request(`/v1/templates/${id}/media`, { method: "GET" });
 }
 
 /** One row, for the detail screen's header. */
@@ -155,6 +167,38 @@ export function createTemplate(draft: TemplateDraft): Promise<TemplateFacts> {
   return request<TemplateFacts>("/v1/templates", {
     method: "POST",
     body: JSON.stringify(draft),
+  });
+}
+
+/**
+ * What an edit may change. Name, language and parameter format are Meta's
+ * fixed fields: a template is keyed on the first two and cannot switch the
+ * third after creation, so they are absent from the payload by construction.
+ */
+export type TemplateUpdate = Omit<TemplateDraft, "name" | "language">;
+
+/**
+ * Edits a template at Meta. Components are replaced wholesale, so the whole
+ * message travels even when only one line changed. A 400 names the state or
+ * field that blocks it; a 502 carries Meta's own sentence.
+ */
+export function updateTemplate(
+  id: string,
+  change: TemplateUpdate,
+): Promise<TemplateFacts> {
+  return request<TemplateFacts>(`/v1/templates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(change),
+  });
+}
+
+/**
+ * Deletes this language at Meta. The row stays here as a tombstone — campaigns
+ * and statistics point at it — but the catalogue stops showing it.
+ */
+export function deleteTemplate(id: string): Promise<{ removed: boolean }> {
+  return request<{ removed: boolean }>(`/v1/templates/${id}`, {
+    method: "DELETE",
   });
 }
 

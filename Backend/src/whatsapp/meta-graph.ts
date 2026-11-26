@@ -548,6 +548,50 @@ export class MetaGraph {
   }
 
   /**
+   * Edits an existing template by its own id — not by name.
+   *
+   * Only `category` and `components` travel: name, language and
+   * `parameter_format` are fixed at creation and Meta rejects a call that
+   * tries to change them. `components` replaces the whole set, so the caller
+   * must send every part it wants to keep. Meta re-reviews an approved
+   * template after an edit and answers `{ success: true }` without a verdict;
+   * the outcome arrives later on the status webhook.
+   */
+  updateMessageTemplate(
+    version: string,
+    templateId: string,
+    token: string,
+    changes: { category?: string; components: unknown[] },
+  ): Promise<{ success?: boolean }> {
+    return this.send<{ success?: boolean }>(
+      this.urlOf(version, [templateId]),
+      { method: "POST", token, body: changes },
+    );
+  }
+
+  /**
+   * Deletes one language of a template.
+   *
+   * The edge is addressed by WABA and the row by `hsm_id`, while `name` stays
+   * required alongside it — Meta keys templates on name plus language, so a
+   * name alone would delete every language at once. Deleting an approved
+   * template also blocks that name for new templates for 30 days; that is
+   * Meta's rule, not something this call can opt out of.
+   */
+  async deleteMessageTemplate(
+    version: string,
+    businessAccountId: string,
+    token: string,
+    input: { name: string; id: string },
+  ): Promise<void> {
+    const url = this.urlOf(version, [businessAccountId, "message_templates"]);
+    url.searchParams.set("name", input.name);
+    url.searchParams.set("hsm_id", input.id);
+
+    await this.send<{ success?: boolean }>(url, { method: "DELETE", token });
+  }
+
+  /**
    * Uploads a template's sample image and returns the handle Meta wants in
    * `header_handle`.
    *

@@ -15,6 +15,12 @@ export interface TemplateFacts {
    * to decide whether asking for a signed URL is worth a request at all.
    */
   hasMedia: boolean;
+  /**
+   * Where our copy lives. The edit screen seeds the form with it so an image
+   * header survives an edit that only rewrote the body — the caller cannot
+   * invent the path, and the service re-checks it on the way back in.
+   */
+  mediaPath: string | null;
   createdAt: string;
   updatedAt: string;
 }

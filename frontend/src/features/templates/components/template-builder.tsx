@@ -8,6 +8,7 @@ import {
   Check,
   ImageIcon,
   LoaderCircle,
+  Save,
   Send,
   TriangleAlert,
 } from "lucide-react";
@@ -20,13 +21,16 @@ import { cn } from "@/lib/utils";
 import {
   ApiError,
   createTemplate,
+  updateTemplate,
   uploadTemplateMedia,
   type ParameterFormat,
   type TemplateButton,
   type TemplateCategory,
   type TemplateDraft,
-  type UploadedTemplateMedia,
+  type TemplateFacts,
+  type TemplateUpdate,
 } from "../api";
+import { draftOf } from "../edit-draft";
 import { variablesOf } from "../format";
 import { IMAGE_LIMITS, LIMITS, problemsIn, type DraftValues } from "../rules";
 import { ButtonList, type DraftButton } from "./button-list";
@@ -100,6 +104,25 @@ const FIELD = cn(
 );
 
 /**
+ * The image on screen: a file just chosen, or the sample an existing template
+ * already stores. The second has no measured size — the number lives on the
+ * row, not in this screen, and fetching it would be a request for a caption.
+ */
+interface Sample {
+  previewUrl: string;
+  size: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+/** What the edit route loads before the form can start in its own state. */
+export interface EditSeed {
+  facts: TemplateFacts;
+  /** A signed URL for the stored sample, when the header already has one. */
+  imageUrl: string | null;
+}
+
+/**
  * The builder.
  *
  * It is one form because Meta takes one submission: name, category, language,
@@ -107,18 +130,32 @@ const FIELD = cn(
  * created or not. Client validation mirrors the API's rules so the counters
  * turn red as you type, but the API stays the judge — its refusal is rendered
  * verbatim, because it is the only text that explains a Meta rejection.
+ *
+ * Given an `editing` seed it is the same form for an existing template: the
+ * content starts filled in, and the three things Meta fixes at creation are
+ * shown as facts rather than fields.
  */
-export function TemplateBuilder() {
+export function TemplateBuilder({ editing }: { editing?: EditSeed }) {
   const router = useRouter();
   const toast = useToast();
-  const [values, setValues] = React.useState<DraftValues>(INITIAL);
-  const [buttons, setButtons] = React.useState<DraftButton[]>([]);
+  // The seed is read once, when the form mounts: from then on this screen owns
+  // the state, and the row it came from only supplies what Meta fixed.
+  const [values, setValues] = React.useState<DraftValues>(() =>
+    editing ? draftOf(editing.facts).values : INITIAL,
+  );
+  const [buttons, setButtons] = React.useState<DraftButton[]>(() =>
+    editing ? draftOf(editing.facts).buttons : [],
+  );
   const [problems, setProblems] = React.useState<string[]>([]);
   const [refusal, setRefusal] = React.useState<{ title: string; detail: string } | null>(
     null,
   );
   const [pending, setPending] = React.useState(false);
-  const [sample, setSample] = React.useState<UploadedTemplateMedia | null>(null);
+  const [sample, setSample] = React.useState<Sample | null>(() =>
+    editing?.imageUrl
+      ? { previewUrl: editing.imageUrl, size: null, width: null, height: null }
+      : null,
+  );
   const [uploading, setUploading] = React.useState(false);
   const [imageProblem, setImageProblem] = React.useState<string | null>(null);
   const [dragging, setDragging] = React.useState(false);
@@ -136,6 +173,12 @@ export function TemplateBuilder() {
   const tokens = variablesOf(values.header, values.body);
   const headerTokens = variablesOf(values.header);
   const format = FORMATS.find((entry) => entry.value === values.parameterFormat) ?? FORMATS[0];
+
+  // Meta keys a template on name + language and will not switch its parameter
+  // format after creation, so an edit shows those three as facts, not fields.
+  const fenced = editing !== undefined;
+  // An approved template's category is the one change Meta refuses outright.
+  const categoryLocked = editing?.facts.status === "APPROVED";
 
   function update<K extends keyof DraftValues>(key: K, value: DraftValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -206,18 +249,34 @@ export function TemplateBuilder() {
     try {
       // The guard above narrowed `values.category`; rebuilding the object is
       // what carries that narrowing into `payloadOf`, which requires one.
-      const created = await createTemplate(
-        payloadOf({ ...values, category: values.category }, buttons),
-      );
+      const draft = payloadOf({ ...values, category: values.category }, buttons);
 
-      toast.push({
-        title: "Sent to Meta",
-        description: `${created.name} is in review. Meta answers with a status update, which this list follows automatically.`,
-        tone: "success",
-      });
+      if (editing) {
+        const saved = await updateTemplate(editing.facts.id, contentOf(draft));
 
-      router.push("/workspace/templates");
+        toast.push({
+          title: "Changes sent to Meta",
+          description: `${saved.name} goes back to Meta for review. This screen follows its status, so the change is visible as soon as Meta answers.`,
+          tone: "success",
+        });
+
+        router.push(`/workspace/templates/${saved.id}`);
+      } else {
+        const created = await createTemplate(draft);
+
+        toast.push({
+          title: "Sent to Meta",
+          description: `${created.name} is in review. Meta answers with a status update, which this list follows automatically.`,
+          tone: "success",
+        });
+
+        router.push("/workspace/templates");
+      }
     } catch (error) {
+      // A refusal is rendered verbatim: Meta's sentence is the only text that
+      // explains why the content was rejected.
+      const unchanged = editing ? "The template was not changed" : "The template was not created";
+
       if (error instanceof ApiError) {
         setRefusal({
           title:
@@ -225,12 +284,12 @@ export function TemplateBuilder() {
               ? "The draft was refused"
               : error.status === 502
                 ? "Meta refused the template"
-                : "The template was not created",
+                : unchanged,
           detail: error.message,
         });
       } else {
         setRefusal({
-          title: "The template was not created",
+          title: unchanged,
           detail: "Something interrupted the request. Try again.",
         });
       }
@@ -287,7 +346,11 @@ export function TemplateBuilder() {
               <input
                 autoCapitalize="off"
                 autoComplete="off"
-                className={cn(FIELD, "h-11 font-mono")}
+                className={cn(
+                  FIELD,
+                  "h-11 font-mono",
+                  fenced && "bg-secondary/40 text-muted-foreground",
+                )}
                 id="template-name"
                 onChange={(event) =>
                   update(
@@ -296,13 +359,15 @@ export function TemplateBuilder() {
                   )
                 }
                 placeholder="order_update"
+                readOnly={fenced}
                 spellCheck={false}
                 type="text"
                 value={values.name}
               />
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
-                Lowercase letters, numbers and underscores. It is not unique:
-                the same name may exist once per language.
+                {fenced
+                  ? "Meta keys a template on its name and language, so neither can change after creation. A copy is a new template."
+                  : "Lowercase letters, numbers and underscores. It is not unique: the same name may exist once per language."}
               </p>
             </div>
 
@@ -326,12 +391,14 @@ export function TemplateBuilder() {
                         active
                           ? "border-brand bg-brand-soft/60"
                           : "border-border hover:bg-accent",
+                        categoryLocked && "cursor-not-allowed opacity-60",
                       )}
                       key={entry.value}
                     >
                       <input
                         checked={active}
                         className="sr-only"
+                        disabled={categoryLocked}
                         name="template-category"
                         onChange={() => update("category", entry.value)}
                         type="radio"
@@ -360,8 +427,9 @@ export function TemplateBuilder() {
                 })}
               </div>
               <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
-                Nothing is preselected: Meta prices and reviews by category, so
-                the choice is yours to make.
+                {categoryLocked
+                  ? "An approved template keeps its category — Meta refuses the change. A copy under another category is a new template."
+                  : "Nothing is preselected: Meta prices and reviews by category, so the choice is yours to make."}
               </p>
             </div>
 
@@ -369,6 +437,7 @@ export function TemplateBuilder() {
               <div>
                 <span className="text-sm font-medium text-foreground">Language</span>
                 <LanguageSelect
+                  disabled={fenced}
                   onChange={(code) => update("language", code)}
                   value={values.language}
                 />
@@ -397,12 +466,14 @@ export function TemplateBuilder() {
                           active
                             ? "border-brand bg-brand-soft/60"
                             : "border-border hover:bg-accent",
+                          fenced && "cursor-not-allowed opacity-60",
                         )}
                         key={entry.value}
                       >
                         <input
                           checked={active}
                           className="sr-only"
+                          disabled={fenced}
                           name="template-format"
                           onChange={() => update("parameterFormat", entry.value)}
                           type="radio"
@@ -418,6 +489,12 @@ export function TemplateBuilder() {
                     );
                   })}
                 </div>
+                {fenced ? (
+                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                    Meta cannot switch a template between named and positional
+                    parameters after it is created.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -491,7 +568,9 @@ export function TemplateBuilder() {
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
                         <p className="text-[12px] text-muted-foreground">
-                          {Math.max(1, Math.round(sample.size / 1024))} KB
+                          {sample.size !== null
+                            ? `${Math.max(1, Math.round(sample.size / 1024))} KB`
+                            : "Stored sample"}
                           {sample.width && sample.height
                             ? ` · ${sample.width}×${sample.height}`
                             : ""}
@@ -700,7 +779,12 @@ export function TemplateBuilder() {
             {pending ? (
               <>
                 <LoaderCircle aria-hidden="true" className="animate-spin" />
-                Sending to Meta…
+                {editing ? "Saving at Meta…" : "Sending to Meta…"}
+              </>
+            ) : editing ? (
+              <>
+                <Save aria-hidden="true" />
+                Save changes
               </>
             ) : (
               <>
@@ -784,6 +868,28 @@ function payloadOf(
     ...(values.footer.trim() ? { footer: values.footer.trim() } : {}),
     ...(clean.length > 0 ? { buttons: clean } : {}),
     ...(Object.keys(examples).length > 0 ? { examples } : {}),
+  };
+}
+
+/**
+ * Drops what Meta fixed at creation. Name and language are the template's
+ * identity, so an edit sends the content half and the API fills the rest in
+ * from the stored row — which is also what makes a rename impossible by
+ * accident.
+ */
+function contentOf(draft: TemplateDraft): TemplateUpdate {
+  // Listed field by field on purpose: a spread would carry the name and the
+  // language along, and those are exactly what an edit may not send.
+  return {
+    category: draft.category,
+    parameterFormat: draft.parameterFormat,
+    headerFormat: draft.headerFormat,
+    header: draft.header,
+    mediaPath: draft.mediaPath,
+    body: draft.body,
+    footer: draft.footer,
+    buttons: draft.buttons,
+    examples: draft.examples,
   };
 }
 

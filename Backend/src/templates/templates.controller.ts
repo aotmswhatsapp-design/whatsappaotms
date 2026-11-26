@@ -2,10 +2,12 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UploadedFile,
@@ -21,6 +23,7 @@ import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 import { Roles } from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { CreateTemplateDto } from "./dto/create-template.dto";
+import { UpdateTemplateDto } from "./dto/update-template.dto";
 import { MAX_IMAGE_BYTES } from "./template-media";
 import { TemplatesService, type UploadedTemplateImage } from "./templates.service";
 
@@ -150,5 +153,39 @@ export class TemplatesController {
   @Get(":id")
   find(@CurrentUser() claims: AuthClaims, @Param("id", ParseUUIDPipe) id: string) {
     return this.templates.find(claims, id);
+  }
+
+  /**
+   * PATCH /api/v1/templates/:id — edit a template at Meta and write the new
+   * content over the cache. 200 with the row, 400 when the template's review
+   * state or one of Meta's fixed fields blocks the change, or 502 carrying
+   * Meta's own sentence when it refused the content.
+   */
+  @Patch(":id")
+  @Roles("ADMIN")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  update(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTemplateDto,
+  ) {
+    return this.templates.update(claims, id, dto);
+  }
+
+  /**
+   * DELETE /api/v1/templates/:id — delete this language at Meta and hide the
+   * row here. 200 `{ removed: true }`; a disabled template answers 400 with
+   * the reason, and a Meta refusal answers 502 with its sentence.
+   */
+  @Delete(":id")
+  @Roles("ADMIN")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  remove(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    return this.templates.remove(claims, id);
   }
 }

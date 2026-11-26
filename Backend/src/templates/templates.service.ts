@@ -24,6 +24,7 @@ import {
 } from "../whatsapp/meta-graph";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateTemplateDto } from "./dto/create-template.dto";
+import type { UpdateTemplateDto } from "./dto/update-template.dto";
 import {
   buildSeries,
   costFacts,
@@ -51,6 +52,13 @@ const SYNC_TTL_MS = 60_000;
 
 const NO_TOKEN =
   "The stored access token cannot be read. Reconnect the number and try again.";
+
+/**
+ * The review states Meta accepts an edit on. A template in review has no
+ * verdict to alter yet, a disabled one is refused outright, and a deleted one
+ * has nothing left to edit.
+ */
+const EDITABLE = new Set(["APPROVED", "REJECTED", "PAUSED"]);
 
 /** Meta serves ninety days at most; a month is the window the screen opens on. */
 const DEFAULT_DAYS = 30;
@@ -286,6 +294,211 @@ export class TemplatesService {
     });
 
     return facts(row);
+  }
+
+  /**
+   * Edits a template at Meta and writes the new content over the cache.
+   *
+   * Meta replaces `components` wholesale, so the client sends the whole message
+   * again and the row is rewritten from the same array that was submitted — not
+   * rebuilt from the form afterwards, which is how a stored template drifts
+   * from the one Meta holds. The review verdict is left to the status webhook:
+   * an edit answers `{ success: true }` without one.
+   */
+  async update(
+    claims: AuthClaims,
+    id: string,
+    input: UpdateTemplateDto,
+  ): Promise<TemplateFacts> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.messageTemplate.findFirst({
+      where: { id, workspaceId },
+    });
+
+    if (!row) throw new NotFoundException("That template does not exist.");
+
+    if (!EDITABLE.has(row.status)) {
+      throw new BadRequestException(editBlocker(row.status));
+    }
+
+    if (!row.metaId) {
+      throw new BadRequestException(
+        "This template never reached Meta, so there is nothing there to edit.",
+      );
+    }
+
+    const target = await this.target(workspaceId);
+
+    if (!target) {
+      throw new BadRequestException(
+        "Connect a WhatsApp number before editing templates.",
+      );
+    }
+
+    const category = input.category ?? row.category;
+    const parameterFormat = input.parameterFormat ?? row.parameterFormat;
+
+    // Both of these are Meta's rules rather than ours, and both come back as a
+    // generic Graph refusal if the call is attempted: say them in terms of the
+    // form instead.
+    if (row.status === "APPROVED" && category !== row.category) {
+      throw new BadRequestException(
+        "Meta does not let an approved template change category. Create a copy under the new category instead.",
+      );
+    }
+
+    if (parameterFormat !== row.parameterFormat) {
+      throw new BadRequestException(
+        "A template cannot switch between named and positional parameters after it is created.",
+      );
+    }
+
+    const draft: TemplateDraft = {
+      name: row.name,
+      category,
+      language: row.language,
+      parameterFormat,
+      headerFormat: input.headerFormat ?? "TEXT",
+      header: input.header ?? null,
+      // No new upload means the stored sample is re-minted, which is what lets
+      // an image header survive an edit that only rewrote the body.
+      mediaPath: input.mediaPath ?? row.mediaPath,
+      body: input.body,
+      footer: input.footer ?? null,
+      buttons: input.buttons ?? [],
+      examples: input.examples ?? {},
+    };
+
+    if (draft.headerFormat === "IMAGE" && !draft.mediaPath) {
+      throw new BadRequestException({
+        message: ["Choose a sample image for the image header."],
+        code: "TEMPLATE_INVALID",
+      });
+    }
+
+    const problems = problemsIn(draft);
+
+    if (problems.length > 0) {
+      throw new BadRequestException({ message: problems, code: "TEMPLATE_INVALID" });
+    }
+
+    const media =
+      draft.headerFormat === "IMAGE"
+        ? await this.sendImage(workspaceId, draft.mediaPath ?? "", target)
+        : null;
+
+    if (media) draft.headerHandle = media.handle;
+
+    const components = buildComponents(draft);
+
+    try {
+      await this.meta.updateMessageTemplate(
+        target.version,
+        row.metaId,
+        target.token,
+        {
+          // Only a real change travels: naming an unchanged category on an
+          // approved template looks like a change and is refused as one.
+          ...(category !== row.category
+            ? { category: draft.category.toLowerCase() }
+            : {}),
+          components,
+        },
+      );
+    } catch (error) {
+      throw new BadGatewayException(explain(error));
+    }
+
+    // A resubmission as a text template must not keep the old image, or the
+    // card would show a picture the message no longer sends.
+    const mediaColumns = media
+      ? {
+          mediaPath: media.path,
+          mediaMime: media.mime,
+          mediaSize: media.size,
+          mediaHandle: media.handle,
+          mediaUploadedAt: new Date(),
+        }
+      : {
+          mediaPath: null,
+          mediaMime: null,
+          mediaSize: null,
+          mediaHandle: null,
+          mediaUploadedAt: null,
+        };
+
+    const updated = await this.prisma.messageTemplate.update({
+      where: { id: row.id },
+      data: {
+        category: draft.category,
+        components: components as Prisma.InputJsonValue,
+        // An edit to a rejected template resubmits it, so it is in review from
+        // this moment. An approved template keeps serving while Meta re-reads
+        // it, so its status waits for the webhook instead of being guessed.
+        status: row.status === "REJECTED" ? "PENDING" : row.status,
+        rejectedReason: null,
+        ...mediaColumns,
+      },
+    });
+
+    return facts(updated);
+  }
+
+  /**
+   * Deletes one language of a template at Meta, then hides the row here.
+   *
+   * The row itself is kept. Campaigns and daily stats point at it, and a
+   * template deleted in WhatsApp Manager already leaves the same tombstone —
+   * `store()` marks it deleted and the catalogue hides it. Removing the row
+   * would break those references and lose the history of what was sent.
+   */
+  async remove(claims: AuthClaims, id: string): Promise<{ removed: boolean }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const row = await this.prisma.messageTemplate.findFirst({
+      where: { id, workspaceId },
+    });
+
+    if (!row) throw new NotFoundException("That template does not exist.");
+
+    // Already gone, here or at Meta. The caller asked for an end state, and
+    // this is that state.
+    if (row.status === "DELETED") return { removed: true };
+
+    if (row.status === "DISABLED") {
+      throw new BadRequestException(
+        "Meta does not allow a disabled template to be deleted. Appeal it in WhatsApp Manager first.",
+      );
+    }
+
+    if (row.metaId) {
+      const target = await this.target(workspaceId);
+
+      if (!target) {
+        throw new BadRequestException(
+          "Connect a WhatsApp number before deleting templates.",
+        );
+      }
+
+      try {
+        await this.meta.deleteMessageTemplate(
+          target.version,
+          target.businessAccountId,
+          target.token,
+          { name: row.name, id: row.metaId },
+        );
+      } catch (error) {
+        throw new BadGatewayException(explain(error));
+      }
+    }
+
+    await this.prisma.messageTemplate.update({
+      where: { id: row.id },
+      data: { status: "DELETED", lastSyncedAt: new Date() },
+    });
+
+    return { removed: true };
   }
 
   /**
@@ -906,6 +1119,7 @@ function facts(row: MessageTemplate): TemplateFacts {
     rejectedReason: row.rejectedReason,
     components: row.components,
     hasMedia: row.mediaPath !== null,
+    mediaPath: row.mediaPath,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -975,4 +1189,27 @@ function explain(error: unknown): string {
   if (error instanceof MetaTransportError) return error.message;
 
   return error instanceof Error ? error.message : "Unexpected failure.";
+}
+
+/** Why Meta will not take an edit in this state, said about the state itself. */
+function editBlocker(status: string): string {
+  if (status === "PENDING") {
+    return "Meta is still reviewing this template. Wait for the verdict before editing it.";
+  }
+
+  if (status === "DELETED") {
+    return "This template was deleted at Meta, so there is nothing left to edit.";
+  }
+
+  if (status === "PENDING_DELETION") {
+    return "Meta is already deleting this template, so it can no longer be edited.";
+  }
+
+  if (status === "DISABLED") {
+    return "Meta disabled this template. An appeal in WhatsApp Manager has to clear before it can be edited.";
+  }
+
+  return `Meta does not accept edits on a template that is ${status
+    .toLowerCase()
+    .replace(/_/g, " ")}.`;
 }

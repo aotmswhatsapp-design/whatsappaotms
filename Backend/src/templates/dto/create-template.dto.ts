@@ -31,7 +31,11 @@ export const TEMPLATE_CATEGORIES: TemplateCategoryName[] = [
 
 export const PARAMETER_FORMATS: ParameterFormatName[] = ["NAMED", "POSITIONAL"];
 
-const HEADER_FORMATS: HeaderFormatName[] = ["TEXT", "IMAGE"];
+/**
+ * The header kinds this build can submit. Video and document headers are shown
+ * in the builder as unavailable rather than silently coerced to text.
+ */
+export const HEADER_FORMATS: HeaderFormatName[] = ["TEXT", "IMAGE"];
 
 const BUTTON_TYPES: TemplateButtonType[] = [
   "QUICK_REPLY",

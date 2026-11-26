@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCheck,
@@ -10,9 +11,11 @@ import {
   Loader2,
   MessageCircle,
   MousePointerClick,
+  Pencil,
   RefreshCw,
   Send,
   Sparkles,
+  Trash2,
   Wallet,
 } from "lucide-react";
 
@@ -27,12 +30,14 @@ import { cn } from "@/lib/utils";
 
 import {
   ApiError,
+  deleteTemplate,
   enableTemplateInsights,
   fetchTemplate,
   fetchTemplateAnalytics,
   type TemplateAnalytics,
   type TemplateFacts,
 } from "../api";
+import { canDelete, editBlocker } from "../edit-draft";
 import { categoryLabel, moneyLabel, statusLabel, statusTone, updatedLabel } from "../format";
 import { languageLabel } from "../languages";
 import { TemplateCard } from "./template-card";
@@ -61,6 +66,7 @@ const TONES: Record<string, string> = {
  * than replacing the page with an error.
  */
 export function TemplateDetail({ id }: { id: string }) {
+  const router = useRouter();
   const toast = useToast();
   const [facts, setFacts] = React.useState<TemplateFacts | null>(null);
   const [stats, setStats] = React.useState<TemplateAnalytics | null>(null);
@@ -70,6 +76,8 @@ export function TemplateDetail({ id }: { id: string }) {
   const [attempt, setAttempt] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -128,6 +136,36 @@ export function TemplateDetail({ id }: { id: string }) {
     }
   }
 
+  /**
+   * Deletes one language at Meta, then leaves the screen. The list is where the
+   * row stops appearing, so pushing back to it is the only honest destination —
+   * this page is about a template that no longer exists.
+   */
+  async function remove() {
+    setRemoving(true);
+
+    try {
+      await deleteTemplate(id);
+
+      toast.push({
+        tone: "success",
+        title: "Deleted at Meta",
+        description: `${facts?.name ?? "The template"} is gone. Meta holds the name for 30 days, so a new template cannot reuse it before then.`,
+      });
+
+      router.push("/workspace/templates");
+    } catch (caught) {
+      toast.push({
+        tone: "error",
+        title: "Meta refused the deletion",
+        description: readReason(caught),
+        duration: 0,
+      });
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   if (!facts) {
     return (
       <div className="space-y-4">
@@ -163,6 +201,11 @@ export function TemplateDetail({ id }: { id: string }) {
   }
 
   const tone = statusTone(facts.status);
+  // Meta refuses an edit while a template is in review or disabled, so the
+  // control is absent rather than present and failing. The edit screen repeats
+  // the check: a link is not a permission.
+  const canEdit = editBlocker(facts) === null;
+  const deletable = canDelete(facts);
   const money = (value: number | null) => moneyLabel(value, stats?.currency ?? null);
   const performance = stats?.performance;
   const watched = new Set(stats?.unavailable ?? []);
@@ -216,7 +259,27 @@ export function TemplateDetail({ id }: { id: string }) {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {canEdit ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/workspace/templates/${id}/edit`}>
+                  <Pencil />
+                  Edit
+                </Link>
+              </Button>
+            ) : null}
+            {deletable ? (
+              <Button
+                disabled={removing}
+                onClick={() => setConfirmDelete(true)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 />
+                Delete
+              </Button>
+            ) : null}
             <div
               aria-label="Reporting window"
               className="flex rounded-lg border border-border bg-card p-0.5"
@@ -262,6 +325,50 @@ export function TemplateDetail({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {confirmDelete ? (
+        <div className="rounded-xl border border-destructive/35 bg-destructive/5 p-4">
+          <h2 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+            <Trash2 aria-hidden="true" className="size-4 text-destructive" />
+            Delete {facts.name}?
+          </h2>
+          <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-muted-foreground">
+            This deletes the {languageLabel(facts.language)} version at Meta.
+            Campaigns already sent keep their history, but anything still
+            scheduled with this template will fail when it tries to send.
+            Messages already queued keep going out until they are delivered, so
+            the deletion can take up to 30 days to finish — and Meta then holds
+            the name for another 30 days, so a new template cannot reuse it.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              disabled={removing}
+              onClick={() => void remove()}
+              size="sm"
+              type="button"
+              variant="destructive"
+            >
+              {removing ? (
+                <>
+                  <Loader2 aria-hidden="true" className="animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete at Meta"
+              )}
+            </Button>
+            <Button
+              disabled={removing}
+              onClick={() => setConfirmDelete(false)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {error ? (
         <p
