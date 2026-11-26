@@ -8,7 +8,8 @@ export const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 /** How much of the original filename a title keeps. */
 const TITLE_MAX = 160;
 
-/** Every format with a verified reader in `extract.ts` or `extract.media.ts`. */
+/** Every format with a verified reader in `extract.ts`. Images, audio and
+ *  video are named below only so a refusal can say what the file was. */
 export const DOCUMENT_EXTENSIONS = ["pdf", "docx", "txt", "md", "csv", "xlsx"] as const;
 export const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif"] as const;
 export const AUDIO_EXTENSIONS = [
@@ -59,6 +60,22 @@ export function extensionOf(name: string): string {
   return at >= 0 ? name.slice(at + 1).toLowerCase() : "";
 }
 
+/**
+ * The declared type when it says something, the extension when it does not.
+ *
+ * A browser that cannot name a type sends `application/octet-stream`, and an
+ * upload without a type sends nothing at all; in both cases the file's own
+ * extension is better evidence.
+ */
+export function resolveMime(declared: string | null, name: string): string {
+  const base = (declared ?? "").toLowerCase().split(";")[0].trim();
+  const byName = MIME[extensionOf(name)] ?? "";
+
+  if (!base || base === "application/octet-stream") return byName || base;
+
+  return base.includes("/") ? base : byName || base;
+}
+
 export function sha256Of(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -84,7 +101,19 @@ export function inspectUpload(input: {
   if (!kind) {
     throw new ExtractError(
       "SOURCE_UNSUPPORTED",
-      `A ${extension ? `.${extension}` : "file of that type"} cannot be read. Upload a PDF, DOCX, TXT, CSV, XLSX, an image, or a voice note.`,
+      `A ${extension ? `.${extension}` : "file of that type"} cannot be read. Upload a PDF, DOCX, TXT, CSV or XLSX, or paste the text as a note.`,
+    );
+  }
+
+  // Reading a picture or a recording is a model call, and this product runs
+  // without one. The refusal names the way forward rather than the missing
+  // feature, and it happens before a bucket object exists.
+  if (kind !== "document") {
+    throw new ExtractError(
+      "SOURCE_UNSUPPORTED",
+      kind === "image"
+        ? "Images cannot be read without an AI model. Upload a PDF, DOCX, TXT, CSV or XLSX, or paste the text as a note."
+        : "Voice notes cannot be read without an AI model. Upload a PDF, DOCX, TXT, CSV or XLSX, or paste the text as a note.",
     );
   }
 

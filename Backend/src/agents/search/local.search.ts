@@ -48,8 +48,6 @@ interface Row {
  */
 @Injectable()
 export class LocalKnowledgeSearch implements KnowledgeSearch {
-  readonly mode = "local" as const;
-
   private readonly logger = new Logger(LocalKnowledgeSearch.name);
   private readonly minSimilarity: number;
 
@@ -70,10 +68,10 @@ export class LocalKnowledgeSearch implements KnowledgeSearch {
     // Nothing to match on: a greeting, an emoji, or a question made entirely of
     // words that carry no subject. Answering it from the corpus would be a
     // guess, so the caller's no-context path runs instead.
-    if (query.terms.length === 0) return { chunks: [], embedTokens: 0 };
+    if (query.terms.length === 0) return { chunks: [] };
 
     const rows = await this.rowsFor(scope, query);
-    if (rows.length === 0) return { chunks: [], embedTokens: 0 };
+    if (rows.length === 0) return { chunks: [] };
 
     const hits: LocalHit[] = rows.map((row) => ({
       chunk: {
@@ -96,7 +94,7 @@ export class LocalKnowledgeSearch implements KnowledgeSearch {
       similarity: Number(row.similarity) || 0,
     }));
 
-    return { chunks: selectRelevant(hits, this.minSimilarity), embedTokens: 0 };
+    return { chunks: selectRelevant(hits, this.minSimilarity) };
   }
 
   /**

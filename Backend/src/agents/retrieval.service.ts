@@ -1,42 +1,23 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 
-import {
-  KNOWLEDGE_SEARCH,
-  type KnowledgeSearch,
-  type SearchResult,
-  type SearchScope,
-} from "./search/search.port";
+import { LocalKnowledgeSearch } from "./search/local.search";
+import type { SearchResult, SearchScope } from "./search/search.port";
 
-// The vector engine's policy lives beside the engine that applies it, but it
-// is re-exported here because this module was its home: `reply.prompt.ts`
-// still reads `ContextChunk` from here, and its tests read the floors.
-export {
-  FLOOR,
-  RETRY_FLOOR,
-  RETRY_K,
-  TOP_K,
-  rank,
-} from "./search/vector.rank";
+// `reply.prompt.ts` and its tests read `ContextChunk` from here, so the type
+// keeps its home even though the vector engine that used to live beside it is
+// gone.
 export type { ContextChunk } from "./search/context-chunk";
 
 /**
  * The one seam the reply path talks to.
  *
- * Which engine answers is decided once, at wiring time, by `KNOWLEDGE_SEARCH`.
- * Everything downstream — the WhatsApp reply, the Playground, the citations —
- * sees the same rows in the same shape, so switching engines never becomes a
- * second code path through the answer.
+ * The engine is Postgres itself; this class exists so the reply path names the
+ * operation rather than a SQL implementation, and so one constructor change
+ * could ever re-point it. There is nothing to select at boot.
  */
 @Injectable()
 export class RetrievalService {
-  constructor(
-    @Inject(KNOWLEDGE_SEARCH) private readonly engine: KnowledgeSearch,
-  ) {}
-
-  /** The engine in use, for the one diagnostic worth writing down. */
-  get mode(): "local" | "vector" {
-    return this.engine.mode;
-  }
+  constructor(private readonly engine: LocalKnowledgeSearch) {}
 
   search(scope: SearchScope, question: string): Promise<SearchResult> {
     return this.engine.search(scope, question);

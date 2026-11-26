@@ -7,10 +7,9 @@ import { KnowledgeService } from "./knowledge.service";
 import {
   CLAIMS,
   FakePrisma,
-  FakeProvider,
   FakeStorage,
   FakeWorkspaces,
-  searchConfig,
+  knowledgeConfig,
 } from "./testing/fakes";
 
 const build = (workspaceId = "ws-a") => {
@@ -20,9 +19,7 @@ const build = (workspaceId = "ws-a") => {
     prisma as any,
     new FakeWorkspaces(workspaceId) as any,
     storage as any,
-    new FakeProvider() as any,
-    {} as any,
-    searchConfig() as any,
+    knowledgeConfig() as any,
   );
   return { prisma, storage, service };
 };

@@ -9,25 +9,21 @@ import {
 } from "./knowledge.service";
 import {
   FakePrisma,
-  FakeProvider,
   FakeStorage,
   FakeWorkspaces,
-  searchConfig,
+  knowledgeConfig,
 } from "./testing/fakes";
 
 const build = (config: Record<string, unknown> = {}) => {
   const prisma = new FakePrisma();
   const storage = new FakeStorage();
-  const provider = new FakeProvider();
   const service = new KnowledgeService(
     prisma as any,
     new FakeWorkspaces() as any,
     storage as any,
-    provider as any,
-    {} as any,
-    searchConfig(config) as any,
+    knowledgeConfig(config) as any,
   );
-  return { prisma, storage, provider, service };
+  return { prisma, storage, service };
 };
 
 /** The row `loadForIndex` reads: claimed, and its text already on the row. */
@@ -40,12 +36,10 @@ const claimed = (overrides: Record<string, unknown> = {}) => ({
   storagePath: null,
   text: "hello there",
   meta: null,
-  extractTokens: 0,
   replacesSourceId: null,
   status: "PROCESSING",
   attempts: 0,
   leaseToken: "tok",
-  agent: { model: "gpt-4o-mini" },
   ...overrides,
 });
 
@@ -136,7 +130,7 @@ test("a worker whose claim moved on writes no chunks and no status", async () =>
 });
 
 test("a failure after the claim moved on is not written over the owner's row", async () => {
-  const { prisma, provider, service } = build();
+  const { prisma, service } = build();
   (prisma.knowledgeSource as any).findUnique = async () => claimed({ attempts: 1 });
 
   // The renewal and the chunk write hold; the failure no longer does.
@@ -144,12 +138,10 @@ test("a failure after the claim moved on is not written over the owner's row", a
   (prisma.knowledgeSource as any).updateMany = async () => ({
     count: (held += 1) <= 2 ? 1 : 0,
   });
-  (provider as any).embed = async () => {
-    throw new Error("provider down");
+  // The read that follows the chunk write is where this attempt loses the row.
+  (prisma.knowledgeChunk as any).findMany = async () => {
+    throw new Error("chunk read down");
   };
-  (prisma.knowledgeChunk as any).findMany = async () => [
-    { id: "c1", text: "hello there" },
-  ];
 
   await service.index("src-1", "tok");
 
@@ -167,12 +159,8 @@ test("a failure after the claim moved on is not written over the owner's row", a
   );
 });
 
-test("a failure records the tokens already paid for and the epoch it failed under", async () => {
-  const { prisma, storage, provider, service } = build();
-  const csv = [
-    "item,price",
-    ...Array.from({ length: 700 }, (_, at) => `item ${at + 1},${at + 1}`),
-  ].join("\n");
+test("a failure is recorded under the epoch it was claimed with", async () => {
+  const { prisma, storage, service } = build();
 
   (prisma.knowledgeSource as any).findUnique = async () =>
     claimed({
@@ -183,16 +171,11 @@ test("a failure records the tokens already paid for and the epoch it failed unde
       text: null,
       attempts: 0,
     });
-  (storage as any).download = async () => Buffer.from(csv);
-  (prisma.knowledgeChunk as any).findMany = async () =>
-    Array.from({ length: 35 }, (_, at) => ({ id: `c${at}`, text: "row" }));
+  (storage as any).download = async () => Buffer.from("item,price\nrice,449\n");
 
-  let calls = 0;
-  (provider as any).embed = async (input: string[]) => {
-    calls += 1;
-    if (calls > 1) throw new Error("provider down");
-    return { vectors: input.map(() => new Array(1536).fill(0.01)), tokens: 7 };
-  };
+  // The chunk write is where this attempt loses: the failure must be recorded
+  // under the claim's own token, so a newer owner's status still stands.
+  prisma.refuse("knowledgeChunk.createMany");
 
   await service.index("src-1", "tok");
 
@@ -207,8 +190,6 @@ test("a failure records the tokens already paid for and the epoch it failed unde
     status: "PROCESSING",
     leaseToken: "tok",
   });
-  // What the first batch really cost is on the row, not lost with the failure.
-  assert.equal(failed?.args.data.embedTokens, 7);
-  assert.equal(failed?.args.data.extractTokens, 0);
   assert.equal(failed?.args.data.chunkCount, 0);
+  assert.equal(failed?.args.data.leaseToken, null);
 });

@@ -73,8 +73,6 @@ export type ExtractedMeta = TableMeta | DocumentMeta | ImageMeta;
 export interface Extracted {
   blocks: SourceBlock[];
   meta: ExtractedMeta | null;
-  /** Tokens spent reading an image or a voice note; 0 for documents. */
-  extractTokens: number;
 }
 
 /** 20 rows per block: enough to be a paragraph of meaning, small enough that
@@ -93,14 +91,12 @@ export async function extractSource(file: {
       return {
         blocks: [{ text: expectText(decode(file.bytes), "That file was empty.") }],
         meta: null,
-        extractTokens: 0,
       };
 
     case "md":
       return {
         blocks: expectBlocks(markdownBlocks(decode(file.bytes)), "That file was empty."),
         meta: null,
-        extractTokens: 0,
       };
 
     case "csv": {
@@ -108,7 +104,6 @@ export async function extractSource(file: {
       return {
         blocks: expectBlocks(parsed.blocks, "That CSV was empty."),
         meta: parsed.meta,
-        extractTokens: 0,
       };
     }
 
@@ -116,7 +111,6 @@ export async function extractSource(file: {
       return {
         blocks: expectBlocks(await readable(() => docxBlocks(file.bytes), file.name), "That document was empty."),
         meta: null,
-        extractTokens: 0,
       };
 
     case "xlsx": {
@@ -124,7 +118,6 @@ export async function extractSource(file: {
       return {
         blocks: expectBlocks(parsed.blocks, "That workbook was empty."),
         meta: parsed.meta,
-        extractTokens: 0,
       };
     }
 
@@ -134,7 +127,6 @@ export async function extractSource(file: {
       return {
         blocks,
         meta: { kind: "document", pages: blocks.length },
-        extractTokens: 0,
       };
     }
 

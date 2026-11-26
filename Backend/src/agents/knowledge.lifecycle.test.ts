@@ -7,10 +7,9 @@ import { KnowledgeService } from "./knowledge.service";
 import {
   CLAIMS,
   FakePrisma,
-  FakeProvider,
   FakeStorage,
   FakeWorkspaces,
-  searchConfig,
+  knowledgeConfig,
 } from "./testing/fakes";
 
 const build = (config: Record<string, unknown> = {}) => {
@@ -20,9 +19,7 @@ const build = (config: Record<string, unknown> = {}) => {
     prisma as any,
     new FakeWorkspaces() as any,
     storage as any,
-    new FakeProvider() as any,
-    {} as any,
-    searchConfig(config) as any,
+    knowledgeConfig(config) as any,
   );
   return { prisma, storage, service };
 };
@@ -87,8 +84,6 @@ test("retry of a FAILED source resets every counter, conditionally", async () =>
   });
   assert.equal(write?.args.data.chunkCount, 0);
   assert.equal(write?.args.data.charCount, 0);
-  assert.equal(write?.args.data.embedTokens, 0);
-  assert.equal(write?.args.data.extractTokens, 0);
   assert.equal(write?.args.data.attempts, 0);
   assert.equal(write?.args.data.text, null);
   assert.equal(row.status, "PENDING");

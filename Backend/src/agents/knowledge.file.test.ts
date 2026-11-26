@@ -7,9 +7,6 @@ import { inspectUpload, sha256Of } from "./knowledge.file";
 const LIMIT = 25 * 1024 * 1024;
 const pdf = (body = "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") =>
   Buffer.from(body);
-const png = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0,
-]);
 const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
 const gif = Buffer.from("GIF89a        ", "latin1");
 const webm = Buffer.from([
@@ -24,12 +21,6 @@ test("a PDF is accepted as a document, whatever the browser called it", () => {
   assert.equal(got.kind, "document");
   assert.equal(got.mime, "application/pdf");
   assert.equal(got.extension, "pdf");
-});
-
-test("the declared MIME is replaced by the sniffed one", () => {
-  const got = inspect("menu.png", "image/jpeg", png);
-  assert.equal(got.mime, "image/png");
-  assert.equal(got.extension, "png");
 });
 
 test("a CSV records text/csv even when the browser calls it a spreadsheet", () => {
@@ -60,20 +51,28 @@ test("a binary renamed .txt is refused", () => {
   assert.throws(() => inspect("notes.txt", "text/plain", bytes), ExtractError);
 });
 
-test("gif is an image, not a document", () => {
-  const got = inspect("menu.gif", "image/gif", gif);
-  assert.equal(got.kind, "image");
-  assert.equal(got.mime, "image/gif");
+test("a picture is refused, before a bucket object exists", () => {
+  assert.throws(
+    () => inspect("menu.gif", "image/gif", gif),
+    (error: any) =>
+      error instanceof ExtractError &&
+      error.code === "SOURCE_UNSUPPORTED" &&
+      /without an AI model/.test(error.message),
+  );
 });
 
 test("an unknown extension is refused with a sentence naming a real format", () => {
   assert.throws(() => inspect("archive.zip", "application/zip", zip), /Upload a PDF/);
 });
 
-test("a real .webm voice note is accepted as audio", () => {
-  const got = inspect("note.webm", "audio/webm", webm);
-  assert.equal(got.kind, "audio");
-  assert.equal(got.mime, "audio/webm");
+test("a voice note is refused, before a bucket object exists", () => {
+  assert.throws(
+    () => inspect("note.webm", "audio/webm", webm),
+    (error: any) =>
+      error instanceof ExtractError &&
+      error.code === "SOURCE_UNSUPPORTED" &&
+      /Voice notes cannot be read/.test(error.message),
+  );
 });
 
 test("an oversized buffer is refused before it is hashed", () => {

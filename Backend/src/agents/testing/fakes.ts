@@ -19,7 +19,6 @@ const ROW = {
   error: null,
   charCount: 0,
   chunkCount: 0,
-  embedTokens: 0,
   attempts: 0,
   leaseToken: null,
   indexedAt: null,
@@ -27,7 +26,6 @@ const ROW = {
   uploadedByUserId: null,
   replacesSourceId: null,
   meta: null,
-  extractTokens: 0,
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
@@ -157,41 +155,9 @@ export class FakeStorage {
   }
 }
 
-export class FakeProvider {
-  embedTokens = 7;
-
-  async embed(input: string[]) {
-    return {
-      vectors: input.map(() => new Array(1536).fill(0.01)),
-      tokens: this.embedTokens,
-    };
-  }
-
-  async chat() {
-    return { text: "ok", tokensIn: 1, tokensOut: 1 };
-  }
-
-  get configured() {
-    return true;
-  }
-}
-
-/**
- * Config for a `KnowledgeService` under test.
- *
- * The embedding pipeline only runs when the search engine is the vector one:
- * under the default local engine the worker stores its chunks and stops,
- * because there are no vectors to write. A suite that expects vectors has to
- * say so, rather than inherit whichever mode the environment happens to hold.
- */
-export function searchConfig(
-  options: { search?: "local" | "vector" } & Record<string, unknown> = {},
-) {
-  const { search = "vector", ...rest } = options;
-
-  return {
-    get: (key: string) => (key === "KNOWLEDGE_SEARCH" ? search : rest[key]),
-  };
+/** Config for a `KnowledgeService` under test: the values it reads, nothing else. */
+export function knowledgeConfig(values: Record<string, unknown> = {}) {
+  return { get: (key: string) => values[key] };
 }
 
 export class FakeWorkspaces {

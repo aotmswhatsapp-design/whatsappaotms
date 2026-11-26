@@ -6,16 +6,14 @@ import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
 import { windowOpen } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
 import { AgentRouter } from "./agent.router";
-import { AiError } from "./ai.errors";
 import { HANDOFF_MESSAGE, cleanReply, matchesEscalation } from "./reply.prompt";
 import { RetrievalService } from "./retrieval.service";
 import { composeAnswer } from "./search/compose";
 
 /**
- * When a claim is old enough to be treated as abandoned. One answering run can
- * spend six minutes inside the provider — retrieval embeds with three
- * 60-second attempts, then chat with three more — so a shorter window would
- * requeue a worker that is still alive and let two of them answer the same run.
+ * When a claim is old enough to be treated as abandoned. Answering is now
+ * local retrieval plus one HTTP send, so a claim this old is far more likely to
+ * belong to a dead process than to one still working.
  */
 const STALE_MS = 600_000;
 
@@ -31,13 +29,11 @@ export interface ClaimedRun {
 }
 
 /**
- * What one run has paid for so far. Written as each call returns rather than
- * at the end, so a run that fails after the spend still shows it.
+ * What one run has cost so far. Only wall-clock is recorded: answering is
+ * local, so there is no vendor spend to attribute, and the token columns on
+ * `agent_runs` keep their defaults.
  */
 export interface RunUsage {
-  tokensIn?: number;
-  tokensOut?: number;
-  embeddingTokens?: number;
   latencyMs?: number;
 }
 
@@ -242,22 +238,16 @@ export class ReplyService {
 
     // Who answers. A thread keeps the agent that already owns it — the common
     // path, and it asks nobody — and only a thread that is new, or whose agent
-    // was switched off, is decided here. The decision waits until now because
-    // it can cost a model call, and the webhook must never wait for one.
+    // was switched off, is decided here. The decision is a word overlap, so it
+    // is free.
     const routing = await this.router.choose({
       whatsappAccountId: conversation.accountId,
       agentId: conversation.agentId,
       question,
     });
 
-    // What routing cost travels with every terminal status below: an attempt
-    // that skips or fails still spent it.
-    const routed: RunUsage = {};
-    if (routing.tokensIn !== undefined) routed.tokensIn = routing.tokensIn;
-    if (routing.tokensOut !== undefined) routed.tokensOut = routing.tokensOut;
-
     if (!routing.agentId) {
-      await this.skip(run.id, "no-agent", routed);
+      await this.skip(run.id, "no-agent");
       return;
     }
 
@@ -269,7 +259,7 @@ export class ReplyService {
       });
 
       if (!next) {
-        await this.skip(run.id, "no-agent", routed);
+        await this.skip(run.id, "no-agent");
         return;
       }
 
@@ -297,21 +287,14 @@ export class ReplyService {
     // The router only names active agents, but one can still be switched off
     // between its read and this line.
     if (!agent.isActive) {
-      await this.skip(run.id, "no-agent", routed);
+      await this.skip(run.id, "no-agent");
       return;
     }
 
     // Before the model: a complaint must never depend on what a model decides
     // to say about it.
     if (matchesEscalation(question, agent.escalateKeywords)) {
-      await this.handoff(
-        run.id,
-        conversation.id,
-        target,
-        agent.id,
-        "handoff",
-        routed,
-      );
+      await this.handoff(run.id, conversation.id, target, agent.id, "handoff");
       return;
     }
 
@@ -327,7 +310,7 @@ export class ReplyService {
     });
 
     if (turn.kind !== "none") {
-      await this.act(run.id, conversation.id, target, agent.id, turn, routed, started);
+      await this.act(run.id, conversation.id, target, agent.id, turn, started);
       return;
     }
 
@@ -338,23 +321,16 @@ export class ReplyService {
       // ignore
     }
 
-    // Every paid call lands here the moment it returns, so a run that fails
-    // after the spend — a refused send, an empty answer — still records what
-    // it cost. `undefined` fields are left unwritten.
-    const spent: RunUsage = { ...routed };
-
     // Set once the customer actually has the answer. A failure after this
     // point is bookkeeping, and must never become a handoff — the customer
     // would read a real reply followed by "I can't answer that".
     let delivered: string | null = null;
 
     try {
-      const { chunks, embedTokens } = await this.retrieval.search(
+      const { chunks } = await this.retrieval.search(
         { agentId: agent.id, workspaceId: conversation.workspaceId },
         question,
       );
-
-      spent.embeddingTokens = embedTokens;
 
       if (chunks.length === 0) {
         await this.handoff(
@@ -363,7 +339,7 @@ export class ReplyService {
           target,
           agent.id,
           "no-context",
-          { ...spent, latencyMs: Date.now() - started },
+          { latencyMs: Date.now() - started },
         );
         return;
       }
@@ -389,7 +365,7 @@ export class ReplyService {
           target,
           agent.id,
           "no-context",
-          { ...spent, latencyMs: Date.now() - started },
+          { latencyMs: Date.now() - started },
         );
         return;
       }
@@ -406,7 +382,7 @@ export class ReplyService {
           target,
           agent.id,
           "no-context",
-          { ...spent, latencyMs: Date.now() - started },
+          { latencyMs: Date.now() - started },
         );
         return;
       }
@@ -425,22 +401,12 @@ export class ReplyService {
         data: {
           status: "SENT",
           outboundMessageId: sent.id,
-          ...spent,
           latencyMs: Date.now() - started,
           reason: null,
           error: null,
         },
       });
     } catch (error) {
-      // A call that failed after the vendor charged for it still carries its
-      // tokens; the failing call's own count wins over whatever came before.
-      if (error instanceof AiError) {
-        if (error.usage.tokensIn !== undefined)
-          spent.tokensIn = error.usage.tokensIn + (routed.tokensIn ?? 0);
-        if (error.usage.tokensOut !== undefined)
-          spent.tokensOut = error.usage.tokensOut + (routed.tokensOut ?? 0);
-      }
-
       // The reply is already in the customer's thread. Record that it went out
       // and why the write failed, rather than sending a second, contradictory
       // message as a handoff.
@@ -453,7 +419,6 @@ export class ReplyService {
               outboundMessageId: delivered,
               error: sentenceOf(error),
               latencyMs: Date.now() - started,
-              ...spent,
             },
           })
           .catch(() => undefined);
@@ -463,23 +428,14 @@ export class ReplyService {
       // The window can close between the gate and the send.
       if (error instanceof ConflictException) {
         await this.skip(run.id, "window-closed", {
-          ...spent,
           latencyMs: Date.now() - started,
         });
         return;
       }
 
-      // A revoked key is a configuration fact, not a transient failure:
-      // continuing to try spends money to learn nothing new.
-      if (error instanceof AiError && error.code === "AI_UNAUTHORIZED") {
-        await this.prisma.agent
-          .update({ where: { id: agent.id }, data: { isActive: false } })
-          .catch(() => undefined);
-      }
-
       // Nothing answered, so worse than a wrong answer would have been: the
       // customer gets the fixed line and the thread becomes a person's work.
-      // The vendor's sentence is kept on the run — that is the only place it
+      // The failure's sentence is kept on the run — that is the only place it
       // will be read.
       await this.handoff(
         run.id,
@@ -487,7 +443,7 @@ export class ReplyService {
         target,
         agent.id,
         "unavailable",
-        { ...spent, latencyMs: Date.now() - started },
+        { latencyMs: Date.now() - started },
         sentenceOf(error),
       );
     }
@@ -528,12 +484,10 @@ export class ReplyService {
     target: SendTarget,
     agentId: string,
     turn: Exclude<CardTurn, { kind: "none" }>,
-    usage: RunUsage,
     started: number,
   ): Promise<void> {
     if (turn.kind === "handoff") {
       await this.handoff(runId, conversationId, target, agentId, "handoff", {
-        ...usage,
         latencyMs: Date.now() - started,
       });
       return;
@@ -561,7 +515,6 @@ export class ReplyService {
         data: {
           status: "SENT",
           outboundMessageId: sent.id,
-          ...usage,
           latencyMs: Date.now() - started,
           reason: null,
           error: null,
@@ -571,7 +524,6 @@ export class ReplyService {
       // The window can close between the gate above and this send.
       if (error instanceof ConflictException) {
         await this.skip(runId, "window-closed", {
-          ...usage,
           latencyMs: Date.now() - started,
         });
         return;
@@ -583,7 +535,7 @@ export class ReplyService {
         target,
         agentId,
         "unavailable",
-        { ...usage, latencyMs: Date.now() - started },
+        { latencyMs: Date.now() - started },
         sentenceOf(error),
       );
     }

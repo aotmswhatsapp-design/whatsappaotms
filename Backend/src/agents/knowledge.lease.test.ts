@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { KnowledgeService } from "./knowledge.service";
-import { CLAIMS, searchConfig } from "./testing/fakes";
+import { CLAIMS, knowledgeConfig } from "./testing/fakes";
 
 const TOK_A = "aaaaaaaa-0000-4000-8000-000000000001";
 const TOK_B = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -20,26 +20,22 @@ interface Row {
   storagePath: string | null;
   text: string | null;
   meta: unknown;
-  extractTokens: number;
   status: Status;
   leaseToken: string | null;
   attempts: number;
   error: string | null;
   charCount: number;
   chunkCount: number;
-  embedTokens: number;
   indexedAt: Date | null;
   replacesSourceId: string | null;
   sha256: string | null;
   createdAt: Date;
   updatedAt: Date;
-  agent: { model: string };
 }
 
 interface Chunk {
   sourceId: string;
   text: string;
-  embedding: unknown;
 }
 
 /**
@@ -60,29 +56,22 @@ class LeasedTable {
     storagePath: null,
     text: "hello there",
     meta: null,
-    extractTokens: 0,
     status: "PROCESSING",
     leaseToken: null,
     attempts: 0,
     error: null,
     charCount: 0,
     chunkCount: 0,
-    embedTokens: 0,
     indexedAt: null,
     replacesSourceId: null,
     sha256: null,
     createdAt: new Date(Date.parse("2026-01-01T00:00:00Z")),
     updatedAt: new Date(),
-    agent: { model: "gpt-4o-mini" },
   };
 
   chunks = new Map<string, Chunk>();
   /** Every write that landed, in order, so "nothing happened" is provable. */
   writes: string[] = [];
-  /** Every SQL text seen by `$executeRaw`, for the source predicate. */
-  sql: string[] = [];
-  /** When true the vector update matches no row, as a replaced chunk would. */
-  vectorMiss = false;
 
   private nextId = 0;
 
@@ -128,7 +117,6 @@ class LeasedTable {
         this.chunks.set(`c${this.nextId}`, {
           sourceId: draft.sourceId,
           text: draft.text,
-          embedding: null,
         });
       }
 
@@ -148,26 +136,9 @@ class LeasedTable {
       workspaceId: args.where.workspaceId,
       name: "agent",
       description: null,
-      model: "gpt-4o-mini",
       isActive: true,
       whatsappAccountId: "wa-1",
     }),
-  };
-
-  $executeRaw = async (strings: TemplateStringsArray, ...values: any[]) => {
-    this.sql.push(strings.join(" ? "));
-
-    const [embedding, id, sourceId] = values;
-    const chunk = this.vectorMiss ? undefined : this.chunks.get(id);
-
-    if (!chunk || chunk.sourceId !== sourceId) {
-      this.writes.push(`vector:miss:${id}`);
-      return 0;
-    }
-
-    chunk.embedding = embedding;
-    this.writes.push(`vector:${id}`);
-    return 1;
   };
 
   $transaction = async (input: any, _options?: any) =>
@@ -236,7 +207,7 @@ class LeasedTable {
 const replacer = (_key: string, value: unknown) =>
   value instanceof Date ? value.toISOString() : value;
 
-/** A worker that can be held inside `embed`, then released. */
+/** A worker that can be held inside `download`, then released. */
 class Gate {
   private arrived!: () => void;
   private open!: () => void;
@@ -253,7 +224,7 @@ class Gate {
   }
 }
 
-const build = (db: LeasedTable, provider: unknown) =>
+const build = (db: LeasedTable, overrides: Record<string, any> = {}) =>
   new KnowledgeService(
     db as any,
     {
@@ -263,40 +234,46 @@ const build = (db: LeasedTable, provider: unknown) =>
         role: "OWNER" as const,
       }),
     } as any,
-    { download: async () => Buffer.alloc(0), remove: async () => undefined } as any,
-    provider as any,
-    {} as any,
-    searchConfig() as any,
+    {
+      download: async () => Buffer.alloc(0),
+      remove: async () => undefined,
+      ...overrides,
+    } as any,
+    knowledgeConfig() as any,
   );
 
-test("a resumed worker cannot delete or modify the chunks of the claim that replaced it", async () => {
+test("a resumed worker cannot write after the claim that replaced it", async () => {
   const db = new LeasedTable();
   const gate = new Gate();
   const phase: { at: "a" | "b" | "c" } = { at: "a" };
 
-  const provider = {
-    embed: async (input: string[]) => {
+  // A is held inside the read, which is the window an interleaving needs.
+  const service = build(db, {
+    download: async () => {
       if (phase.at === "a") {
         gate.arrive();
         await gate.released;
-        return { vectors: input.map(() => new Array(1536).fill(0.25)), tokens: 11 };
+        return Buffer.from("item,price\nrice,449\n");
       }
 
-      if (phase.at === "b") throw new Error("provider down");
+      if (phase.at === "b") throw new Error("storage down");
 
-      return { vectors: input.map(() => new Array(1536).fill(0.5)), tokens: 3 };
+      return Buffer.from("item,price\nrice,499\n");
     },
-  };
+  });
 
-  const service = build(db, provider);
-
-  // A holds the first claim and is in the middle of embedding.
+  // A holds the first claim and is in the middle of reading its file.
+  db.row.kind = "FILE";
+  db.row.title = "prices.csv";
+  db.row.mime = "text/csv";
+  db.row.storagePath = "workspaces/ws-a/agents/agent-1/knowledge/src-1/original.csv";
+  db.row.text = null;
   db.row.status = "PROCESSING";
   db.row.leaseToken = TOK_A;
   const a = service.index("src-1", TOK_A);
 
   await gate.entered;
-  assert.ok(db.chunks.size > 0, "A wrote its chunks before the interleaving");
+  assert.equal(db.chunks.size, 0, "A has written nothing yet");
 
   // A stopped renewing: the reaper hands the row on under a fresh number.
   db.row.updatedAt = new Date(Date.now() - 60 * 60 * 1000);
@@ -341,7 +318,7 @@ test("a resumed worker cannot delete or modify the chunks of the claim that repl
 
   assert.equal(db.row.status, "READY");
   assert.equal(db.row.leaseToken, null);
-  assert.deepEqual(db.chunks, cChunks, "C's chunks and embeddings are untouched");
+  assert.deepEqual(db.chunks, cChunks, "C's chunks are untouched");
   assert.equal(db.writes.length, writesBeforeResume, "A wrote nothing at all");
 });
 
@@ -361,9 +338,7 @@ test("a claim mints a fresh token inside the claiming statement", async () => {
     prisma as any,
     {} as any,
     {} as any,
-    {} as any,
-    {} as any,
-    searchConfig() as any,
+    knowledgeConfig() as any,
   );
 
   const first = await service.claim();
@@ -386,37 +361,13 @@ test("recovery ends a spent claim, clears its token and its chunks", async () =>
   db.row.attempts = 1;
   db.row.leaseToken = TOK_A;
   db.row.updatedAt = new Date(Date.now() - 60 * 60 * 1000);
-  db.chunks.set("c1", { sourceId: "src-1", text: "hello", embedding: null });
+  db.chunks.set("c1", { sourceId: "src-1", text: "hello" });
 
-  const service = build(db, { embed: async () => ({ vectors: [], tokens: 0 }) });
+  const service = build(db);
   await service.recoverStale();
 
   assert.equal(db.row.status, "FAILED");
   assert.equal(db.row.leaseToken, null);
   assert.equal(db.row.chunkCount, 0);
   assert.equal(db.chunks.size, 0);
-});
-
-test("a vector write that matches no row abandons the attempt", async () => {
-  const db = new LeasedTable();
-  db.row.leaseToken = TOK_C;
-  db.vectorMiss = true;
-
-  const service = build(db, {
-    embed: async (input: string[]) => ({
-      vectors: input.map(() => new Array(1536).fill(0.5)),
-      tokens: 3,
-    }),
-  });
-
-  await service.index("src-1", TOK_C);
-
-  // The update is source-scoped...
-  assert.match(db.sql[0], /AND source_id =\s+\?\s*::uuid/);
-  // ...and a miss is ownership loss, not a READY row with an unembedded chunk.
-  assert.equal(db.row.status, "PROCESSING");
-  assert.equal(db.row.leaseToken, TOK_C);
-  assert.ok(db.writes.some((write) => write.startsWith("vector:miss:")));
-  assert.equal(db.writes.some((write) => write.includes('"READY"')), false);
-  assert.equal(db.writes.some((write) => write.includes('"FAILED"')), false);
 });

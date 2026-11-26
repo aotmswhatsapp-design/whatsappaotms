@@ -10,7 +10,6 @@ import { AgentsRunner } from "./agents.runner";
 import { AgentsService } from "./agents.service";
 import { AgentRouter } from "./agent.router";
 import { AiController } from "./ai.controller";
-import { OpenAiMediaExtractor } from "./extract.media";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeService } from "./knowledge.service";
 import { OpenAiProvider } from "./ai.openai";
@@ -18,8 +17,6 @@ import { RetrievalService } from "./retrieval.service";
 import { ReplyIntake } from "./reply.intake";
 import { ReplyService } from "./reply.service";
 import { LocalKnowledgeSearch } from "./search/local.search";
-import { KNOWLEDGE_SEARCH } from "./search/search.port";
-import { VectorKnowledgeSearch } from "./search/vector.search";
 
 /**
  * AuthModule supplies the guard, WorkspacesModule the tenant, and InboxModule
@@ -39,21 +36,7 @@ import { VectorKnowledgeSearch } from "./search/vector.search";
     ReplyService,
     AgentsRunner,
     OpenAiProvider,
-    OpenAiMediaExtractor,
     LocalKnowledgeSearch,
-    VectorKnowledgeSearch,
-    {
-      // One engine per process, chosen by configuration. Both are built so the
-      // choice is a value rather than a code path, and neither is asked for a
-      // key until it is used.
-      provide: KNOWLEDGE_SEARCH,
-      inject: [ConfigService, LocalKnowledgeSearch, VectorKnowledgeSearch],
-      useFactory: (
-        config: ConfigService,
-        local: LocalKnowledgeSearch,
-        vector: VectorKnowledgeSearch,
-      ) => (config.get<string>("KNOWLEDGE_SEARCH") === "vector" ? vector : local),
-    },
     MediaStorage,
     {
       provide: MEDIA_BUCKET,

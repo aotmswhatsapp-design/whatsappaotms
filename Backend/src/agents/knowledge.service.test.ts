@@ -1,34 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ConflictException, PayloadTooLargeException } from "@nestjs/common";
+import {
+  ConflictException,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
+} from "@nestjs/common";
 
 import { KnowledgeService } from "./knowledge.service";
-import { VectorKnowledgeSearch } from "./search/vector.search";
 import {
   CLAIMS,
   FakePrisma,
-  FakeProvider,
   FakeStorage,
   FakeWorkspaces,
-  searchConfig,
+  knowledgeConfig,
 } from "./testing/fakes";
 
-const build = (
-  workspaceId = "ws-a",
-  maxBytes?: number,
-  media: unknown = {},
-  search: "local" | "vector" = "vector",
-) => {
+const build = (workspaceId = "ws-a", maxBytes?: number) => {
   const prisma = new FakePrisma();
   const storage = new FakeStorage();
   const service = new KnowledgeService(
     prisma as any,
     new FakeWorkspaces(workspaceId) as any,
     storage as any,
-    new FakeProvider() as any,
-    media as any,
-    searchConfig({ search, KNOWLEDGE_MAX_BYTES: maxBytes }) as any,
+    knowledgeConfig({ KNOWLEDGE_MAX_BYTES: maxBytes }) as any,
   );
   return { prisma, storage, service };
 };
@@ -55,8 +50,6 @@ test("a valid PDF is stored under the workspace-scoped path, with its hash", asy
       error: null,
       charCount: 0,
       chunkCount: 0,
-      embedTokens: 0,
-      extractTokens: 0,
       indexedAt: null,
       meta: null,
       replacesSourceId: null,
@@ -157,11 +150,9 @@ test("indexing a CSV writes one chunk per row range, with its sheet and its meta
     storagePath: "workspaces/ws-a/agents/agent-1/knowledge/source-1/original.csv",
     text: null,
     meta: null,
-    extractTokens: 0,
     replacesSourceId: null,
     status: "PROCESSING",
     leaseToken: "tok-1",
-    agent: { model: "gpt-4o-mini" },
   });
   (storage as any).download = async () => Buffer.from(csv);
 
@@ -191,95 +182,80 @@ test("indexing a CSV writes one chunk per row range, with its sheet and its meta
     kind: "table",
     sheets: [{ name: "CSV", headers: ["item", "price"], rowCount: 45 }],
   });
-  assert.equal(ready?.extractTokens, 0);
 });
 
-test("an image upload records its own type and pixel size at upload", async () => {
-  const { service } = build();
+test("an image upload is refused before anything is stored", async () => {
+  const { storage, service } = build();
 
-  const { source } = await service.addFile(CLAIMS, "agent-1", {
-    buffer: PNG,
-    originalname: "menu.png",
-    mimetype: "image/png",
-    size: PNG.length,
-  } as any);
-
-  assert.deepEqual(source.meta, {
-    kind: "image",
-    mime: "image/png",
-    width: 1,
-    height: 1,
-  });
+  await assert.rejects(
+    () =>
+      service.addFile(CLAIMS, "agent-1", {
+        buffer: PNG,
+        originalname: "menu.png",
+        mimetype: "image/png",
+        size: PNG.length,
+      } as any),
+    (error: any) =>
+      error instanceof UnsupportedMediaTypeException &&
+      (error.getResponse() as { code?: string }).code === "SOURCE_UNSUPPORTED" &&
+      /without an AI model/.test(
+        (error.getResponse() as { message?: string }).message ?? "",
+      ),
+  );
+  assert.equal(storage.uploaded.length, 0);
 });
 
-test("indexing an image puts the vision call's tokens on the row", async () => {
-  const media = {
-    read: async () => ({ text: "A menu: dosa 80, idli 40.", tokens: 1240 }),
-  };
-  const { prisma, storage, service } = build("ws-a", undefined, media);
+test("a queued image row is failed with a sentence, not read", async () => {
+  const { prisma, storage, service } = build();
 
+  // The row was queued before images were refused, so the upload gate never
+  // saw it. It must fail with the same sentence rather than be read.
   (prisma.knowledgeSource as any).findUnique = async () => ({
     id: "source-1",
+    agentId: "agent-1",
     kind: "FILE",
     title: "menu.png",
     mime: "image/png",
     storagePath: "workspaces/ws-a/agents/agent-1/knowledge/source-1/original.png",
     text: null,
     meta: { kind: "image", mime: "image/png", width: 1, height: 1 },
-    extractTokens: 0,
     replacesSourceId: null,
     status: "PROCESSING",
     leaseToken: "tok-1",
-    agent: { model: "gpt-4o-mini" },
   });
   (storage as any).download = async () => PNG;
 
-  const writes: any[] = [];
+  let failed: any;
   (prisma.knowledgeSource as any).updateMany = async ({ data }: any) => {
-    writes.push(data);
+    if (data.status === "FAILED") failed = data;
     return { count: 1 };
   };
 
   await service.index("source-1", "tok-1");
 
-  const ready = writes.find((data) => data.status === "READY");
-  assert.equal(ready?.extractTokens, 1240);
-  // The picture's size was written at upload; a read that carries no meta must
-  // not erase it.
-  assert.equal(ready?.meta, undefined);
+  assert.match(failed?.error ?? "", /needs an AI model/);
+  assert.equal(
+    prisma.calls.some((call) => call.path === "knowledgeChunk.createMany"),
+    false,
+    "a refused source never becomes chunks",
+  );
 });
 
-test("in local mode indexing reaches READY without asking for a vector", async () => {
-  const prisma = new FakePrisma();
-  const provider = new FakeProvider();
-  let embedCalls = 0;
-  provider.embed = async () => {
-    embedCalls += 1;
-    return { vectors: [], tokens: 0 };
-  };
-
-  const service = new KnowledgeService(
-    prisma as any,
-    new FakeWorkspaces() as any,
-    new FakeStorage() as any,
-    provider as any,
-    {} as any,
-    searchConfig({ search: "local" }) as any,
-  );
+test("a typed note reaches READY and writes no vectors", async () => {
+  const { prisma, service } = build();
 
   (prisma.knowledgeSource as any).findUnique = async () => ({
     id: "source-1",
+    agentId: "agent-1",
     kind: "TEXT",
     title: "menu",
     mime: null,
     storagePath: null,
     text: "Dosa 80. Idli 40. Filter coffee 30.",
     meta: null,
-    extractTokens: 0,
     replacesSourceId: null,
     status: "PROCESSING",
     leaseToken: "tok-1",
-    agent: { model: "gpt-4o-mini" },
   });
 
   let ready: any;
@@ -290,33 +266,12 @@ test("in local mode indexing reaches READY without asking for a vector", async (
 
   await service.index("source-1", "tok-1");
 
-  // Search reads the text itself, so a READY row with no vectors is complete,
-  // not half-indexed — and nobody was billed for the attempt.
+  // Search reads the text itself, so a READY row with no vectors is complete —
+  // and nothing is written through raw SQL.
   assert.equal(ready?.status, "READY");
-  assert.equal(ready?.embedTokens, 0);
-  assert.equal(embedCalls, 0, "the provider was never asked for a vector");
-});
-
-test("retrieval is scoped by workspace as well as agent", async () => {
-  const captured: string[] = [];
-  const prisma = {
-    $executeRawUnsafe: async () => 1,
-    $queryRaw: (strings: TemplateStringsArray) => {
-      captured.push(strings.join(" ? "));
-      return [];
-    },
-    $transaction: async (input: any[]) => Promise.all(input),
-  };
-  // The SQL moved to the engine that runs it, so the assertion follows it.
-  const service = new VectorKnowledgeSearch(prisma as any, new FakeProvider() as any);
-
-  await service.search(
-    { agentId: "agent-1", workspaceId: "ws-a" },
-    "how much is delivery?",
+  assert.equal(
+    prisma.calls.some((call) => call.path === "$executeRaw"),
+    false,
+    "answering never embeds",
   );
-
-  const sql = captured.join(" ");
-  assert.match(sql, /s\.agent_id/);
-  assert.match(sql, /a\.workspace_id/);
-  assert.match(sql, /s\.status = 'READY'/);
 });

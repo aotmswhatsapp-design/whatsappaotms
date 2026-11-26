@@ -19,11 +19,13 @@ import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { UploadedMedia } from "../inbox/inbox.sender";
 import { MediaStorage } from "../inbox/media.storage";
 import { AiError, ExtractError } from "./ai.errors";
-import { OpenAiProvider, toVector } from "./ai.openai";
 import { extractSource, type Extracted, type ExtractedMeta } from "./extract";
-import { OpenAiMediaExtractor, resolveMime } from "./extract.media";
-import { probeImage } from "./image.probe";
-import { MAX_SOURCE_BYTES, inspectUpload, type InspectedFile } from "./knowledge.file";
+import {
+  MAX_SOURCE_BYTES,
+  inspectUpload,
+  resolveMime,
+  type InspectedFile,
+} from "./knowledge.file";
 import {
   MAX_CHUNKS,
   chunkBlocks,
@@ -32,9 +34,6 @@ import {
 import type { AddTextSourceDto } from "./dto/add-text-source.dto";
 
 export { MAX_SOURCE_BYTES } from "./knowledge.file";
-
-/** Chunks per embedding call. Verified: one call returns many vectors. */
-const EMBED_BATCH = 32;
 
 /** A row stuck in PROCESSING for this long belongs to a process that died. */
 export const STALE_MS = 10 * 60 * 1000;
@@ -91,8 +90,6 @@ export interface SourceView {
   error: string | null;
   charCount: number;
   chunkCount: number;
-  embedTokens: number;
-  extractTokens: number;
   indexedAt: string | null;
   createdAt: string;
   meta: SourceMeta | null;
@@ -115,8 +112,6 @@ export class KnowledgeService {
     private readonly prisma: PrismaService,
     private readonly workspaces: WorkspacesService,
     private readonly storage: MediaStorage,
-    private readonly provider: OpenAiProvider,
-    private readonly media: OpenAiMediaExtractor,
     config: ConfigService,
   ) {
     // The interceptor cannot read configuration (decorators run before DI), so
@@ -126,26 +121,19 @@ export class KnowledgeService {
       MAX_SOURCE_BYTES,
     );
 
-    // A job that outlives this is stopped at the next batch boundary: the row
-    // ends FAILED with a sentence instead of holding its claim for ever.
+    // Extraction is local now, so the budget no longer stops a paid batch; it
+    // feeds the stale cut, which is how a dead worker's row is recovered.
     this.jobBudgetMs =
       config.get<number>("KNOWLEDGE_JOB_BUDGET_MS") ?? 8 * 60 * 1000;
 
     // Derived, never configured separately: the reaper's cut follows whatever
     // budget is set, so no combination of settings can expire a live claim.
     this.staleMs = staleCutMs(this.jobBudgetMs);
-
-    // Local search reads `chunk.text` directly, so a source has no vectors to
-    // earn. This is the switch that keeps indexing free of the vendor.
-    this.vectorless =
-      (config.get<string>("KNOWLEDGE_SEARCH") ?? "local") !== "vector";
   }
 
   private readonly maxBytes: number;
   private readonly jobBudgetMs: number;
   private readonly staleMs: number;
-  /** True when the search engine does not read `knowledge_chunks.embedding`. */
-  private readonly vectorless: boolean;
 
   async addText(
     claims: AuthClaims,
@@ -258,21 +246,6 @@ export class KnowledgeService {
 
     const path = `workspaces/${input.workspaceId}/agents/${input.agentId}/knowledge/${input.id}/original.${input.inspected.extension}`;
 
-    // An image's row should say what the picture is before anyone reads it. The
-    // probe answers from the bytes; when it cannot, the sniffed type is still
-    // right and the size stays unknown rather than refused.
-    const meta =
-      input.inspected.kind === "image"
-        ? {
-            kind: "image" as const,
-            ...(probeImage(input.bytes) ?? {
-              mime: input.inspected.mime,
-              width: null,
-              height: null,
-            }),
-          }
-        : undefined;
-
     const data: Prisma.KnowledgeSourceUncheckedCreateInput = {
       id: input.id,
       agentId: input.agentId,
@@ -284,7 +257,6 @@ export class KnowledgeService {
       sha256: input.inspected.sha256,
       uploadedByUserId: input.userId,
       replacesSourceId: input.replacesSourceId,
-      meta,
       status: "PENDING",
     };
 
@@ -537,8 +509,6 @@ export class KnowledgeService {
       // The old counts describe chunks that are about to be deleted.
       charCount: 0,
       chunkCount: 0,
-      embedTokens: 0,
-      extractTokens: 0,
       // A file is re-read from storage; a typed note keeps its text.
       ...(source.kind === "FILE" ? { text: null } : {}),
     };
@@ -736,28 +706,19 @@ export class KnowledgeService {
     }
 
     const lease = this.lease(source.id, leaseToken);
-    // What the provider charged for this attempt, recorded even when it fails.
-    let spent = { embedTokens: 0, extractTokens: source.extractTokens };
 
     try {
-      // The budget covers extraction as well as embedding, so the clock starts
-      // before the first paid call rather than at the first batch.
-      const started = Date.now();
-
       const extracted: Extracted =
         source.text && source.text.length > 0
           ? {
               blocks: [{ text: source.text }],
               meta: (source.meta as SourceMeta | null) ?? null,
-              extractTokens: source.extractTokens,
             }
           : await this.readSource(source);
 
       // The heartbeat renews during extraction; this refuses to go on with a
       // claim that changed hands while the file was being read.
       await lease.renew();
-
-      spent = { embedTokens: 0, extractTokens: extracted.extractTokens };
 
       const drafts = chunkBlocks(extracted.blocks);
       const text = extracted.blocks.map((block) => block.text).join("\n\n");
@@ -800,50 +761,6 @@ export class KnowledgeService {
         select: { id: true, text: true },
       });
 
-      let embedTokens = 0;
-
-      // Local search indexes the text itself, so there is nothing to embed.
-      // The column is left alone — null for a new source, untouched for an old
-      // one — which is what lets a workspace switch back to `vector` later
-      // without uploading anything again.
-      if (!this.vectorless) {
-        for (let at = 0; at < rows.length; at += EMBED_BATCH) {
-          // Between batches, not mid-call: an HTTP request already in flight is
-          // not aborted, so the job stops at the next boundary instead of
-          // claiming a cancellation it cannot deliver. A batch already paid for
-          // stays embedded, and a failed row loses its chunks in `fail`.
-          if (Date.now() - started > this.jobBudgetMs) {
-            throw new ExtractError(
-              "SOURCE_TIMEOUT",
-              "This file needed longer than one job is allowed, so embedding stopped at the last finished batch. Nothing was saved; try a smaller file, or split it and upload the part that matters.",
-            );
-          }
-
-          const batch = rows.slice(at, at + EMBED_BATCH);
-          const embedded = await this.provider.embed(batch.map((row) => row.text));
-
-          embedTokens += embedded.tokens;
-          spent = { embedTokens, extractTokens: extracted.extractTokens };
-
-          // The vectors and the lease are one write: a vector cannot land under a
-          // claim that has already been handed to another worker.
-          await lease.guard(async (tx) => {
-            for (let index = 0; index < batch.length; index += 1) {
-              // Source-scoped and counted: a chunk that another attempt replaced
-              // must fail this batch, not silently embed nothing.
-              const written = await tx.$executeRaw`
-                UPDATE knowledge_chunks
-                SET embedding = ${toVector(embedded.vectors[index])}::vector
-                WHERE id = ${batch[index].id}::uuid
-                  AND source_id = ${source.id}::uuid
-              `;
-
-              if (written !== 1) throw new OwnershipLost();
-            }
-          });
-        }
-      }
-
       // The predecessor is read before the transaction so its object can be
       // removed after the commit, never before it.
       const predecessor = source.replacesSourceId
@@ -868,8 +785,6 @@ export class KnowledgeService {
             text,
             charCount: text.length,
             chunkCount: rows.length,
-            embedTokens,
-            extractTokens: extracted.extractTokens,
             meta: extracted.meta ?? undefined,
             status: "READY",
             error: null,
@@ -916,7 +831,7 @@ export class KnowledgeService {
         return;
       }
 
-      await this.fail(source.id, error, { token: leaseToken, ...spent });
+      await this.fail(source.id, error, { token: leaseToken });
     } finally {
       lease.stop();
     }
@@ -1003,11 +918,9 @@ export class KnowledgeService {
           storagePath: true,
           text: true,
           meta: true,
-          extractTokens: true,
           replacesSourceId: true,
           status: true,
           leaseToken: true,
-          agent: { select: { model: true } },
         },
       });
     } catch (error) {
@@ -1024,7 +937,6 @@ export class KnowledgeService {
     title: string;
     mime: string | null;
     storagePath: string | null;
-    agent: { model: string };
   }): Promise<Extracted> {
     if (source.kind === "TEXT") {
       throw new ExtractError("SOURCE_EMPTY", "That note had no text.");
@@ -1040,17 +952,18 @@ export class KnowledgeService {
     const bytes = await this.storage.download(source.storagePath);
     const mime = resolveMime(source.mime, source.title);
 
-    if (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/")) {
-      const read = await this.media.read({
-        bytes,
-        mime,
-        name: source.title,
-        model: source.agent.model,
-      });
-
-      // What the paid read really cost, from the provider's own usage. Whisper
-      // returns none, and zero is the honest number there.
-      return { blocks: [{ text: read.text }], meta: null, extractTokens: read.tokens };
+    // Reading a picture or a recording is a model call, and this product runs
+    // without one. The upload path refuses these already; this is the branch
+    // for a row queued before that rule existed.
+    if (
+      mime.startsWith("image/") ||
+      mime.startsWith("audio/") ||
+      mime.startsWith("video/")
+    ) {
+      throw new ExtractError(
+        "SOURCE_UNSUPPORTED",
+        "This source is an image or a recording, and reading those needs an AI model. Replace it with a PDF, DOCX, TXT, CSV or XLSX file, or a typed note.",
+      );
     }
 
     return extractSource({ bytes, mime, name: source.title });
@@ -1068,11 +981,7 @@ export class KnowledgeService {
   private async fail(
     sourceId: string,
     error: unknown,
-    options: {
-      token: string;
-      embedTokens?: number;
-      extractTokens?: number;
-    },
+    options: { token: string },
   ): Promise<void> {
     const message =
       error instanceof ExtractError || error instanceof AiError
@@ -1100,12 +1009,6 @@ export class KnowledgeService {
             chunkCount: 0,
             // The failure ends the claim; the token must not linger.
             leaseToken: null,
-            ...(options.embedTokens === undefined
-              ? {}
-              : { embedTokens: options.embedTokens }),
-            ...(options.extractTokens === undefined
-              ? {}
-              : { extractTokens: options.extractTokens }),
           },
         });
 
@@ -1191,10 +1094,8 @@ export function sourceView(row: {
   error: string | null;
   charCount: number;
   chunkCount: number;
-  embedTokens: number;
   indexedAt: Date | null;
   createdAt: Date;
-  extractTokens?: number | null;
   meta?: unknown;
   replacesSourceId?: string | null;
 }): SourceView {
@@ -1208,8 +1109,6 @@ export function sourceView(row: {
     error: row.error,
     charCount: row.charCount,
     chunkCount: row.chunkCount,
-    embedTokens: row.embedTokens,
-    extractTokens: row.extractTokens ?? 0,
     indexedAt: row.indexedAt ? row.indexedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     meta: (row.meta ?? null) as SourceView["meta"],

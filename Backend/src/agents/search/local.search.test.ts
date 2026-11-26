@@ -67,8 +67,6 @@ test("the local engine reads one agent's material and nobody else's", async () =
   assert.equal(result.chunks.length, 1);
   assert.equal(result.chunks[0].title, "Menu");
   assert.ok(result.chunks[0].score > 0);
-  // Nobody was called, so nothing was billed.
-  assert.equal(result.embedTokens, 0);
 
   const sql = statements.join(" ");
   assert.match(sql, /s\.agent_id/);
@@ -84,7 +82,7 @@ test("a question with no subject never reaches the database", async () => {
     "hello",
   );
 
-  assert.deepEqual(result, { chunks: [], embedTokens: 0 });
+  assert.deepEqual(result, { chunks: [] });
   assert.equal(statements.length, 0);
 });
 
@@ -121,8 +119,4 @@ test("a real database failure is not mistaken for a missing extension", async ()
   );
 
   assert.equal(statements.length, 1);
-});
-
-test("the engine says which one it is, for the one diagnostic worth logging", () => {
-  assert.equal(build([]).engine.mode, "local");
 });

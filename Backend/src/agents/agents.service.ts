@@ -349,7 +349,6 @@ export class AgentsService {
         dto.question,
       );
       const chunks = found.chunks;
-      embedTokens = found.embedTokens;
 
       if (chunks.length === 0) {
         await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
