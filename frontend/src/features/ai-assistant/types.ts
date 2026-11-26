@@ -52,6 +52,18 @@ export interface Channel {
   phoneNumberId: string;
 }
 
+/**
+ * What the extractor found about a source's shape, beside the row's counters.
+ * A CSV is a `table` like a workbook; the MIME decides how it is described.
+ */
+export type SourceMeta =
+  | {
+      kind: "table";
+      sheets: { name: string; headers: string[]; rowCount: number }[];
+    }
+  | { kind: "document"; pages: number | null }
+  | { kind: "image"; mime: string; width: number | null; height: number | null };
+
 export interface Source {
   id: string;
   kind: SourceKind;
@@ -63,8 +75,14 @@ export interface Source {
   charCount: number;
   chunkCount: number;
   embedTokens: number;
+  /** Tokens spent reading an image or a voice note; 0 for documents. */
+  extractTokens: number;
   indexedAt: string | null;
   createdAt: string;
+  /** Page count, sheet inventory or pixel size; null when the reader had none. */
+  meta: SourceMeta | null;
+  /** Set on the new row a replacement creates, naming the source it supersedes. */
+  replacesSourceId: string | null;
 }
 
 export interface Run {
@@ -96,9 +114,25 @@ export interface AgentDetail {
   runs: Run[];
 }
 
+/**
+ * One retrieved slice, with the place in the file it came from. A PDF carries a
+ * page; a worksheet carries its name and the rows it spans; a CSV carries
+ * record numbers under the sheet name `CSV`.
+ */
+export interface Citation {
+  sourceId: string;
+  title: string;
+  score: number;
+  text: string;
+  page: number | null;
+  sheet: string | null;
+  rowFrom: number | null;
+  rowTo: number | null;
+}
+
 export interface AskResult {
   answer: string;
-  citations: { sourceId: string; title: string; score: number; text: string }[];
+  citations: Citation[];
   tokens: { input: number; output: number; embedding: number };
   /** `no-context` when nothing cleared the floor; null for a normal answer. */
   reason: string | null;

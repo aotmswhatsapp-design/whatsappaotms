@@ -1,3 +1,5 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { CircleUserRound, LogOut } from "lucide-react";
@@ -11,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/features/auth/actions";
+import { clearWorkspaceRole } from "@/lib/api/workspace";
 import type { SessionUser } from "@/lib/auth/types";
 
 /**
@@ -96,9 +99,15 @@ export function UserMenu({
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {/* The role is cached for the tab, not for the person: clearing it on
+            the way out means the next sign-in never inherits this account's. */}
         <form action={signOut}>
           <DropdownMenuItem asChild>
-            <button type="submit" className="w-full">
+            <button
+              className="w-full"
+              onClick={() => clearWorkspaceRole()}
+              type="submit"
+            >
               <LogOut />
               Sign out
             </button>

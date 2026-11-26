@@ -116,6 +116,26 @@ export function uploadSource(id: string, file: File): Promise<{ source: Source }
   return upload<{ source: Source }>(`/v1/agents/${id}/sources/file`, form);
 }
 
+/**
+ * The new version of a file. The row that comes back is the *new* source, and
+ * the old one keeps answering until this one is READY — the server retires it
+ * then, so the list must show both until that happens.
+ */
+export function replaceSource(
+  id: string,
+  sourceId: string,
+  file: File,
+): Promise<{ source: Source }> {
+  const form = new FormData();
+  form.append("file", file);
+
+  return upload<{ source: Source }>(
+    `/v1/agents/${id}/sources/${sourceId}/file`,
+    form,
+    "PUT",
+  );
+}
+
 export function deleteSource(
   id: string,
   sourceId: string,
@@ -133,5 +153,20 @@ export function retrySource(
   return request<{ source: Source }>(
     `/v1/agents/${id}/sources/${sourceId}/retry`,
     { method: "POST" },
+  );
+}
+
+/**
+ * A short-lived link to the stored original — the API answers with a URL, not
+ * with bytes. That URL is signed, so it is opened directly and never sent our
+ * Bearer token: it is not this API, and the token is not its credential.
+ */
+export function sourceDownloadUrl(
+  id: string,
+  sourceId: string,
+): Promise<{ url: string; expiresIn: number }> {
+  return request<{ url: string; expiresIn: number }>(
+    `/v1/agents/${id}/sources/${sourceId}/download`,
+    { method: "GET" },
   );
 }

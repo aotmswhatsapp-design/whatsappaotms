@@ -50,12 +50,18 @@ function asModel(value: string): AgentModel {
  * tab and the only one with standing rules in its placeholder. A save sends
  * every field at once — the DTO is all-optional, and a partial send would make
  * "unchanged" and "cleared" indistinguishable.
+ *
+ * Only an OWNER can save; everybody else reads the same fields locked. The
+ * guard in `save()` matters as much as the disabled inputs, because a form
+ * without a submit button still submits on Enter.
  */
 export function AgentForm({
   agent,
+  canManage,
   onSaved,
 }: {
   agent: Agent;
+  canManage: boolean;
   onSaved: (next: Agent) => void;
 }) {
   const toast = useToast();
@@ -103,8 +109,11 @@ export function AgentForm({
     payload.systemPrompt.length === 0 ||
     payload.systemPrompt.length > 8_000;
 
+  /** A save in flight, or no right to save at all. */
+  const locked = saving || !canManage;
+
   async function save() {
-    if (saving || !dirty || blocked) return;
+    if (locked || !dirty || blocked) return;
 
     setSaving(true);
 
@@ -143,7 +152,7 @@ export function AgentForm({
           <Label htmlFor="agent-name">Name</Label>
           <input
             className={cn(FIELD, "mt-1.5")}
-            disabled={saving}
+            disabled={locked}
             id="agent-name"
             maxLength={80}
             onChange={(event) => setName(event.target.value)}
@@ -160,7 +169,7 @@ export function AgentForm({
           <Label htmlFor="agent-description">Description</Label>
           <input
             className={cn(FIELD, "mt-1.5")}
-            disabled={saving}
+            disabled={locked}
             id="agent-description"
             maxLength={500}
             onChange={(event) => setDescription(event.target.value)}
@@ -182,7 +191,7 @@ export function AgentForm({
         </div>
         <textarea
           className={cn(AREA, "mt-1.5")}
-          disabled={saving}
+          disabled={locked}
           id="agent-prompt"
           maxLength={8_000}
           onChange={(event) => setPrompt(event.target.value)}
@@ -202,7 +211,7 @@ export function AgentForm({
           <Label htmlFor="agent-model">Model</Label>
           <select
             className={cn(FIELD, "mt-1.5")}
-            disabled={saving}
+            disabled={locked}
             id="agent-model"
             onChange={(event) => setModel(asModel(event.target.value))}
             value={model}
@@ -227,7 +236,7 @@ export function AgentForm({
           </div>
           <input
             className="mt-3 w-full accent-[var(--brand)]"
-            disabled={saving}
+            disabled={locked}
             id="agent-temperature"
             max={1.2}
             min={0}
@@ -248,7 +257,7 @@ export function AgentForm({
           <Label htmlFor="agent-cap">Longest reply</Label>
           <select
             className={cn(FIELD, "mt-1.5")}
-            disabled={saving}
+            disabled={locked}
             id="agent-cap"
             onChange={(event) => setMaxReplyChars(Number(event.target.value))}
             value={maxReplyChars}
@@ -268,7 +277,7 @@ export function AgentForm({
           <Label htmlFor="agent-keywords">Escalate on these words</Label>
           <input
             className={cn(FIELD, "mt-1.5")}
-            disabled={saving}
+            disabled={locked}
             id="agent-keywords"
             onChange={(event) => setKeywords(event.target.value)}
             placeholder="refund, complaint, lawyer"
@@ -284,20 +293,24 @@ export function AgentForm({
 
       <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
         <p className="text-[11.5px] text-muted-foreground">
-          {blocked
-            ? "A name and instructions are required."
-            : dirty
-              ? "Unsaved changes."
-              : "All changes saved."}
+          {!canManage
+            ? "Read-only. Only an owner can change how this agent answers."
+            : blocked
+              ? "A name and instructions are required."
+              : dirty
+                ? "Unsaved changes."
+                : "All changes saved."}
         </p>
-        <Button
-          disabled={!dirty || blocked || saving}
-          type="submit"
-          variant="brand"
-        >
-          {saving ? <Loader2 className="animate-spin" /> : <Save />}
-          Save prompt
-        </Button>
+        {canManage ? (
+          <Button
+            disabled={!dirty || blocked || saving}
+            type="submit"
+            variant="brand"
+          >
+            {saving ? <Loader2 className="animate-spin" /> : <Save />}
+            Save prompt
+          </Button>
+        ) : null}
       </div>
     </form>
   );

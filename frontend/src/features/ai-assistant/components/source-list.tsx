@@ -1,12 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Image as ImageIcon, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Download,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
-import { ApiError, deleteSource, retrySource } from "../api";
+import {
+  ApiError,
+  deleteSource,
+  replaceSource,
+  retrySource,
+  sourceDownloadUrl,
+} from "../api";
+import { ACCEPT_ATTRIBUTE, sizeRejection } from "../limits";
 import type { Source, SourceStatus } from "../types";
 
 const STATUS: Record<SourceStatus, { label: string; className: string }> = {
@@ -24,21 +39,90 @@ function sizeOf(bytes: number | null): string {
 }
 
 /**
+ * What the extractor found about the file's shape: how many pages, which
+ * sheets and how many rows, or how large the image is.
+ *
+ * A CSV is stored as a one-sheet table named `CSV`, so its rows are described
+ * as records — the same distinction the citation labels make, decided by MIME
+ * and never by the sheet name.
+ */
+function metaOf(source: Source): string {
+  const meta = source.meta;
+  if (!meta) return "";
+
+  if (meta.kind === "document") {
+    if (!meta.pages) return "";
+    return `${meta.pages} page${meta.pages === 1 ? "" : "s"}`;
+  }
+
+  if (meta.kind === "image") {
+    if (!meta.width || !meta.height) return "";
+    return `${meta.width}×${meta.height}`;
+  }
+
+  const rows = meta.sheets.reduce((total, sheet) => total + sheet.rowCount, 0);
+  if (rows === 0) return "";
+
+  if (source.mime === "text/csv") {
+    return `${rows.toLocaleString()} records`;
+  }
+
+  const sheets = meta.sheets.length;
+  return `${sheets} sheet${sheets === 1 ? "" : "s"} · ${rows.toLocaleString()} rows`;
+}
+
+/**
  * One row per source. The status word is the state; the failure reason sits
  * under it, because "Failed" alone tells nobody what to do next.
+ *
+ * Only an OWNER gets the controls that change the list. Members still read it,
+ * and still download an original, because the API serves both to every member.
  */
 export function SourceList({
   agentId,
   sources,
+  canManage,
   onChanged,
 }: {
   agentId: string;
   sources: Source[];
+  canManage: boolean;
   onChanged: () => void;
 }) {
   const toast = useToast();
   const [armed, setArmed] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [downloading, setDownloading] = React.useState<string | null>(null);
+
+  // One picker for the whole list: which row asked is remembered here, because
+  // the file dialog answers long after the click that opened it.
+  const picker = React.useRef<HTMLInputElement>(null);
+  const target = React.useRef<string | null>(null);
+
+  const byId = React.useMemo(() => {
+    const map = new Map<string, Source>();
+    for (const source of sources) map.set(source.id, source);
+
+    return map;
+  }, [sources]);
+
+  /** The replacement each source is being retired by, while it is still live. */
+  const successors = React.useMemo(() => {
+    const map = new Map<string, Source>();
+
+    for (const source of sources) {
+      if (!source.replacesSourceId) continue;
+
+      // Newest first, so the first one listed is the one to believe — unless it
+      // failed, in which case an older successor may still be the live one.
+      const seen = map.get(source.replacesSourceId);
+      if (!seen || seen.status === "FAILED") {
+        map.set(source.replacesSourceId, source);
+      }
+    }
+
+    return map;
+  }, [sources]);
 
   async function remove(source: Source) {
     setBusy(source.id);
@@ -87,119 +171,282 @@ export function SourceList({
     }
   }
 
+  /** Opens the picker for one row; the change handler below does the work. */
+  function choose(source: Source) {
+    target.current = source.id;
+    picker.current?.click();
+  }
+
+  async function swap(file: File) {
+    const sourceId = target.current;
+    target.current = null;
+
+    if (!sourceId) return;
+
+    const rejection = sizeRejection(file);
+    if (rejection) {
+      toast.push({ title: "Too large", description: rejection, tone: "error" });
+      return;
+    }
+
+    const replaced = byId.get(sourceId) ?? null;
+    setBusy(sourceId);
+
+    try {
+      const { source } = await replaceSource(agentId, sourceId, file);
+
+      // The predecessor is still answering: the server retires it only once
+      // this row is READY. Both stay on screen until the next refresh says so.
+      onChanged();
+      setArmed(null);
+      toast.push({
+        title: "New version uploaded",
+        description: replaced
+          ? `${source.title} is being indexed. ${replaced.title} keeps answering until it is ready.`
+          : `${source.title} is being indexed.`,
+        tone: "success",
+      });
+    } catch (caught) {
+      toast.push({
+        title: "Could not replace the file",
+        description:
+          caught instanceof ApiError ? caught.message : "Nothing changed.",
+        tone: "error",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function download(source: Source) {
+    setDownloading(source.id);
+
+    try {
+      const { url } = await sourceDownloadUrl(agentId, source.id);
+
+      // The API answered with a signed Storage URL, not with bytes. It is
+      // opened directly: `request()` would put this API's Bearer token on a
+      // request to a different host, for which it is not a credential.
+      const link = document.createElement("a");
+      link.href = url;
+      link.rel = "noopener noreferrer";
+      link.target = "_blank";
+      link.click();
+    } catch (caught) {
+      toast.push({
+        title: "Could not download the file",
+        description:
+          caught instanceof ApiError ? caught.message : "The link was not issued.",
+        tone: "error",
+      });
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   if (sources.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-border bg-card/60 px-3 py-4 text-[12.5px] leading-relaxed text-muted-foreground">
-        No material yet. Add a price list, a policy or a voice note above — an
-        agent cannot be activated until one source is ready.
+        {canManage
+          ? "No material yet. Add a price list, a policy or a voice note above — an agent cannot be activated until one source is ready."
+          : "No material yet. The agent has nothing to answer from until an owner adds a source."}
       </p>
     );
   }
 
   return (
-    <ul className="divide-y divide-border rounded-xl border border-border bg-card">
-      {sources.map((source) => {
-        const style = STATUS[source.status];
-        const Icon = source.kind === "TEXT" ? FileText : ImageIcon;
-        const working = busy === source.id;
-        const pending = source.status === "PENDING" || source.status === "PROCESSING";
+    <>
+      <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+        {sources.map((source) => {
+          const style = STATUS[source.status];
+          const Icon = source.kind === "TEXT" ? FileText : ImageIcon;
+          const working = busy === source.id;
+          const pending = source.status === "PENDING" || source.status === "PROCESSING";
+          const meta = metaOf(source);
+          const successor = successors.get(source.id) ?? null;
+          const predecessor = source.replacesSourceId
+            ? (byId.get(source.replacesSourceId) ?? null)
+            : null;
+          // A failed replacement never retires its predecessor and never locks
+          // a new attempt, so only a live one blocks the button.
+          const liveSuccessor = successor !== null && successor.status !== "FAILED";
+          const swappable = canManage && source.kind === "FILE" && !pending && !liveSuccessor;
 
-        return (
-          <li className="flex items-start gap-3 px-3.5 py-3" key={source.id}>
-            <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
-              <Icon className="size-4" aria-hidden="true" />
-            </span>
+          return (
+            <li className="flex items-start gap-3 px-3.5 py-3" key={source.id}>
+              <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
+                <Icon className="size-4" aria-hidden="true" />
+              </span>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-[13px] font-medium text-foreground">
-                  {source.title}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-[13px] font-medium text-foreground">
+                    {source.title}
+                  </p>
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                      style.className,
+                    )}
+                  >
+                    {style.label}
+                  </span>
+                  {source.replacesSourceId ? (
+                    <span className="inline-flex rounded-full border border-brand/40 bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-foreground">
+                      New version
+                    </span>
+                  ) : null}
+                </div>
+
+                <p className="mt-0.5 text-[11.5px] tabular-nums text-muted-foreground">
+                  {[
+                    sizeOf(source.size),
+                    meta,
+                    source.charCount ? `${source.charCount.toLocaleString()} chars` : "",
+                    source.chunkCount ? `${source.chunkCount} chunks` : "",
+                    source.status === "READY" ? "searchable" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
-                <span
-                  className={cn(
-                    "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                    style.className,
-                  )}
-                >
-                  {style.label}
-                </span>
+
+                {source.error ? (
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-destructive">
+                    {source.error}
+                  </p>
+                ) : null}
+
+                {successor ? (
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+                    {successor.status === "READY"
+                      ? `Replaced by ${successor.title}. This older copy is being removed.`
+                      : successor.status === "FAILED"
+                        ? `A replacement, ${successor.title}, failed to index. This copy still answers.`
+                        : `Being replaced by ${successor.title}. This copy keeps answering until the new one is ready.`}
+                  </p>
+                ) : predecessor ? (
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+                    Replaces {predecessor.title}, which keeps answering until this
+                    one is ready.
+                  </p>
+                ) : null}
+
+                {source.status === "READY" && source.embedTokens > 0 ? (
+                  <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                    {source.embedTokens.toLocaleString()} embedding tokens spent
+                  </p>
+                ) : null}
+
+                {source.status === "READY" && source.extractTokens > 0 ? (
+                  <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                    {source.extractTokens.toLocaleString()} extraction tokens spent
+                  </p>
+                ) : null}
               </div>
 
-              <p className="mt-0.5 text-[11.5px] tabular-nums text-muted-foreground">
-                {[
-                  sizeOf(source.size),
-                  source.charCount ? `${source.charCount.toLocaleString()} chars` : "",
-                  source.chunkCount ? `${source.chunkCount} chunks` : "",
-                  source.status === "READY" ? "searchable" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-
-              {source.error ? (
-                <p className="mt-1 text-[11.5px] leading-relaxed text-destructive">
-                  {source.error}
-                </p>
-              ) : null}
-
-              {source.status === "READY" && source.embedTokens > 0 ? (
-                <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                  {source.embedTokens.toLocaleString()} embedding tokens spent
-                </p>
-              ) : null}
-            </div>
-
-            <div className="flex shrink-0 items-center gap-1">
-              {source.status === "FAILED" ? (
-                <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
-                  disabled={working}
-                  onClick={() => void retry(source)}
-                  type="button"
-                >
-                  {working ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-3.5" />
-                  )}
-                  Retry
-                </button>
-              ) : null}
-
-              {armed === source.id ? (
-                <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
+                {source.kind === "FILE" ? (
                   <button
-                    className="inline-flex h-8 items-center rounded-md bg-destructive/10 px-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/15 focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
+                    aria-label={`Download ${source.title}`}
+                    className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none disabled:opacity-50"
+                    disabled={downloading === source.id}
+                    onClick={() => void download(source)}
+                    title="Download the original file"
+                    type="button"
+                  >
+                    {downloading === source.id ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Download className="size-3.5" aria-hidden="true" />
+                    )}
+                  </button>
+                ) : null}
+
+                {swappable ? (
+                  <button
+                    aria-label={`Replace ${source.title}`}
+                    className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none disabled:opacity-50"
                     disabled={working}
-                    onClick={() => void remove(source)}
+                    onClick={() => choose(source)}
+                    title="Upload a new version of this file"
                     type="button"
                   >
-                    {working ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                    Delete
+                    {working ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="size-3.5" aria-hidden="true" />
+                    )}
                   </button>
+                ) : null}
+
+                {canManage && source.status === "FAILED" ? (
                   <button
-                    className="h-8 rounded-md px-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
-                    onClick={() => setArmed(null)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
+                    disabled={working}
+                    onClick={() => void retry(source)}
                     type="button"
                   >
-                    Cancel
+                    {working ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3.5" />
+                    )}
+                    Retry
                   </button>
-                </div>
-              ) : (
-                <button
-                  aria-label={`Remove ${source.title}`}
-                  className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none disabled:opacity-50"
-                  disabled={working || pending}
-                  onClick={() => setArmed(source.id)}
-                  type="button"
-                >
-                  <Trash2 className="size-3.5" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+                ) : null}
+
+                {canManage ? (
+                  armed === source.id ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="inline-flex h-8 items-center rounded-md bg-destructive/10 px-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/15 focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
+                        disabled={working}
+                        onClick={() => void remove(source)}
+                        type="button"
+                      >
+                        {working ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                        Delete
+                      </button>
+                      <button
+                        className="h-8 rounded-md px-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
+                        onClick={() => setArmed(null)}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      aria-label={`Remove ${source.title}`}
+                      className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none disabled:opacity-50"
+                      disabled={working || pending}
+                      onClick={() => setArmed(source.id)}
+                      type="button"
+                    >
+                      <Trash2 className="size-3.5" aria-hidden="true" />
+                    </button>
+                  )
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* One picker for every row: the replacement control only names a target. */}
+      <input
+        accept={ACCEPT_ATTRIBUTE}
+        aria-hidden="true"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void swap(file);
+        }}
+        ref={picker}
+        tabIndex={-1}
+        type="file"
+      />
+    </>
   );
 }

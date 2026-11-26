@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
-import { ApiError, askAgent } from "../api";
-import type { Agent, AskResult } from "../types";
+import { ApiError, askAgent, fetchSources } from "../api";
+import type { Agent, AskResult, Citation, Source } from "../types";
 
 const FIELD =
   "w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
@@ -17,6 +17,42 @@ interface Entry {
   id: string;
   question: string;
   result: AskResult;
+}
+
+/**
+ * Where in its file a slice came from, in words the reader of the file would
+ * use: a page for a PDF, a sheet and its rows for a workbook, a record range
+ * for a CSV.
+ *
+ * The citation carries a sheet name for both spreadsheets and CSVs — the CSV
+ * reader files its records under the name "CSV", and a workbook may own a
+ * sheet with that same name — so a sheet name alone proves nothing. Only the
+ * source's MIME can say which numbering the rows use, and the source lookup
+ * may not have answered yet; without it the place is described generically
+ * rather than guessed wrong.
+ */
+function placeOf(citation: Citation, source: Source | undefined): string | null {
+  if (citation.page !== null) return `Page ${citation.page}`;
+
+  const sheet = citation.sheet;
+  const range = rowRange(citation);
+
+  if (source?.mime === "text/csv") {
+    return range === null ? "Records" : `Records ${range}`;
+  }
+
+  if (sheet === null) return range === null ? null : `Rows ${range}`;
+  return range === null ? sheet : `${sheet} · rows ${range}`;
+}
+
+/** `12` for one row, `12–18` for a span, null when the slice named none. */
+function rowRange(citation: Citation): string | null {
+  if (citation.rowFrom === null) return null;
+  if (citation.rowTo === null || citation.rowTo === citation.rowFrom) {
+    return String(citation.rowFrom);
+  }
+
+  return `${citation.rowFrom}–${citation.rowTo}`;
 }
 
 /**
@@ -33,6 +69,26 @@ export function Playground({ agent }: { agent: Agent }) {
   const [question, setQuestion] = React.useState("");
   const [entries, setEntries] = React.useState<Entry[]>([]);
   const [busy, setBusy] = React.useState(false);
+  const [sources, setSources] = React.useState<Record<string, Source>>({});
+
+  // A citation says which slice it read but not what kind of file it came from,
+  // and the row wording depends on that. The list is fetched once per agent;
+  // a failure only costs the wording, so a citation still shows its title.
+  React.useEffect(() => {
+    let cancelled = false;
+
+    fetchSources(agent.id)
+      .then(({ sources: list }) => {
+        if (cancelled) return;
+
+        setSources(Object.fromEntries(list.map((source) => [source.id, source])));
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.id]);
 
   async function ask() {
     const trimmed = question.trim();
@@ -153,24 +209,35 @@ export function Playground({ agent }: { agent: Agent }) {
                 <p className="text-[11.5px] font-medium text-muted-foreground">
                   Read from
                 </p>
-                {entry.result.citations.map((citation) => (
-                  <div
-                    className="rounded-lg border border-border bg-background px-2.5 py-2"
-                    key={`${entry.id}-${citation.sourceId}-${citation.score}`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="truncate text-[12px] font-medium text-foreground">
-                        {citation.title}
+                {entry.result.citations.map((citation, index) => {
+                  const place = placeOf(citation, sources[citation.sourceId]);
+
+                  return (
+                    <div
+                      className="rounded-lg border border-border bg-background px-2.5 py-2"
+                      key={`${entry.id}-${index}-${citation.sourceId}-${citation.score}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-[12px] font-medium text-foreground">
+                            {citation.title}
+                          </p>
+                          {place !== null ? (
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {place}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                          {citation.score.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-muted-foreground">
+                        {citation.text}
                       </p>
-                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                        {citation.score.toFixed(2)}
-                      </span>
                     </div>
-                    <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-muted-foreground">
-                      {citation.text}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
 

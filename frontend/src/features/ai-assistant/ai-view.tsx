@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/workspace/empty-state";
 import { PageHeader } from "@/components/workspace/page-header";
 import { getNavItem } from "@/config/workspace-nav";
+import { useWorkspaceRole } from "@/hooks/use-workspace-role";
 import { cn } from "@/lib/utils";
 
 import {
@@ -42,9 +43,17 @@ const TABS: { value: Tab; label: string }[] = [
  *
  * Activation is the only stateful switch: an agent that is not active still
  * indexes material and still answers in the playground, it just never sends.
+ *
+ * Everything that changes the agent is the OWNER's, server-side. The role is
+ * read here for the same reason the server checks it: controls that always
+ * answer 403 are worse than no controls. While the role is unknown — loading,
+ * or the read failed — the screen stays read-only, so an unknown role can
+ * never reveal an owner's control.
  */
 export function AiView() {
   const toast = useToast();
+  const role = useWorkspaceRole();
+  const canManage = role === "OWNER";
 
   const [channel, setChannel] = React.useState<Channel | null>(null);
   const [agents, setAgents] = React.useState<Agent[] | null>(null);
@@ -136,7 +145,7 @@ export function AiView() {
 
   async function create() {
     const trimmed = name.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || !canManage) return;
 
     setBusy(true);
 
@@ -171,7 +180,7 @@ export function AiView() {
   }
 
   async function toggle(next: boolean) {
-    if (!agent || busy) return;
+    if (!agent || busy || !canManage) return;
 
     setBusy(true);
 
@@ -204,30 +213,40 @@ export function AiView() {
     }
   }
 
+  /** `/ask` is OWNER-only, so the playground tab is not offered to anyone
+   * else — a tab that answers 403 is not a feature. */
+  const tabs = canManage
+    ? TABS
+    : TABS.filter((entry) => entry.value !== "PLAYGROUND");
+
+  // A tab can be left selected when the role arrives as a non-owner; the panel
+  // and the tab strip both read this, so neither can show the playground.
+  const tabShown = tabs.some((entry) => entry.value === tab) ? tab : "PROMPT";
+
   /**
    * Arrow keys move between tabs without taking the whole tablist out of the
    * Tab sequence: one tab is reachable, and the roving `tabIndex` follows the
    * selection.
    */
   function onTabKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    const index = TABS.findIndex((entry) => entry.value === tab);
+    const index = tabs.findIndex((entry) => entry.value === tabShown);
     let next: number | null = null;
 
     if (event.key === "ArrowLeft") {
-      next = (index + TABS.length - 1) % TABS.length;
+      next = (index + tabs.length - 1) % tabs.length;
     } else if (event.key === "ArrowRight") {
-      next = (index + 1) % TABS.length;
+      next = (index + 1) % tabs.length;
     } else if (event.key === "Home") {
       next = 0;
     } else if (event.key === "End") {
-      next = TABS.length - 1;
+      next = tabs.length - 1;
     }
 
     if (next === null) return;
 
     event.preventDefault();
 
-    const entry = TABS[next];
+    const entry = tabs[next];
     if (!entry) return;
 
     setTab(entry.value);
@@ -281,7 +300,7 @@ export function AiView() {
               <RefreshCw className={cn(loading && "animate-spin")} />
               Refresh
             </Button>
-            {agents && agents.length > 0 ? (
+            {canManage && agents && agents.length > 0 ? (
               <Button
                 disabled={busy}
                 onClick={() => setCreating((open) => !open)}
@@ -324,7 +343,7 @@ export function AiView() {
         </div>
       ) : null}
 
-      {creating ? (
+      {creating && canManage ? (
         <section className="rounded-xl border border-border bg-card p-4">
           <p className="mb-2 text-[13px] font-medium text-foreground">
             Name the new agent
@@ -343,11 +362,13 @@ export function AiView() {
         </div>
       ) : agents === null || agents.length === 0 ? (
         <EmptyState
-          action={channel ? creator : undefined}
+          action={channel && canManage ? creator : undefined}
           description={
-            channel
-              ? "An agent answers from the material you give it. Create one, add a price list or a policy, then ask it something in the playground."
-              : "Connect a WhatsApp number first — an agent is bound to the number that answers."
+            !channel
+              ? "Connect a WhatsApp number first — an agent is bound to the number that answers."
+              : canManage
+                ? "An agent answers from the material you give it. Create one, add a price list or a policy, then ask it something in the playground."
+                : "An owner creates the agent, gives it material and turns it on. Its answers appear in the Inbox."
           }
           icon={Bot}
           title={channel ? "No agent yet" : "No number connected"}
@@ -406,25 +427,39 @@ export function AiView() {
                 <label
                   className="flex items-center gap-2 text-[12.5px] font-medium text-foreground"
                   title={
-                    untrained
-                      ? "Add material on the Training tab and wait for it to be ready."
-                      : shown?.isActive
-                        ? "Turn off to stop automatic replies. The material stays indexed."
-                        : "Turn on to answer new messages from the material."
+                    !canManage
+                      ? "Only an owner can turn the agent on or off."
+                      : untrained
+                        ? "Add material on the Training tab and wait for it to be ready."
+                        : shown?.isActive
+                          ? "Turn off to stop automatic replies. The material stays indexed."
+                          : "Turn on to answer new messages from the material."
                   }
                 >
                   <Switch
                     aria-describedby={
-                      blocked ? "agent-untrained-note" : undefined
+                      !canManage
+                        ? "agent-owner-note"
+                        : blocked
+                          ? "agent-untrained-note"
+                          : undefined
                     }
                     checked={shown?.isActive ?? false}
-                    disabled={!shown || busy || blocked}
+                    disabled={!shown || busy || blocked || !canManage}
                     onCheckedChange={(next) => void toggle(next)}
                   />
                   {shown?.isActive ? "Answering automatically" : "Not answering"}
                 </label>
 
-                {blocked ? (
+                {!canManage ? (
+                  <p
+                    className="max-w-[15rem] text-right text-[11px] leading-relaxed text-muted-foreground"
+                    id="agent-owner-note"
+                  >
+                    Only an owner can turn the agent on or off. Everything on this
+                    screen stays readable.
+                  </p>
+                ) : blocked ? (
                   <p
                     className="max-w-[15rem] text-right text-[11px] leading-relaxed text-muted-foreground"
                     id="agent-untrained-note"
@@ -442,15 +477,15 @@ export function AiView() {
               onKeyDown={onTabKeyDown}
               role="tablist"
             >
-              {TABS.map((entry) => (
+              {tabs.map((entry) => (
                 <button
                   aria-controls={
-                    tab === entry.value ? `agent-panel-${entry.value}` : undefined
+                    tabShown === entry.value ? `agent-panel-${entry.value}` : undefined
                   }
-                  aria-selected={tab === entry.value}
+                  aria-selected={tabShown === entry.value}
                   className={cn(
                     "rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none",
-                    tab === entry.value
+                    tabShown === entry.value
                       ? "bg-secondary text-foreground shadow-xs"
                       : "text-muted-foreground hover:text-foreground",
                   )}
@@ -458,7 +493,7 @@ export function AiView() {
                   key={entry.value}
                   onClick={() => setTab(entry.value)}
                   role="tab"
-                  tabIndex={tab === entry.value ? 0 : -1}
+                  tabIndex={tabShown === entry.value ? 0 : -1}
                   type="button"
                 >
                   {entry.label}
@@ -472,13 +507,14 @@ export function AiView() {
               </div>
             ) : (
               <div
-                aria-labelledby={`agent-tab-${tab}`}
-                id={`agent-panel-${tab}`}
+                aria-labelledby={`agent-tab-${tabShown}`}
+                id={`agent-panel-${tabShown}`}
                 role="tabpanel"
               >
-                {tab === "PROMPT" ? (
+                {tabShown === "PROMPT" ? (
                   <AgentForm
                     agent={shown}
+                    canManage={canManage}
                     key={shown.id}
                     onSaved={(next) => {
                       // A save that lands after the selection moved on must not
@@ -496,13 +532,14 @@ export function AiView() {
                       );
                     }}
                   />
-                ) : tab === "TRAINING" ? (
+                ) : tabShown === "TRAINING" ? (
                   <TrainingPanel
                     agent={shown}
+                    canManage={canManage}
                     key={shown.id}
                     onSourcesChanged={reload}
                   />
-                ) : tab === "PLAYGROUND" ? (
+                ) : tabShown === "PLAYGROUND" ? (
                   <Playground agent={shown} key={shown.id} />
                 ) : (
                   <ActivityTable agent={shown} key={shown.id} />

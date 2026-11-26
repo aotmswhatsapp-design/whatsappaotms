@@ -7,29 +7,8 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 import { ApiError, uploadSource } from "../api";
+import { ACCEPT_ATTRIBUTE, sizeRejection } from "../limits";
 import type { Source } from "../types";
-
-/** The same ceiling the server enforces; this copy only fails faster. */
-const MAX_BYTES = 25 * 1024 * 1024;
-
-/** What the file picker offers. A drag bypasses it and the server decides. */
-const ACCEPT = [
-  ".txt",
-  ".md",
-  ".csv",
-  ".docx",
-  ".xlsx",
-  ".pdf",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-  ".ogg",
-  ".mp3",
-  ".m4a",
-  ".wav",
-  ".opus",
-].join(",");
 
 /**
  * One file, up to 25 MB, indexed in the background.
@@ -53,12 +32,9 @@ export function UploadDropzone({
   async function send(file: File) {
     if (busy) return;
 
-    if (file.size > MAX_BYTES) {
-      toast.push({
-        title: "Too large",
-        description: `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 25 MB.`,
-        tone: "error",
-      });
+    const rejection = sizeRejection(file);
+    if (rejection) {
+      toast.push({ title: "Too large", description: rejection, tone: "error" });
       return;
     }
 
@@ -115,7 +91,7 @@ export function UploadDropzone({
           and tabs to, and a second focusable file input would be a stop with no
           name. A programmatic click still opens the picker. */}
       <input
-        accept={ACCEPT}
+        accept={ACCEPT_ATTRIBUTE}
         className="hidden"
         disabled={busy}
         onChange={(event) => {

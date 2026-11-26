@@ -68,13 +68,20 @@ export async function request<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 /**
- * A multipart POST. Separate from `request` because the JSON helper sets a
+ * A multipart request. Separate from `request` because the JSON helper sets a
  * content-type, and a hand-set boundary is a broken upload.
+ *
+ * `PUT` is the source-replacement route: same body, same headers, one verb
+ * apart from a fresh upload.
  */
-export async function upload<T>(path: string, form: FormData): Promise<T> {
+export async function upload<T>(
+  path: string,
+  form: FormData,
+  method: "POST" | "PUT" = "POST",
+): Promise<T> {
   const headers = await sessionHeaders(false);
 
-  return send<T>(path, { method: "POST", body: form }, headers);
+  return send<T>(path, { method, body: form }, headers);
 }
 
 /**
