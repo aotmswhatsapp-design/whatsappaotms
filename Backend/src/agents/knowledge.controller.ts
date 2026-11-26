@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UnsupportedMediaTypeException,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,7 +23,40 @@ import type { UploadedMedia } from "../inbox/inbox.sender";
 import { Roles } from "../workspaces/workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "../workspaces/workspace-roles.guard";
 import { AddTextSourceDto } from "./dto/add-text-source.dto";
+import {
+  AUDIO_EXTENSIONS,
+  DOCUMENT_EXTENSIONS,
+  IMAGE_EXTENSIONS,
+  extensionOf,
+} from "./knowledge.file";
 import { KnowledgeService, MAX_SOURCE_BYTES } from "./knowledge.service";
+
+const ALLOWED = new Set<string>([
+  ...DOCUMENT_EXTENSIONS,
+  ...IMAGE_EXTENSIONS,
+  ...AUDIO_EXTENSIONS,
+]);
+
+/**
+ * A cheap pre-filter that answers before Multer buffers a 25 MB body. The
+ * service still validates the bytes; this only saves the round trip.
+ */
+const acceptUpload = (
+  _request: unknown,
+  file: { originalname: string },
+  done: (error: Error | null, acceptFile: boolean) => void,
+) => {
+  if (ALLOWED.has(extensionOf(file.originalname))) return done(null, true);
+
+  // A non-MulterError passes through Nest's interceptor untouched when it is an
+  // HttpException, so the client sees 415 rather than 500.
+  done(
+    new UnsupportedMediaTypeException(
+      "That file type cannot be read. Upload a PDF, DOCX, TXT, CSV, XLSX, an image, or a voice note.",
+    ),
+    false,
+  );
+};
 
 /**
  * Training material for one agent. A source is indexed in the background, so
@@ -57,15 +91,18 @@ export class KnowledgeController {
   /**
    * POST /api/v1/agents/:id/sources/file — multipart, field `file`.
    *
-   * The type is decided by the extension, not the browser's mimetype: the
-   * extractor switches on it, and a phone that sends `application/octet-stream`
-   * must still index.
+   * The extension picks the reader, the bytes decide whether the file really is
+   * that format, and the sniffed type — not the browser's mimetype — is what
+   * gets stored. A phone that sends `application/octet-stream` still indexes.
    */
   @Post("file")
   @Roles("OWNER")
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @UseInterceptors(
-    FileInterceptor("file", { limits: { fileSize: MAX_SOURCE_BYTES } }),
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_SOURCE_BYTES },
+      fileFilter: acceptUpload,
+    }),
   )
   addFile(
     @CurrentUser() claims: AuthClaims,
@@ -78,6 +115,16 @@ export class KnowledgeController {
     }
 
     return this.knowledge.addFile(claims, id, file);
+  }
+
+  /** GET .../download — a short-lived link, issued only after an ownership check. */
+  @Get(":sourceId/download")
+  download(
+    @CurrentUser() claims: AuthClaims,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("sourceId", ParseUUIDPipe) sourceId: string,
+  ) {
+    return this.knowledge.downloadLink(claims, id, sourceId);
   }
 
   /** DELETE /api/v1/agents/:id/sources/:sourceId — the row, chunks and bytes. */

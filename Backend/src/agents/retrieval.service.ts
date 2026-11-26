@@ -20,6 +20,14 @@ export interface ContextChunk {
   title: string;
   /** Cosine similarity, 0 to 1. */
   score: number;
+  /** 1-based PDF page, when the extractor recorded one. */
+  page: number | null;
+  /** CSV/XLSX sheet name, when the chunk came from a table. */
+  sheet: string | null;
+  rowFrom: number | null;
+  rowTo: number | null;
+  /** Nearest preceding heading (DOCX, Markdown). */
+  heading: string | null;
 }
 
 interface Row {
@@ -28,6 +36,11 @@ interface Row {
   source_id: string;
   title: string;
   score: number;
+  page: number | null;
+  sheet: string | null;
+  row_from: number | null;
+  row_to: number | null;
+  heading: string | null;
 }
 
 /**
@@ -45,8 +58,12 @@ export class RetrievalService {
     private readonly provider: OpenAiProvider,
   ) {}
 
+  /**
+   * The workspace is part of the predicate, not an inference from the agent id.
+   * A source row whose agent was moved between tenants must not answer here.
+   */
   async search(
-    agentId: string,
+    scope: { agentId: string; workspaceId: string },
     question: string,
   ): Promise<{ chunks: ContextChunk[]; embedTokens: number }> {
     const { vectors, tokens } = await this.provider.embed([question]);
@@ -62,10 +79,13 @@ export class RetrievalService {
       ),
       this.prisma.$queryRaw<Row[]>`
         SELECT c.id, c.text, s.id AS source_id, s.title,
+               c.page, c.sheet, c.row_from, c.row_to, c.heading,
                1 - (c.embedding <=> ${vector}::vector) AS score
         FROM knowledge_chunks c
         JOIN knowledge_sources s ON s.id = c.source_id
-        WHERE s.agent_id = ${agentId}::uuid
+        JOIN agents a ON a.id = s.agent_id
+        WHERE s.agent_id = ${scope.agentId}::uuid
+          AND a.workspace_id = ${scope.workspaceId}::uuid
           AND s.status = 'READY'
           AND c.embedding IS NOT NULL
         ORDER BY c.embedding <=> ${vector}::vector
@@ -80,6 +100,11 @@ export class RetrievalService {
         sourceId: row.source_id,
         title: row.title,
         score: Number(row.score),
+        page: row.page ?? null,
+        sheet: row.sheet ?? null,
+        rowFrom: row.row_from ?? null,
+        rowTo: row.row_to ?? null,
+        heading: row.heading ?? null,
       }))
       .filter((row) => row.score >= FLOOR);
 

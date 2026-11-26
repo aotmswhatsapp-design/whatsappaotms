@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
+  UnsupportedMediaTypeException,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -14,8 +17,9 @@ import type { UploadedMedia } from "../inbox/inbox.sender";
 import { MediaStorage } from "../inbox/media.storage";
 import { AiError, ExtractError } from "./ai.errors";
 import { OpenAiProvider, toVector } from "./ai.openai";
-import { extractDocument, extensionOf } from "./extract";
+import { extractDocument } from "./extract";
 import { OpenAiMediaExtractor, resolveMime } from "./extract.media";
+import { MAX_SOURCE_BYTES, inspectUpload, type InspectedFile } from "./knowledge.file";
 import {
   MAX_CHUNKS,
   estimateTokens,
@@ -23,8 +27,7 @@ import {
 } from "./knowledge.chunk";
 import type { AddTextSourceDto } from "./dto/add-text-source.dto";
 
-/** The same ceiling the inbox uses for what leaves, applied to what arrives. */
-export const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+export { MAX_SOURCE_BYTES } from "./knowledge.file";
 
 /** Chunks per embedding call. Verified: one call returns many vectors. */
 const EMBED_BATCH = 32;
@@ -34,6 +37,11 @@ const STALE_MS = 10 * 60 * 1000;
 
 /** Automatic attempts before a source is left FAILED for a human to retry. */
 const MAX_ATTEMPTS = 2;
+
+export interface SourceMeta {
+  kind: "table";
+  sheets: { name: string; headers: string[]; rowCount: number }[];
+}
 
 export interface SourceView {
   id: string;
@@ -46,8 +54,11 @@ export interface SourceView {
   charCount: number;
   chunkCount: number;
   embedTokens: number;
+  extractTokens: number;
   indexedAt: string | null;
   createdAt: string;
+  meta: SourceMeta | null;
+  replacesSourceId: string | null;
 }
 
 /**
@@ -68,14 +79,24 @@ export class KnowledgeService {
     private readonly storage: MediaStorage,
     private readonly provider: OpenAiProvider,
     private readonly media: OpenAiMediaExtractor,
-  ) {}
+    config: ConfigService,
+  ) {
+    // The interceptor cannot read configuration (decorators run before DI), so
+    // 25 MB is its hard ceiling and this may only lower it.
+    this.maxBytes = Math.min(
+      config.get<number>("KNOWLEDGE_MAX_BYTES") ?? MAX_SOURCE_BYTES,
+      MAX_SOURCE_BYTES,
+    );
+  }
+
+  private readonly maxBytes: number;
 
   async addText(
     claims: AuthClaims,
     agentId: string,
     dto: AddTextSourceDto,
   ): Promise<{ source: SourceView }> {
-    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
     const agent = await this.agentOf(workspaceId, agentId);
 
     const row = await this.prisma.knowledgeSource.create({
@@ -85,6 +106,7 @@ export class KnowledgeService {
         title: dto.title,
         text: dto.body,
         charCount: dto.body.length,
+        uploadedByUserId: userId,
         status: "PENDING",
       },
     });
@@ -97,42 +119,111 @@ export class KnowledgeService {
     agentId: string,
     file: UploadedMedia,
   ): Promise<{ source: SourceView }> {
-    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const { workspaceId, userId } = await this.workspaces.primaryFor(claims);
     const agent = await this.agentOf(workspaceId, agentId);
 
-    if (file.size > MAX_SOURCE_BYTES) {
+    const inspected = this.admit(file);
+    const id = randomUUID();
+
+    return this.store({
+      agentId: agent.id,
+      workspaceId,
+      userId,
+      id,
+      inspected,
+      bytes: file.buffer,
+      replacesSourceId: null,
+    });
+  }
+
+  /**
+   * `inspectUpload` refuses in the vocabulary of a job, where a sentence is all
+   * a caller needs. In the request the same refusal is the client's mistake, so
+   * it must be a 4xx rather than a 500 that blames this process.
+   */
+  private admit(file: UploadedMedia): InspectedFile {
+    try {
+      return inspectUpload({
+        name: file.originalname,
+        declaredMime: file.mimetype ?? "",
+        bytes: file.buffer,
+        limit: this.maxBytes,
+      });
+    } catch (error) {
+      if (!(error instanceof ExtractError)) throw error;
+
+      const body = { code: error.code, message: error.message };
+
+      if (error.code === "SOURCE_TOO_LARGE") throw new ConflictException(body);
+      if (error.code === "SOURCE_EMPTY") throw new BadRequestException(body);
+
+      throw new UnsupportedMediaTypeException(body);
+    }
+  }
+
+  /**
+   * Bytes first, row second, and the object removed if the row cannot be written:
+   * an object with no row is garbage, and a row without an object is a retry that
+   * can never succeed.
+   *
+   * Shared with `replace`, which is the same operation with one extra column.
+   */
+  private async store(input: {
+    agentId: string;
+    workspaceId: string;
+    userId: string;
+    id: string;
+    inspected: InspectedFile;
+    bytes: Buffer;
+    replacesSourceId: string | null;
+  }): Promise<{ source: SourceView }> {
+    const duplicate = await this.prisma.knowledgeSource.findFirst({
+      where: {
+        agentId: input.agentId,
+        sha256: input.inspected.sha256,
+        id: input.replacesSourceId ? { not: input.replacesSourceId } : undefined,
+      },
+      select: { id: true, title: true },
+    });
+
+    if (duplicate) {
       throw new ConflictException({
-        code: "SOURCE_TOO_LARGE",
-        message: "Training files are limited to 25 MB.",
+        code: "SOURCE_DUPLICATE",
+        message: `That file is already attached as “${duplicate.title}”. Delete it there before uploading it again.`,
       });
     }
 
-    // The id is chosen here so the storage path can be written before the row:
-    // an upload that lands without a row is garbage, and a row without an
-    // upload is a retry that can never work.
-    const id = randomUUID();
-    const path = `agents/${workspaceId}/${agentId}/${id}.${extensionOf(file.originalname) || "bin"}`;
+    const path = `workspaces/${input.workspaceId}/agents/${input.agentId}/knowledge/${input.id}/original.${input.inspected.extension}`;
 
-    await this.storage.upload(path, file.buffer, file.mimetype || "application/octet-stream");
+    await this.storage.upload(path, input.bytes, input.inspected.mime);
 
     try {
       const row = await this.prisma.knowledgeSource.create({
         data: {
-          id,
-          agentId: agent.id,
+          id: input.id,
+          agentId: input.agentId,
           kind: "FILE",
-          title: file.originalname || "Untitled file",
-          mime: file.mimetype || null,
-          size: file.size,
+          title: input.inspected.title,
+          mime: input.inspected.mime,
+          size: input.bytes.length,
           storagePath: path,
+          sha256: input.inspected.sha256,
+          uploadedByUserId: input.userId,
+          replacesSourceId: input.replacesSourceId,
           status: "PENDING",
         },
       });
 
       return { source: sourceView(row) };
     } catch (error) {
-      // No row will ever name these bytes, so they must not stay billed.
       await this.storage.remove([path]);
+      // The unique index is the race backstop: two identical uploads at once.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException({
+          code: "SOURCE_DUPLICATE",
+          message: "That file is already attached to this agent.",
+        });
+      }
       throw error;
     }
   }
@@ -187,6 +278,25 @@ export class KnowledgeService {
     });
 
     return { source: sourceView(row) };
+  }
+
+  /**
+   * The bytes are never proxied: a 300-second link is cheaper, and it keeps the
+   * service key out of every response. A TEXT note has nothing to download.
+   */
+  async downloadLink(claims: AuthClaims, agentId: string, sourceId: string) {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const agent = await this.agentOf(workspaceId, agentId);
+    const source = await this.sourceOf(agent.id, sourceId);
+
+    if (source.kind !== "FILE" || !source.storagePath) {
+      throw new ConflictException({
+        code: "SOURCE_NOT_FILE",
+        message: "A typed note has no file to download.",
+      });
+    }
+
+    return { url: await this.storage.signedUrl(source.storagePath), expiresIn: 300 };
   }
 
   /** The workspace's agent, or a 404 that another tenant's id also gets. */
@@ -495,6 +605,9 @@ export function sourceView(row: {
   embedTokens: number;
   indexedAt: Date | null;
   createdAt: Date;
+  extractTokens?: number | null;
+  meta?: unknown;
+  replacesSourceId?: string | null;
 }): SourceView {
   return {
     id: row.id,
@@ -507,7 +620,19 @@ export function sourceView(row: {
     charCount: row.charCount,
     chunkCount: row.chunkCount,
     embedTokens: row.embedTokens,
+    extractTokens: row.extractTokens ?? 0,
     indexedAt: row.indexedAt ? row.indexedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    meta: (row.meta ?? null) as SourceView["meta"],
+    replacesSourceId: row.replacesSourceId ?? null,
   };
+}
+
+/** Prisma's own name for a unique-index rejection. */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: string }).code === "P2002"
+  );
 }

@@ -10,6 +10,12 @@ import { ConfigService } from "@nestjs/config";
 /** How long a generated download link stays usable. */
 const SIGNED_TTL_SECONDS = 300;
 
+/** Metadata calls: a bucket check, a sign, a delete, a listing. */
+const TIMEOUT_MS = 30_000;
+
+/** Anything that moves up to 25 MB of bytes, each way. */
+const TRANSFER_TIMEOUT_MS = 120_000;
+
 /**
  * Which bucket an instance writes to. A module that wants its own bucket
  * provides this token; one that does not gets the inbox bucket, which keeps
@@ -74,6 +80,7 @@ export class MediaStorage {
           "x-upsert": "true",
         },
         body: new Uint8Array(bytes),
+        signal: AbortSignal.timeout(TRANSFER_TIMEOUT_MS),
       },
     );
 
@@ -93,6 +100,7 @@ export class MediaStorage {
         method: "POST",
         headers: { ...this.headers(), "content-type": "application/json" },
         body: JSON.stringify({ expiresIn: SIGNED_TTL_SECONDS }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       },
     );
 
@@ -120,7 +128,10 @@ export class MediaStorage {
 
     const response = await fetch(
       `${base}/storage/v1/object/${this.bucket}/${path}`,
-      { headers: this.headers() },
+      {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(TRANSFER_TIMEOUT_MS),
+      },
     );
 
     if (!response.ok) {
@@ -132,17 +143,92 @@ export class MediaStorage {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  /** Best effort: a deleted thread must not fail because storage hiccuped. */
-  async remove(paths: string[]): Promise<void> {
-    if (paths.length === 0 || !this.configured) return;
+  /**
+   * Best effort unless a caller says otherwise.
+   *
+   * The inbox and templates delete as a side effect of something the user already
+   * asked for, so a storage hiccup must not fail their request. Knowledge deletes
+   * pass `strict`, because a silent failure there is an object nobody can name
+   * again.
+   */
+  async remove(
+    paths: string[],
+    options: { strict?: boolean } = {},
+  ): Promise<void> {
+    if (paths.length === 0 || !this.configured) {
+      if (options.strict) {
+        throw new ServiceUnavailableException(
+          "Media storage is not configured on this server.",
+        );
+      }
+      return;
+    }
 
     const { base } = this.required();
 
-    await fetch(`${base}/storage/v1/object/${this.bucket}`, {
+    const response = await fetch(`${base}/storage/v1/object/${this.bucket}`, {
       method: "DELETE",
       headers: { ...this.headers(), "content-type": "application/json" },
       body: JSON.stringify({ prefixes: paths }),
-    }).catch(() => undefined);
+      // A request that never answers parks the caller for ever otherwise (B-1).
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        `Could not delete ${paths.length} object(s): ${error instanceof Error ? error.message : "unknown"}`,
+      );
+      return null;
+    });
+
+    if (response && !response.ok) {
+      const detail = `storage answered ${response.status}`;
+      if (options.strict) {
+        throw new ServiceUnavailableException(
+          `Could not delete the stored file (${detail}).`,
+        );
+      }
+      this.logger.warn(`Could not delete ${paths.length} object(s): ${detail}`);
+    }
+  }
+
+  /**
+   * One page of a prefix. Supabase returns `{ name }` entries; `updated_at` is
+   * present on real objects and null on folder rows, which the sweeper skips.
+   */
+  async list(
+    prefix: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<{ name: string; updatedAt: string | null }[]> {
+    const { base } = this.required();
+
+    const response = await fetch(`${base}/storage/v1/object/list/${this.bucket}`, {
+      method: "POST",
+      headers: { ...this.headers(), "content-type": "application/json" },
+      body: JSON.stringify({
+        prefix,
+        limit: options.limit ?? 100,
+        offset: options.offset ?? 0,
+        sortBy: { column: "name", order: "asc" },
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Could not list stored files (storage answered ${response.status}).`,
+      );
+    }
+
+    const rows = (await response.json().catch(() => [])) as {
+      name?: string;
+      updated_at?: string | null;
+    }[];
+
+    return rows
+      .filter(
+        (row): row is { name: string; updated_at?: string | null } =>
+          Boolean(row.name),
+      )
+      .map((row) => ({ name: row.name, updatedAt: row.updated_at ?? null }));
   }
 
   private async ensureBucket(): Promise<void> {
@@ -158,6 +244,7 @@ export class MediaStorage {
         name: this.bucket,
         public: false,
       }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
     // 400/409 means the bucket already exists, which is the normal case after

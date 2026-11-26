@@ -348,7 +348,7 @@ export class ReplyService {
 
     try {
       const { chunks, embedTokens } = await this.retrieval.search(
-        agent.id,
+        { agentId: agent.id, workspaceId: conversation.workspaceId },
         question,
       );
 

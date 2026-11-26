@@ -156,6 +156,15 @@ export const envSchema = z.object({
    */
   AGENT_SOURCE_BUCKET: z.string().min(1).default("agent-sources"),
   /**
+   * The largest training file, in bytes. The multipart interceptor enforces a
+   * hard 25 MB ceiling that no setting can raise; this can only lower it.
+   */
+  KNOWLEDGE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(25 * 1024 * 1024),
+  /**
    * Retention for the connection status: within this window a page load reads
    * the stored verdict instead of calling Graph again.
    */

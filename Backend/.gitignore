@@ -27,6 +27,7 @@ pnpm-debug.log*
 
 # Testing & Coverage
 coverage/
+.test-dist/
 
 # Local SQLite / Prisma files
 *.db

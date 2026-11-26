@@ -925,13 +925,33 @@ model KnowledgeSource {
   /// Indexing attempts. A row that keeps failing is left FAILED, not looped.
   attempts    Int                 @default(0)
   indexedAt   DateTime?           @map("indexed_at")
+  /// Lowercase hex SHA-256 of the stored bytes. Null for a typed note.
+  sha256           String?   @db.Char(64)
+  /// Who added it. Mirrors Agent.createdByUserId: a plain column, no relation,
+  /// so the row survives the user being deleted.
+  uploadedByUserId String?   @map("uploaded_by_user_id") @db.Uuid
+  /// The source this one replaces. Plain column: a self-relation would cascade
+  /// the successor away when the predecessor is retired.
+  replacesSourceId String?   @map("replaces_source_id") @db.Uuid
+  /// What the file *is*, not its content: sheet names and header rows for a
+  /// workbook, pixel size for an image, page count for a PDF. Validated with
+  /// zod on read; never pasted into a prompt.
+  meta             Json?
+  /// Tokens spent reading images and audio. Kept apart from `embedTokens` so
+  /// the Usage screen keeps meaning what it says.
+  extractTokens    Int       @default(0) @map("extract_tokens")
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
 
   agent  Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
   chunks KnowledgeChunk[]
 
+  /// Two identical files for one agent are a double charge and a duplicate
+  /// answer. Partial in effect: typed notes have no hash, and NULLs never
+  /// collide in Postgres.
+  @@unique([agentId, sha256])
   @@index([agentId, createdAt])
+  @@index([replacesSourceId])
   @@map("knowledge_sources")
 }
 
@@ -941,6 +961,15 @@ model KnowledgeChunk {
   ord       Int
   text      String
   tokens    Int
+  /// 1-based PDF page. Null for sources without pages.
+  page      Int?
+  /// CSV/XLSX sheet name.
+  sheet     String?
+  /// First and last data row this chunk covers, header excluded, 1-based.
+  rowFrom   Int?     @map("row_from")
+  rowTo     Int?     @map("row_to")
+  /// Nearest preceding heading (DOCX, Markdown).
+  heading   String?
   /// Nullable because Prisma can neither read nor write a vector: the row is
   /// created here and the vector is filled by raw SQL. A row with no embedding
   /// is invisible to search, which is exactly right for a half-finished index.

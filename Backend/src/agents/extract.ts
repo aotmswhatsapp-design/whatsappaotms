@@ -3,6 +3,7 @@ import * as ExcelJS from "exceljs";
 import mammoth from "mammoth";
 
 import { ExtractError } from "./ai.errors";
+import { extensionOf } from "./knowledge.file";
 
 const logger = new Logger("Extract");
 
@@ -13,22 +14,10 @@ const logger = new Logger("Extract");
  * build stays `npm ci && npm run build` with no LibreOffice, no container and
  * no native module. `.xls` is deliberately absent — `exceljs` reads the
  * zipped `.xlsx` format only.
+ *
+ * The extension allowlist lives in `knowledge.file.ts`, beside the signature
+ * check that has to agree with it.
  */
-export const DOCUMENT_EXTENSIONS = [
-  "txt",
-  "md",
-  "csv",
-  "docx",
-  "xlsx",
-  "pdf",
-] as const;
-
-export function extensionOf(name: string): string {
-  const at = name.lastIndexOf(".");
-
-  return at >= 0 ? name.slice(at + 1).toLowerCase() : "";
-}
-
 export async function extractDocument(file: {
   bytes: Buffer;
   mime: string;

@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 
 import { ExtractError } from "./ai.errors";
 import { OpenAiProvider } from "./ai.openai";
-import { extensionOf } from "./extract";
+import { extensionOf } from "./knowledge.file";
 
 /** Whisper's own list: flac, m4a, mp3, mp4, mpeg, mpga, oga, ogg, wav, webm. */
 const AUDIO_MIMES = new Set([

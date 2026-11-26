@@ -341,7 +341,10 @@ export class AgentsService {
     // Retrieval embeds the question, so it fails the same ways the chat call
     // does: inside the guard, where the error is mapped and the run is metered.
     try {
-      const found = await this.retrieval.search(agent.id, dto.question);
+      const found = await this.retrieval.search(
+        { agentId: agent.id, workspaceId },
+        dto.question,
+      );
       const chunks = found.chunks;
       embedTokens = found.embedTokens;
 
