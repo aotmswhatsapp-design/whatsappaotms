@@ -79,7 +79,11 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (matches(pathname, PROTECTED_PREFIXES) && !user) {
-    return redirectWithCookies(request, response, "/login", { next: pathname });
+    // The whole path, query included: an invitation lives in `/workspace/join?token=…`,
+    // and signing in must return the visitor to that exact URL or the link
+    // arrives with no code and reads as broken.
+    const target = `${pathname}${request.nextUrl.search}`;
+    return redirectWithCookies(request, response, "/login", { next: target });
   }
 
   if (matches(pathname, SIGNED_OUT_ONLY) && user) {

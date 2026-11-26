@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
  * sends no mail. That empty array is the only honest duplicate signal, so it is
  * what the form checks before promising a code.
  */
-export function SignupForm() {
+export function SignupForm({ next = null }: { next?: string | null }) {
   const router = useRouter();
   const id = React.useId();
   const nameId = `${id}-name`;
@@ -102,7 +102,15 @@ export function SignupForm() {
       return;
     }
 
-    router.push(`/verify-email?email=${encodeURIComponent(address)}`);
+    // The invitation arrived here as `next`; forwarding it is what keeps the
+    // code step pointing at the join page. Without it the first visit to
+    // /workspace provisions a workspace of this account's own, and the team
+    // that invited them becomes unreachable.
+    const landing = next ?? nextPath();
+    const query = new URLSearchParams({ email: address });
+    if (landing !== "/workspace") query.set("next", landing);
+
+    router.push(`/verify-email?${query.toString()}`);
   }
 
   async function continueWithGoogle() {
@@ -265,7 +273,7 @@ export function SignupForm() {
         Already have an account?{" "}
         <Link
           className="font-semibold text-brand underline-offset-4 transition-colors hover:text-brand/80 hover:underline"
-          href="/login"
+          href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
         >
           Sign in
         </Link>

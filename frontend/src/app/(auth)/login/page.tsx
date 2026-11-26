@@ -3,10 +3,15 @@ import { Suspense } from "react";
 
 import { AuthShell } from "../_components/auth-shell";
 import { LoginForm } from "@/components/auth/login-form";
+import { safeNext } from "@/lib/auth/next-path";
 
 export const metadata: Metadata = { title: "Log in" };
 
-type Search = { error?: string | string[]; notice?: string | string[] };
+type Search = {
+  error?: string | string[];
+  notice?: string | string[];
+  next?: string | string[];
+};
 
 function first(value: string | string[] | undefined) {
   const read = Array.isArray(value) ? value[0] : value;
@@ -15,8 +20,9 @@ function first(value: string | string[] | undefined) {
 
 /**
  * The callback route lands failures back here with `?error=`, and the proxy
- * uses `?next=` — that one is read on the client, because the form needs the
- * value at submit time.
+ * uses `?next=`. The form reads it again at submit time, but it also needs it
+ * now: an invitee who has no account has to reach sign-up without losing the
+ * invitation, and that link is rendered on the server.
  */
 async function LoginStep({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
@@ -25,6 +31,7 @@ async function LoginStep({ searchParams }: { searchParams: Promise<Search> }) {
     <LoginForm
       initialError={first(params.error)}
       initialNotice={first(params.notice)}
+      next={safeNext(params.next)}
     />
   );
 }

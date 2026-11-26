@@ -61,9 +61,12 @@ function ModeButton({
 export function LoginForm({
   initialError = null,
   initialNotice = null,
+  next = null,
 }: {
   initialError?: string | null;
   initialNotice?: string | null;
+  /** Where the visitor was headed — an invitation link, when one was opened. */
+  next?: string | null;
 }) {
   const router = useRouter();
   const id = React.useId();
@@ -81,6 +84,13 @@ export function LoginForm({
   const [password, setPassword] = React.useState("");
   const [codeSent, setCodeSent] = React.useState(false);
   const [code, setCode] = React.useState("");
+
+  // Sign-up is a second page, so the invitation has to ride along in its link:
+  // an account created without it lands in a workspace of its own and can
+  // never see the team that invited it.
+  const signupHref = next
+    ? `/signup?next=${encodeURIComponent(next)}`
+    : "/signup";
 
   function reset() {
     setError(null);
@@ -391,7 +401,7 @@ export function LoginForm({
         No account yet?{" "}
         <Link
           className="font-semibold text-brand underline-offset-4 transition-colors hover:text-brand/80 hover:underline"
-          href="/signup"
+          href={signupHref}
         >
           Create an account
         </Link>
