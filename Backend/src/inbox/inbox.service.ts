@@ -9,6 +9,7 @@ import type { ConversationStatus, Prisma } from "@prisma/client";
 import type { AuthClaims } from "../auth/auth.types";
 import { snapshotIn } from "../bots/bot.snapshot";
 import { PrismaService } from "../prisma/prisma.service";
+import { TemplatePhoto } from "../templates/template-photo";
 import { defaultAccount } from "../whatsapp/default-account";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { CreateNoteDto } from "./dto/create-note.dto";
@@ -43,7 +44,12 @@ import {
   type NoteView,
 } from "./inbox.view";
 import { MediaStorage } from "./media.storage";
-import { buildMessage, problemsIn, shapeOf } from "./template-send";
+import {
+  buildMessage,
+  headerMediaProblem,
+  problemsIn,
+  shapeOf,
+} from "./template-send";
 
 const SEND_ACCOUNT_SELECT = {
   phoneNumberId: true,
@@ -94,6 +100,7 @@ export class InboxService {
     private readonly workspaces: WorkspacesService,
     private readonly sender: InboxSender,
     private readonly storage: MediaStorage,
+    private readonly templatePhotos: TemplatePhoto,
   ) {}
 
   async list(
@@ -472,6 +479,7 @@ export class InboxService {
         status: true,
         parameterFormat: true,
         components: true,
+        mediaPath: true,
       },
     });
 
@@ -486,8 +494,10 @@ export class InboxService {
       });
     }
 
+    const shape = shapeOf(template.components);
+
     const input = {
-      shape: shapeOf(template.components),
+      shape,
       format: template.parameterFormat,
       values: dto.variables ?? {},
       buttonUrls: dto.buttonUrls ?? {},
@@ -503,7 +513,19 @@ export class InboxService {
       });
     }
 
-    const built = buildMessage(input);
+    // An image header is owed the stored sample, minted now because a signed
+    // link outlives the request only briefly.
+    const headerImage = await this.templatePhotos.linkOf(template.mediaPath);
+    const mediaProblem = headerMediaProblem(shape, headerImage);
+
+    if (mediaProblem) {
+      throw new ConflictException({
+        code: "TEMPLATE_MEDIA_MISSING",
+        message: mediaProblem,
+      });
+    }
+
+    const built = buildMessage({ ...input, headerImage });
     const { conversationId, waId, account } = await this.forTemplateSending(
       workspaceId,
       id,

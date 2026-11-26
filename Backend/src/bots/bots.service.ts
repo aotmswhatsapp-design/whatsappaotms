@@ -6,10 +6,12 @@ import {
 } from "@nestjs/common";
 
 import type { AuthClaims } from "../auth/auth.types";
+import { MediaStorage } from "../inbox/media.storage";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { BotFlow } from "./bot.card";
 import { emptyFlow, flowProblem } from "./bot.flow";
+import { cardFolderFor, cardImagePath, prepareCardImage } from "./bot.media";
 import { flowIn } from "./bot.snapshot";
 import { BotStore } from "./bot.store";
 
@@ -17,6 +19,31 @@ import { BotStore } from "./bot.store";
 export interface BotView {
   flow: BotFlow;
   stored: boolean;
+}
+
+/** What the builder gets back once a picture is stored. */
+export interface StoredCardImage {
+  /** Permanent: Meta fetches this weeks later, when the card is shown. */
+  url: string;
+  path: string;
+}
+
+export interface UploadedCardImage extends StoredCardImage {
+  width: number | null;
+  height: number | null;
+}
+
+/** One entry in the gallery a card's Picture field offers. */
+export interface CardImageLibrary {
+  images: (StoredCardImage & { updatedAt: string | null })[];
+}
+
+/** The parts of a multipart upload this feature reads. */
+export interface UploadedBotImage {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
 }
 
 /**
@@ -36,6 +63,7 @@ export class BotsService {
     private readonly prisma: PrismaService,
     private readonly workspaces: WorkspacesService,
     private readonly store: BotStore,
+    private readonly storage: MediaStorage,
   ) {}
 
   async read(claims: AuthClaims, agentId: string): Promise<BotView> {
@@ -88,6 +116,83 @@ export class BotsService {
     await this.guard(() => this.store.save(workspaceId, agentId, flow));
 
     return { flow, stored: true };
+  }
+
+  /**
+   * One card picture in, one permanent address out.
+   *
+   * The bucket is public on purpose: this URL is written into the flow and
+   * fetched by Meta when the customer is shown the card, which is often long
+   * after the upload — a signed link would be dead by then.
+   */
+  async uploadImage(
+    claims: AuthClaims,
+    agentId: string,
+    file: UploadedBotImage | undefined,
+  ): Promise<UploadedCardImage> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.assertAgent(workspaceId, agentId);
+
+    if (!file?.buffer.length) {
+      throw new BadRequestException("Choose a picture to upload.");
+    }
+
+    const prepared = await prepareCardImage(file.buffer);
+
+    if (!prepared.ok) {
+      throw new BadRequestException({
+        code: "BOT_IMAGE_INVALID",
+        message: [prepared.reason],
+      });
+    }
+
+    const path = cardImagePath({ workspaceId, agentId });
+
+    await this.storage.upload(path, prepared.image.bytes, prepared.image.mime);
+
+    return {
+      url: this.storage.publicUrl(path),
+      path,
+      width: prepared.image.width,
+      height: prepared.image.height,
+    };
+  }
+
+  /**
+   * What was already uploaded for this agent, newest first.
+   *
+   * The gallery is the bucket itself rather than a table on the flow: a
+   * picture nobody ends up choosing is harmless, and a list on the row would
+   * drift from the objects it claims exist.
+   */
+  async imageLibrary(
+    claims: AuthClaims,
+    agentId: string,
+  ): Promise<CardImageLibrary> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.assertAgent(workspaceId, agentId);
+
+    const folder = cardFolderFor(workspaceId, agentId);
+    const objects = await this.storage.list(folder, { limit: 60 });
+
+    return {
+      images: objects
+        .filter((object) => /\.jpe?g$/i.test(object.name))
+        .map((object) => {
+          const path = `${folder}/${object.name}`;
+
+          return {
+            url: this.storage.publicUrl(path),
+            path,
+            updatedAt: object.updatedAt,
+          };
+        })
+        // The storage listing sorts by name; the names start with a timestamp,
+        // so reversing puts the newest upload first.
+        .reverse(),
+    };
   }
 
   private async assertAgent(workspaceId: string, agentId: string): Promise<void> {

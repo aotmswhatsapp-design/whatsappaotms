@@ -26,16 +26,28 @@ const STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE";
  * Which bucket an instance writes to. A module that wants its own bucket
  * provides this token; one that does not gets the inbox bucket, which keeps
  * `InboxModule` unaware that a second bucket exists.
+ *
+ * Either a bare name (private, the default) or a name plus visibility: a card
+ * picture is read by Meta long after the upload, so its bucket is public and
+ * the stored URL never expires.
  */
 export const MEDIA_BUCKET = Symbol("MEDIA_BUCKET");
+
+export interface MediaBucket {
+  name: string;
+  /** Public buckets serve objects without a signature; the URL never expires. */
+  public?: boolean;
+}
 
 /**
  * Supabase Storage over its REST API.
  *
  * No SDK: this file needs three calls (create the bucket, upload, sign) and
- * `@supabase/supabase-js` would be a dependency for nothing. The bucket is
- * private, so the only way out is a short-lived signed URL — which is also what
- * lets an `<img>` tag load a file without carrying a bearer token.
+ * `@supabase/supabase-js` would be a dependency for nothing. A bucket is
+ * private by default, so the only way out is a short-lived signed URL — which
+ * is also what lets an `<img>` tag load a file without carrying a bearer
+ * token. A module that asks for a public bucket instead gets a permanent
+ * address, because its reader is Meta, not this app.
  */
 @Injectable()
 export class MediaStorage {
@@ -43,6 +55,7 @@ export class MediaStorage {
   private readonly base: string | null;
   private readonly key: string | null;
   private readonly bucket: string;
+  private readonly isPublic: boolean;
   private bucketChecked = false;
 
   constructor(
@@ -50,7 +63,7 @@ export class MediaStorage {
     // A second constructor parameter is a token rather than a type on purpose:
     // a bare optional `string` would make Nest try to resolve a `String`
     // provider for every module that registers this class.
-    @Optional() @Inject(MEDIA_BUCKET) bucket?: string,
+    @Optional() @Inject(MEDIA_BUCKET) bucket?: string | MediaBucket,
   ) {
     const url = (config.get<string>("SUPABASE_URL") ?? "").replace(/\/+$/, "");
     const key =
@@ -59,11 +72,15 @@ export class MediaStorage {
       "";
 
     const ready = url.length > 0 && key.length > 0;
+    const chosen = typeof bucket === "string" ? { name: bucket } : bucket;
 
     this.base = ready ? url : null;
     this.key = ready ? key : null;
     this.bucket =
-      bucket ?? config.get<string>("INBOX_MEDIA_BUCKET") ?? "inbox-media";
+      chosen?.name ??
+      config.get<string>("INBOX_MEDIA_BUCKET") ??
+      "inbox-media";
+    this.isPublic = chosen?.public === true;
   }
 
   get configured(): boolean {
@@ -121,6 +138,25 @@ export class MediaStorage {
     }
 
     return `${base}/storage/v1${payload.signedURL}`;
+  }
+
+  /**
+   * The permanent address of an object in a public bucket.
+   *
+   * Public because the reader is not this app: a card picture is fetched by
+   * Meta when the customer is shown the card, which may be weeks after the
+   * upload, and a five-minute signature would be long dead.
+   */
+  publicUrl(path: string): string {
+    const { base } = this.required();
+
+    if (!this.isPublic) {
+      throw this.unavailable(
+        `The “${this.bucket}” bucket is private, so it has no public address.`,
+      );
+    }
+
+    return `${base}/storage/v1/object/public/${this.bucket}/${path}`;
   }
 
   /**
@@ -273,7 +309,7 @@ export class MediaStorage {
         body: JSON.stringify({
           id: this.bucket,
           name: this.bucket,
-          public: false,
+          public: this.isPublic,
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       },

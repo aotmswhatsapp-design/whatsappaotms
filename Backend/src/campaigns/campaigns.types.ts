@@ -40,6 +40,8 @@ export const CAMPAIGN_SELECT = {
       category: true,
       components: true,
       parameterFormat: true,
+      /** The sample behind a media header, minted into a link at send time. */
+      mediaPath: true,
     },
   },
 } satisfies Prisma.CampaignSelect;

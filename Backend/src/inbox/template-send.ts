@@ -24,12 +24,21 @@ export interface TemplateUrlButton {
 
 export interface TemplateShape {
   header: string | null;
+  /**
+   * The HEADER's `format` as Meta wrote it: TEXT, IMAGE, VIDEO, DOCUMENT.
+   * An image header carries no text, so `header` alone cannot tell a send
+   * whether a media parameter is owed.
+   */
+  headerFormat: string | null;
   body: string;
   footer: string | null;
   /** Header then body, in first-appearance order — the order Meta fills them. */
   tokens: string[];
   urlButtons: TemplateUrlButton[];
 }
+
+/** Header formats whose parameter is a file rather than a string. */
+const MEDIA_HEADERS = new Set(["IMAGE", "VIDEO", "DOCUMENT"]);
 
 /** The `tap_target_configuration` override: the title a customer taps. */
 export interface TapTarget {
@@ -51,6 +60,8 @@ export interface TemplateSendInput {
   values: Record<string, string>;
   /** Button index → the full address that button opens. */
   buttonUrls: Record<string, string>;
+  /** The stored sample as a link Meta can fetch, for a media header. */
+  headerImage?: string | null;
   tapTarget: TapTarget | null;
 }
 
@@ -60,8 +71,10 @@ export interface TemplateSendInput {
  */
 export function shapeOf(components: unknown): TemplateShape {
   const list = Array.isArray(components) ? components : [];
+  const headerComponent = find(list, "HEADER");
 
-  const header = textOf(find(list, "HEADER"));
+  const header = textOf(headerComponent);
+  const headerFormat = formatOf(headerComponent);
   const body = textOf(find(list, "BODY")) ?? "";
   const footer = textOf(find(list, "FOOTER"));
 
@@ -85,6 +98,7 @@ export function shapeOf(components: unknown): TemplateShape {
 
   return {
     header,
+    headerFormat,
     body,
     footer,
     // One entry per token: Meta fills a header and a body from the same
@@ -139,6 +153,26 @@ export function problemsIn(input: TemplateSendInput): string[] {
   return problems;
 }
 
+/**
+ * The one thing `problemsIn` cannot see: a media header is owed a file, and a
+ * campaign draft has none until send time. Returning the sentence keeps the
+ * caller free to raise it as a 409 (inbox) or a failed recipient (campaign).
+ */
+export function headerMediaProblem(
+  shape: TemplateShape,
+  link: string | null,
+): string | null {
+  if (!MEDIA_HEADERS.has(shape.headerFormat ?? "")) return null;
+
+  if (shape.headerFormat !== "IMAGE") {
+    return `This template's header is a ${shape.headerFormat?.toLowerCase()}, which the inbox cannot send yet.`;
+  }
+
+  return link
+    ? null
+    : "This template's header is an image, but no image is stored for this template here. Meta rejects a template send whose image header is empty.";
+}
+
 /** The send payload, once `problemsIn` has returned nothing. */
 export function buildMessage(input: TemplateSendInput): TemplateMessage {
   const components: unknown[] = [];
@@ -146,7 +180,16 @@ export function buildMessage(input: TemplateSendInput): TemplateMessage {
 
   const headerTokens = variablesIn(shape.header ?? "");
 
-  if (headerTokens.length > 0) {
+  // A media header is one parameter holding the file's link. It replaces the
+  // text parameter, never joins it: Meta refuses a header with both.
+  if (shape.headerFormat === "IMAGE" && input.headerImage) {
+    components.push({
+      type: "header",
+      parameters: [
+        { type: "image", image: { link: input.headerImage.trim() } },
+      ],
+    });
+  } else if (headerTokens.length > 0) {
     components.push({
       type: "header",
       parameters: headerTokens.map((token) =>
@@ -267,4 +310,12 @@ function textOf(value: unknown): string | null {
   const text = record(value)?.text;
 
   return typeof text === "string" && text.trim() ? text : null;
+}
+
+function formatOf(value: unknown): string | null {
+  const format = record(value)?.format;
+
+  return typeof format === "string" && format.trim()
+    ? format.trim().toUpperCase()
+    : null;
 }

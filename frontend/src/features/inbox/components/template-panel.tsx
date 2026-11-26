@@ -15,7 +15,7 @@ import {
   type SendableTemplate,
 } from "../api";
 import { buttonLabel, fill, shapeOf } from "@/lib/templates/shape";
-import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
+import type { ComposerMode } from "./mode-switcher";
 
 /** Meta's rule: only an approved template can be sent to a customer. */
 const APPROVED = "APPROVED";
@@ -31,13 +31,11 @@ const APPROVED = "APPROVED";
  */
 export function TemplatePanel({
   conversationId,
-  mode,
   locked,
   onModeChange,
   onSent,
 }: {
   conversationId: string;
-  mode: ComposerMode;
   locked: boolean;
   onModeChange: (mode: ComposerMode) => void;
   onSent: (message: InboxMessage) => void;
@@ -157,19 +155,10 @@ export function TemplatePanel({
       aria-label="Send a template"
       className="rounded-xl border border-border bg-card p-2"
     >
-      {/* The panel scrolls inside the composer now, so the way back to a
-          sentence and the Send button both stay on screen: the header pins to
-          the top, the footer to the bottom, and only the middle moves. */}
-      <div className="sticky top-0 z-10 flex min-w-0 items-center gap-1.5 bg-card pb-1">
-        <ModeSwitcher mode={mode} locked={locked} onChange={onModeChange} />
-        <span className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground">
-          {locked
-            ? "Templates are allowed after the window closes."
-            : "Send an approved template."}
-        </span>
-      </div>
-
-      <div className="mt-2">
+      {/* The composer owns the way back to a sentence and the mode switch;
+          this panel is only the template's own form. The footer still pins to
+          the panel's bottom so Send stays reachable while the body scrolls. */}
+      <div>
         {templates === null && !loadError ? (
           <p className="flex h-8 items-center gap-1.5 text-[11.5px] text-muted-foreground">
             <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />

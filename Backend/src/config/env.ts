@@ -137,6 +137,12 @@ export const envSchema = z.object({
    */
   TEMPLATE_MEDIA_BUCKET: z.string().min(1).default("template-media"),
   /**
+   * PUBLIC bucket for chatbot card pictures. Public because the address is
+   * stored on the card and fetched by Meta when the card is shown — often
+   * weeks after the upload — so a signed link would already have expired.
+   */
+  BOT_MEDIA_BUCKET: z.string().min(1).default("bot-media"),
+  /**
    * The trigram floor for the local engine, on `word_similarity`'s 0–1 scale.
    * A word that appears verbatim in a chunk scores far above 0.5, which is why
    * this measures a word, not a document.

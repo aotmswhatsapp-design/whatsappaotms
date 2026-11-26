@@ -14,6 +14,7 @@ import {
   type BotFlow,
 } from "@/lib/bots/card";
 import { BODY_CHARS, BUTTON_TITLE, HEADER_CHARS, TEXT_CHARS } from "@/lib/bots/limits";
+import { CardImageField } from "./card-image-field";
 
 const FIELD =
   "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-[12.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
@@ -78,43 +79,33 @@ export function CardEditor({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="min-w-0">
-          <Label htmlFor="card-title">Name</Label>
-          <input
-            id="card-title"
-            className={cn(FIELD, "mt-1.5")}
-            disabled={disabled}
-            maxLength={HEADER_CHARS}
-            placeholder="Menu"
-            spellCheck
-            value={card.title}
-            onChange={(event) => patch({ title: event.target.value })}
-          />
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            The header above the message when there is no picture.{" "}
-            {card.title.length}/{HEADER_CHARS}
-          </p>
-        </div>
+      <div className="min-w-0">
+        <Label htmlFor="card-title">Name</Label>
+        <input
+          id="card-title"
+          className={cn(FIELD, "mt-1.5")}
+          disabled={disabled}
+          maxLength={HEADER_CHARS}
+          placeholder="Menu"
+          spellCheck
+          value={card.title}
+          onChange={(event) => patch({ title: event.target.value })}
+        />
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          The header above the message when there is no picture.{" "}
+          {card.title.length}/{HEADER_CHARS}
+        </p>
+      </div>
 
-        <div className="min-w-0">
-          <Label htmlFor="card-image">Picture</Label>
-          <input
-            id="card-image"
-            className={cn(FIELD, "mt-1.5")}
+      <div>
+        <p className="text-[13px] font-medium text-foreground">Picture</p>
+        <div className="mt-1.5">
+          <CardImageField
+            agentId={flow.id}
             disabled={disabled}
-            inputMode="url"
-            placeholder="https://… (optional)"
-            spellCheck={false}
-            value={card.imageUrl ?? ""}
-            onChange={(event) =>
-              patch({ imageUrl: event.target.value.trim() || null })
-            }
+            value={card.imageUrl}
+            onChange={(url) => patch({ imageUrl: url })}
           />
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            A public https:// address. WhatsApp fetches it, so it cannot be a
-            file on this computer.
-          </p>
         </div>
       </div>
 

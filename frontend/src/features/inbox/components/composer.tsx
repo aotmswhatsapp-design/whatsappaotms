@@ -183,15 +183,15 @@ export function Composer({
     setPanel(null);
     setError(null);
 
-    // The template and card panels own their own inputs; focusing the reply box
-    // here would pull the caret into a field the agent cannot see.
+    // Only reply and note show the text field; a panel carries its own
+    // inputs, so there is nothing to focus there.
     if (next === "reply" || next === "note") area.current?.focus();
   }
 
   /**
-   * The two service messages that need more than a sentence. They replace the
-   * typing bar rather than stacking above it, the way the template panel does:
-   * a second composer over the first is a form, not a chat.
+   * The two service messages that need more than a sentence. Like the template
+   * and card panels they open in the space above the bar, so the mode switch
+   * keeps its one position while they are filled in.
    */
   function openPanel(next: "location" | "contact"): void {
     setPanel(next);
@@ -213,98 +213,116 @@ export function Composer({
 
   const rows = Math.min(6, Math.max(1, text.split("\n").length));
 
+  // A panel has no field to focus, so the bar only wears the focused border
+  // when a reply or a note is actually in it.
+  const typing = mode === "reply" || mode === "note";
+
   return (
-    // An open template panel can be 500px tall, and this row is the last child
-    // of a column that cannot grow. Without a cap the thread's scroller is
-    // squeezed to nothing and the Send button lands past the card's edge, out
-    // of reach. The cap gives the panel its own scroll instead — which is also
-    // what lets the panel's header and footer stick to its edges.
-    <div className="max-h-[min(58dvh,520px)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-card px-3 pt-2 pb-1.5 sm:px-4">
-      {mode === "template" ? (
-        <TemplatePanel
-          conversationId={conversation.id}
-          locked={locked}
-          mode={mode}
-          onModeChange={switchMode}
-          onSent={onSent}
-        />
-      ) : mode === "card" ? (
-        <CardPanel
-          conversation={conversation}
-          locked={locked}
-          mode={mode}
-          quotedMessageId={quoted?.id ?? null}
-          onModeChange={switchMode}
-          onSent={onSent}
-          onSentQuote={() => onClearQuote()}
-        />
-      ) : panel === "location" ? (
-        <LocationPanel
-          conversationId={conversation.id}
-          locked={locked}
-          onClose={() => setPanel(null)}
-          onSent={onSent}
-        />
-      ) : panel === "contact" ? (
-        <ContactPanel
-          conversationId={conversation.id}
-          locked={locked}
-          onClose={() => setPanel(null)}
-          onSent={onSent}
-        />
-      ) : (
-        <>
-          {/* The message a reply will be attached to. It sits over the bar
-              rather than inside it, so a long quote cannot squeeze the field
-              the agent is typing in. */}
-          {mode === "reply" && quoted ? (
-            <div className="mb-1.5 flex items-start gap-2 rounded-lg border-l-2 border-brand/60 bg-secondary/60 px-2 py-1">
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-semibold text-brand">
-                  {quoted.direction === "OUTBOUND"
-                    ? "Replying to your message"
-                    : "Replying to the customer"}
-                </p>
-                <p className="line-clamp-1 text-[11px] text-muted-foreground">
-                  {messageSnippet(quoted)}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Cancel the quote"
-                className="grid size-5 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
-                onClick={onClearQuote}
-              >
-                <X aria-hidden="true" className="size-3" />
-              </button>
-            </div>
-          ) : null}
+    // A column: an open panel scrolls in the space above, the typing bar is
+    // pinned to the bottom, and the composer keeps a single height cap so the
+    // thread is never squeezed out. The mode switch lives in that bar and
+    // nowhere else. Template and chatbot used to mount their own copy inside a
+    // panel header, so the same four buttons moved between two containers —
+    // with two heights — the moment one was pressed. Anchored here they never
+    // move: the panel grows upward instead.
+    <div className="flex max-h-[min(58dvh,520px)] shrink-0 flex-col border-t border-border bg-card px-3 pt-2 pb-1.5 sm:px-4">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {mode === "template" ? (
+          <TemplatePanel
+            conversationId={conversation.id}
+            locked={locked}
+            onModeChange={switchMode}
+            onSent={onSent}
+          />
+        ) : mode === "card" ? (
+          <CardPanel
+            conversation={conversation}
+            locked={locked}
+            quotedMessageId={quoted?.id ?? null}
+            onModeChange={switchMode}
+            onSent={onSent}
+            onSentQuote={() => onClearQuote()}
+          />
+        ) : panel === "location" ? (
+          <LocationPanel
+            conversationId={conversation.id}
+            locked={locked}
+            onClose={() => setPanel(null)}
+            onSent={onSent}
+          />
+        ) : panel === "contact" ? (
+          <ContactPanel
+            conversationId={conversation.id}
+            locked={locked}
+            onClose={() => setPanel(null)}
+            onSent={onSent}
+          />
+        ) : null}
+      </div>
 
-          {error ? (
-            <p className="mb-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-[11.5px] leading-relaxed text-destructive">
-              {error}
+      {/* The message a reply will be attached to. It sits over the bar
+          rather than inside it, so a long quote cannot squeeze the field
+          the agent is typing in. */}
+      {mode === "reply" && quoted ? (
+        <div className="mb-1.5 flex shrink-0 items-start gap-2 rounded-lg border-l-2 border-brand/60 bg-secondary/60 px-2 py-1">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold text-brand">
+              {quoted.direction === "OUTBOUND"
+                ? "Replying to your message"
+                : "Replying to the customer"}
             </p>
-          ) : null}
-
-          {/* One bar. The reply/note switch used to sit above the field as its own
-              row, which cost 34px of thread height to say something two small
-              buttons can say from inside the bar. */}
-          <div
-            className={cn(
-              "flex items-end gap-1.5 rounded-xl border bg-card p-1.5 transition-colors",
-              mode === "note" ? "border-warning/40" : "border-border",
-              active
-                ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10"
-                : "opacity-75",
-            )}
+            <p className="line-clamp-1 text-[11px] text-muted-foreground">
+              {messageSnippet(quoted)}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cancel the quote"
+            className="grid size-5 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+            onClick={onClearQuote}
           >
-            <ModeSwitcher
-              className="mb-1"
-              locked={locked}
-              mode={mode}
-              onChange={switchMode}
-            />
+            <X aria-hidden="true" className="size-3" />
+          </button>
+        </div>
+      ) : null}
 
+      {error ? (
+        <p className="mb-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-[11.5px] leading-relaxed text-destructive">
+          {error}
+        </p>
+      ) : null}
+
+      {/* One bar, the same one in every mode, and the mode switch is its
+          first child — so the four buttons hold a single position and a panel
+          opens above them instead of replacing them. */}
+      <div
+        className={cn(
+          "flex shrink-0 items-end gap-1.5 rounded-xl border bg-card p-1.5 transition-colors",
+          mode === "note" ? "border-warning/40" : "border-border",
+          typing
+            ? active
+              ? "focus-within:border-brand/40 focus-within:ring-[3px] focus-within:ring-brand/10"
+              : "opacity-75"
+            : null,
+        )}
+      >
+        <ModeSwitcher
+          className="mb-1"
+          locked={locked}
+          mode={mode}
+          onChange={switchMode}
+        />
+
+        {/* A panel sends from its own footer, so the bar keeps a line saying
+            so rather than a second Send button that would send nothing. */}
+        {mode === "template" || mode === "card" ? (
+          <p className="mb-1 flex min-h-9 min-w-0 flex-1 items-center px-2 text-[11.5px] leading-relaxed text-muted-foreground">
+            {mode === "template"
+              ? "Fill in the template above, then send it from its own button."
+              : "Pick a card above, then send it from its own button."}
+          </p>
+        ) : (
+          <>
             {mode === "reply" ? (
               <>
                 <DropdownMenu>
@@ -398,17 +416,23 @@ export function Composer({
                 <SendHorizontal aria-hidden="true" className="size-4" />
               )}
             </button>
-          </div>
+          </>
+        )}
+      </div>
 
-          <p className="mt-1 px-1 text-[10px] text-muted-foreground">
-            {locked && mode === "reply"
-              ? "Replies reopen when the customer writes again."
-              : mode === "note"
-                ? "Notes stay in this workspace and are never sent to the customer."
+      {/* The hint belongs to every mode, so the composer keeps one height and
+          the bar above it never shifts. */}
+      <p className="mt-1 shrink-0 px-1 text-[10px] text-muted-foreground">
+        {mode === "template"
+          ? "Templates are the one message WhatsApp allows after the window closes."
+          : mode === "card"
+            ? "A card is a reply — it needs the customer's open 24-hour window."
+            : mode === "note"
+              ? "Notes stay in this workspace and are never sent to the customer."
+              : locked
+                ? "Replies reopen when the customer writes again."
                 : "Enter sends · Shift+Enter adds a line · files up to 25 MB"}
-          </p>
-        </>
-      )}
+      </p>
     </div>
   );
 }

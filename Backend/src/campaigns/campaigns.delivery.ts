@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { InboxSender } from "../inbox/inbox.sender";
-import { buildMessage, shapeOf } from "../inbox/template-send";
+import { buildMessage, headerMediaProblem, shapeOf } from "../inbox/template-send";
 import { PrismaService } from "../prisma/prisma.service";
+import { TemplatePhoto } from "../templates/template-photo";
 import { bindingsOf, resolveValues } from "./campaign.values";
 import {
   buttonUrlsOf,
@@ -29,6 +30,7 @@ export class Deliverer {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sender: InboxSender,
+    private readonly templatePhotos: TemplatePhoto,
   ) {}
 
   /**
@@ -63,11 +65,23 @@ export class Deliverer {
       select: { id: true },
     });
 
+    const shape = shapeOf(campaign.template.components);
+    const headerImage = await this.templatePhotos.linkOf(
+      campaign.template.mediaPath,
+    );
+    const mediaProblem = headerMediaProblem(shape, headerImage);
+
+    // A media header with no sample cannot be sent, and Meta's answer to a
+    // silent drop is a format mismatch nobody can trace. Failing here writes
+    // the reason on the recipient row instead.
+    if (mediaProblem) throw new Error(mediaProblem);
+
     const built = buildMessage({
-      shape: shapeOf(campaign.template.components),
+      shape,
       format: campaign.template.parameterFormat,
       values: resolveValues(bindingsOf(campaign.variables), contact),
       buttonUrls: buttonUrlsOf(campaign.buttonUrls),
+      headerImage,
       tapTarget: null,
     });
 

@@ -1,10 +1,9 @@
 import { Module } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 
 import { AuthModule } from "../auth/auth.module";
-import { MEDIA_BUCKET, MediaStorage } from "../inbox/media.storage";
 import { WhatsAppModule } from "../whatsapp/whatsapp.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { TemplateMediaModule } from "./template-media.module";
 import { TemplatesController } from "./templates.controller";
 import { TemplatesService } from "./templates.service";
 
@@ -14,21 +13,12 @@ import { TemplatesService } from "./templates.service";
  * stored access token. Re-exporting them there keeps one HTTP client for Meta
  * rather than a second one that drifts.
  *
- * MediaStorage is the inbox's class, given its own bucket here: a second copy of
- * that REST code would drift, and the two buckets differ only by name.
+ * TemplateMediaModule owns the sample bucket, so the upload here and the link
+ * a send mints later are the same object path in the same bucket.
  */
 @Module({
-  imports: [AuthModule, WorkspacesModule, WhatsAppModule],
+  imports: [AuthModule, WorkspacesModule, WhatsAppModule, TemplateMediaModule],
   controllers: [TemplatesController],
-  providers: [
-    TemplatesService,
-    MediaStorage,
-    {
-      provide: MEDIA_BUCKET,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) =>
-        config.get<string>("TEMPLATE_MEDIA_BUCKET") ?? "template-media",
-    },
-  ],
+  providers: [TemplatesService],
 })
 export class TemplatesModule {}

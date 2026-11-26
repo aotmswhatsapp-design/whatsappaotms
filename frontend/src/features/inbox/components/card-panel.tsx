@@ -16,7 +16,7 @@ import {
   type Conversation,
   type InboxMessage,
 } from "../api";
-import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
+import type { ComposerMode } from "./mode-switcher";
 
 /**
  * Sending one card of an agent's saved flow.
@@ -32,7 +32,6 @@ import { ModeSwitcher, type ComposerMode } from "./mode-switcher";
  */
 export function CardPanel({
   conversation,
-  mode,
   locked,
   quotedMessageId,
   onModeChange,
@@ -40,7 +39,6 @@ export function CardPanel({
   onSentQuote,
 }: {
   conversation: Conversation;
-  mode: ComposerMode;
   locked: boolean;
   quotedMessageId?: string | null;
   onModeChange: (mode: ComposerMode) => void;
@@ -164,16 +162,9 @@ export function CardPanel({
       aria-label="Send a chatbot card"
       className="rounded-xl border border-border bg-card p-2"
     >
-      <div className="sticky top-0 z-10 flex min-w-0 items-center gap-1.5 bg-card pb-1">
-        <ModeSwitcher mode={mode} locked={locked} onChange={onModeChange} />
-        <span className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground">
-          {locked
-            ? "Cards are replies — they wait for the customer."
-            : "Send one card from a saved flow."}
-        </span>
-      </div>
-
-      <div className="mt-2 space-y-1.5">
+      {/* The composer owns the way back to a sentence and the mode switch;
+          this panel is only the flow's own picker and preview. */}
+      <div className="space-y-1.5">
         {missingTable ? (
           <p className="text-[11.5px] leading-relaxed text-muted-foreground">
             The chatbot table is not installed on this database yet. The{" "}

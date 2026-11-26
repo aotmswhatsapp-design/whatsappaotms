@@ -60,6 +60,11 @@ const build = (prisma = new FakePrisma()) =>
     prisma as never,
     { primaryFor: async () => ({ workspaceId: "ws-a", userId: "user-a", role: "OWNER" }) } as never,
     new BotStore(prisma as never),
+    {
+      upload: async () => undefined,
+      list: async () => [],
+      publicUrl: (path: string) => `https://storage.test/${path}`,
+    } as never,
   );
 
 const card = (id: string) => ({
