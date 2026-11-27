@@ -3,8 +3,8 @@
 import { Lock, Phone, ShieldCheck } from "lucide-react";
 
 import { StatusDot, type StatusDotTone } from "@/components/ui/status-dot";
-import { useAccess } from "@/components/workspace/access-provider";
 import { useWhatsAppStatus } from "@/hooks/use-whatsapp-status";
+import type { AccessRole } from "@/lib/access/api";
 import { WhatsAppConnection } from "./whatsapp-connection";
 
 /**
@@ -15,19 +15,16 @@ import { WhatsAppConnection } from "./whatsapp-connection";
  * one of their own. So the owner gets the wizard, and everybody else gets the
  * read-only status — the same facts the sidebar dot reads, and nothing that
  * could overwrite the credentials.
+ *
+ * The role arrives from the page, read on the server, rather than from the
+ * client's access cache: that cache belongs to the tab, and a tab that changed
+ * hands can still hold the previous person's answer. Because the branch is
+ * taken before anything is serialised, a member's page never carries the
+ * connect wizard at all — there is nothing to mount and then hide. `null`
+ * means the role could not be confirmed, and the safe answer for an
+ * unconfirmed caller is the read-only card.
  */
-export function WhatsAppPanel() {
-  const { role } = useAccess();
-
-  if (role === null) {
-    return (
-      <div
-        aria-hidden="true"
-        className="h-56 animate-pulse rounded-xl border border-border bg-card"
-      />
-    );
-  }
-
+export function WhatsAppPanel({ role }: { role: AccessRole | null }) {
   if (role === "OWNER") return <WhatsAppConnection />;
 
   return <WhatsAppStatusReadOnly role={role} />;
@@ -39,7 +36,7 @@ export function WhatsAppPanel() {
  * Signup, no disconnect button — those routes answer 403 for this role, so
  * offering them would be a dead control.
  */
-function WhatsAppStatusReadOnly({ role }: { role: string }) {
+function WhatsAppStatusReadOnly({ role }: { role: AccessRole | null }) {
   const status = useWhatsAppStatus();
   const number = status.number;
 
@@ -137,16 +134,18 @@ function WhatsAppStatusReadOnly({ role }: { role: string }) {
       </section>
 
       <p className="text-[13px] text-muted-foreground">
-        You are signed in as {roleLabel(role)}. Your access to this screen is a
-        workspace setting the owner can change.
+        {role
+          ? `You are signed in as ${roleLabel(role)}. Your access to this screen is a workspace setting the owner can change.`
+          : "Only the workspace owner can change this connection. Reload if you are the owner and this looks wrong."}
       </p>
     </div>
   );
 }
 
-function roleLabel(role: string): string {
+function roleLabel(role: AccessRole): string {
   if (role === "ADMIN") return "an admin";
   if (role === "MANAGER") return "a manager";
   if (role === "AGENT") return "a support agent";
+
   return "a member";
 }

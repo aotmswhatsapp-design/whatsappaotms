@@ -48,8 +48,14 @@ export class WhatsAppController {
   /**
    * GET /api/v1/whatsapp/signup-config — whether this server can run Meta's
    * one-click dialog, plus the two ids the browser SDK needs. No Graph call.
+   *
+   * Owner-only: these ids launch the Facebook dialog that would replace the
+   * workspace's number, so the only caller is the connect screen the owner
+   * sees. A member's screen never asks, and a member who asks anyway gets the
+   * same 403 as `connect` instead of a prompt to link a number.
    */
   @Get("signup-config")
+  @Roles("OWNER")
   signupConfig() {
     return this.whatsapp.signupConfig();
   }
