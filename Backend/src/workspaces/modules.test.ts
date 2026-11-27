@@ -26,6 +26,7 @@ test("the defaults are the PRD's division of labour", () => {
     "automations",
     "ai",
     "analytics",
+    "crm",
     "team",
     "billing",
     "profile",
@@ -36,6 +37,7 @@ test("the defaults are the PRD's division of labour", () => {
     "contacts",
     "campaigns",
     "analytics",
+    "crm",
   ]);
 
   assert.deepEqual([...MODULE_DEFAULTS.AGENT], ["inbox"]);
@@ -77,6 +79,7 @@ test("no rows means the seeded defaults", () => {
     "contacts",
     "campaigns",
     "analytics",
+    "crm",
   ]);
 });
 
@@ -93,7 +96,7 @@ test("a stored row removes a module the default granted", () => {
     { module: "campaigns", enabled: false },
   ]);
 
-  assert.deepEqual(modules, ["inbox", "contacts", "analytics"]);
+  assert.deepEqual(modules, ["inbox", "contacts", "analytics", "crm"]);
 });
 
 test("rows are laid over the defaults in registry order, not row order", () => {
@@ -123,4 +126,10 @@ test("keys are matched exactly and case-sensitively", () => {
   assert.equal(moduleIn("inbox"), "inbox");
   assert.equal(isConfigurableRole("manager"), false);
   assert.equal(isConfigurableRole("MANAGER"), true);
+});
+
+test("the pipeline is a manager's and an admin's, not an agent's", () => {
+  assert.equal(MODULE_DEFAULTS.ADMIN.includes("crm"), true);
+  assert.equal(MODULE_DEFAULTS.MANAGER.includes("crm"), true);
+  assert.equal(MODULE_DEFAULTS.AGENT.includes("crm"), false);
 });

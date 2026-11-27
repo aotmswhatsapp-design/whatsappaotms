@@ -20,6 +20,7 @@ import {
   ChangeMemberRoleDto,
   InviteMemberDto,
   SetRolePermissionsDto,
+  UpdateMemberProfileDto,
 } from "./dto/team.dto";
 import { Roles } from "./workspace-roles.decorator";
 import { WorkspaceRolesGuard } from "./workspace-roles.guard";
@@ -120,6 +121,23 @@ export class WorkspacesController {
     @Body() dto: ChangeMemberRoleDto,
   ) {
     return this.workspaces.changeRole(claims, userId, dto.role);
+  }
+
+  /**
+   * PATCH /api/v1/workspaces/members/:userId/profile — the owner edits a
+   * member's name, designation and personal WhatsApp number.
+   *
+   * Email is not in the body: it is the auth identity, and changing it from a
+   * workspace screen would lock the member out until they verified it.
+   */
+  @Patch("members/:userId/profile")
+  @Roles("OWNER")
+  updateProfile(
+    @CurrentUser() claims: AuthClaims,
+    @Param("userId") userId: string,
+    @Body() dto: UpdateMemberProfileDto,
+  ) {
+    return this.workspaces.updateProfile(claims, userId, dto);
   }
 
   /** DELETE /api/v1/workspaces/members/:userId — remove someone from the team. */

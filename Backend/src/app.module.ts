@@ -10,6 +10,7 @@ import { BotsModule } from "./bots/bots.module";
 import { BusinessModule } from "./business/business.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
 import { validateEnv } from "./config/env";
+import { CrmModule } from "./crm/crm.module";
 import { HealthModule } from "./health/health.module";
 import { InboxModule } from "./inbox/inbox.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -42,6 +43,7 @@ import { WhatsAppModule } from "./whatsapp/whatsapp.module";
     AuthModule,
     WhatsAppModule,
     BusinessModule,
+    CrmModule,
     InboxModule,
     CampaignsModule,
     TemplatesModule,

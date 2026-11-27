@@ -3,7 +3,9 @@ import {
   IsEmail,
   IsIn,
   IsObject,
+  IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
@@ -58,4 +60,42 @@ export class AcceptInvitationDto {
 export class SetRolePermissionsDto {
   @IsObject()
   roles!: Record<string, unknown>;
+}
+
+/**
+ * A personal number in the shape the `wa.me` link needs: digits only, country
+ * code first, no `+`. An empty field means "clear it", which is how the owner
+ * undoes a typo without another route.
+ */
+export function phoneDigits(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+
+  const digits = value.replace(/[\s+()-]/g, "");
+  return digits.length === 0 ? null : digits;
+}
+
+/**
+ * What the owner may change on a member. Email is deliberately absent: it is
+ * the Supabase auth identity, and changing it here would lock the member out
+ * until they verified the new address.
+ */
+export class UpdateMemberProfileDto {
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  @IsString()
+  @MaxLength(120)
+  fullName?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  @IsString()
+  @MaxLength(40)
+  designation?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => phoneDigits(value))
+  @Matches(/^\d{8,15}$/, {
+    message: "Enter the number with its country code, digits only.",
+  })
+  personalWhatsApp?: string | null;
 }

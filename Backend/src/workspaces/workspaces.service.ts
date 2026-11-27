@@ -13,6 +13,7 @@ import { Prisma, type PlanTier, type WorkspaceRole } from "@prisma/client";
 import type { AuthClaims } from "../auth/auth.types";
 import { UsersService } from "../auth/users.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { UpdateMemberProfileDto } from "./dto/team.dto";
 import {
   ALL_MODULES,
   CONFIGURABLE_ROLES,
@@ -41,6 +42,10 @@ export interface MemberView {
   avatarUrl: string | null;
   /** The workspace owner: role immutable, membership irremovable. */
   owner: boolean;
+  /** Free text: who this person is on the team. Null until the owner sets it. */
+  designation: string | null;
+  /** Digits only, country code first. Null until the owner sets it. */
+  personalWhatsApp: string | null;
 }
 
 /**
@@ -195,6 +200,8 @@ export class WorkspacesService {
         select: {
           userId: true,
           role: true,
+          designation: true,
+          personalWhatsApp: true,
           user: { select: { fullName: true, email: true, avatarUrl: true } },
         },
       }),
@@ -211,14 +218,7 @@ export class WorkspacesService {
       slug: workspace.slug,
       plan: workspace.plan,
       role: context.role,
-      members: members.map((row) => ({
-        userId: row.userId,
-        role: row.role,
-        name: row.user.fullName,
-        email: row.user.email,
-        avatarUrl: row.user.avatarUrl,
-        owner: row.userId === workspace.ownerId,
-      })),
+      members: members.map((row) => memberView(row, workspace.ownerId)),
       invitations: invitations.map(invitationView),
     };
   }
@@ -537,20 +537,79 @@ export class WorkspacesService {
       select: {
         userId: true,
         role: true,
+        designation: true,
+        personalWhatsApp: true,
         user: { select: { fullName: true, email: true, avatarUrl: true } },
       },
     });
 
-    return {
-      member: {
-        userId: row.userId,
-        role: row.role,
-        name: row.user.fullName,
-        email: row.user.email,
-        avatarUrl: row.user.avatarUrl,
-        owner: false,
+    return { member: memberView(row, workspace.ownerId) };
+  }
+
+  /**
+   * The owner edits a member's profile: the name customers never see, the
+   * designation the lead router filters on, and the personal number a
+   * follow-up is sent from. Every field is optional; `null` clears it.
+   */
+  async updateProfile(
+    claims: AuthClaims,
+    userId: string,
+    dto: UpdateMemberProfileDto,
+  ): Promise<{ member: MemberView }> {
+    const { workspaceId } = await this.primaryFor(claims);
+    const workspace = await this.prisma.workspace.findUniqueOrThrow({
+      where: { id: workspaceId },
+      select: { ownerId: true },
+    });
+
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { userId: true },
+    });
+
+    if (!member) {
+      throw new NotFoundException({
+        code: "MEMBER_MISSING",
+        message: "That person is not on this team.",
+      });
+    }
+
+    if (dto.fullName !== undefined) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { fullName: dto.fullName?.trim() ? dto.fullName.trim() : null },
+      });
+    }
+
+    const data: { designation?: string | null; personalWhatsApp?: string | null } = {};
+
+    if (dto.designation !== undefined) {
+      data.designation = dto.designation?.trim() ? dto.designation.trim() : null;
+    }
+
+    if (dto.personalWhatsApp !== undefined) {
+      data.personalWhatsApp = dto.personalWhatsApp ?? null;
+    }
+
+    if (Object.keys(data).length > 0) {
+      await this.prisma.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId } },
+        data,
+      });
+    }
+
+    const row = await this.prisma.workspaceMember.findUniqueOrThrow({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: {
+        userId: true,
+        role: true,
+        designation: true,
+        personalWhatsApp: true,
+        user: { select: { fullName: true, email: true, avatarUrl: true } },
       },
-    };
+    });
+
+    return { member: memberView(row, workspace.ownerId) };
   }
 
   /**
@@ -626,6 +685,28 @@ export class WorkspacesService {
       select: { workspaceId: true, role: true },
     });
   }
+}
+
+type MemberRow = {
+  userId: string;
+  role: WorkspaceRole;
+  designation: string | null;
+  personalWhatsApp: string | null;
+  user: { fullName: string | null; email: string; avatarUrl: string | null };
+};
+
+/** One shape for the team screen, the role change and a profile edit. */
+function memberView(row: MemberRow, ownerId: string): MemberView {
+  return {
+    userId: row.userId,
+    role: row.role,
+    name: row.user.fullName,
+    email: row.user.email,
+    avatarUrl: row.user.avatarUrl,
+    owner: row.userId === ownerId,
+    designation: row.designation,
+    personalWhatsApp: row.personalWhatsApp,
+  };
 }
 
 const INVITATION_SELECT = {

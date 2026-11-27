@@ -15,6 +15,11 @@ const claims = { id: "user-1", email: "one@test.dev" } as AuthClaims;
 const row = {
   id: "c-1",
   status: "OPEN" as const,
+  interest: "UNKNOWN" as const,
+  interestScore: null,
+  interestReason: null,
+  interestAt: null,
+  followUpTasks: [],
   contact: {
     id: "contact-1",
     waId: "919900000000",

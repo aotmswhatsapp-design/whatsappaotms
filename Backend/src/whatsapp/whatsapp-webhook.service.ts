@@ -5,6 +5,7 @@ import { ConfigService } from "@nestjs/config";
 
 import { ReplyIntake } from "../agents/reply.intake";
 import { SecretBox } from "../common/crypto/secret-box";
+import { LeadIntake } from "../crm/lead.intake";
 import { parseDelivery } from "../inbox/inbox.payload";
 import { InboxStore } from "../inbox/inbox.store";
 import { PrismaService } from "../prisma/prisma.service";
@@ -42,6 +43,7 @@ export class WhatsAppWebhookService {
     private readonly config: ConfigService,
     private readonly store: InboxStore,
     private readonly intake: ReplyIntake,
+    private readonly leads: LeadIntake,
   ) {}
 
   /**
@@ -248,6 +250,18 @@ export class WhatsAppWebhookService {
         } catch (error) {
           this.logger.error(
             `Could not queue an AI reply for ${account.phoneNumberId}: ${
+              error instanceof Error ? error.message : "unknown failure"
+            }`,
+          );
+        }
+
+        // A CRM failure must never answer Meta with 500 for a message that is
+        // already stored: a retry cannot fix a classification.
+        try {
+          await this.leads.consider({ workspaceId: account.workspaceId }, stored);
+        } catch (error) {
+          this.logger.error(
+            `Could not classify leads for ${account.phoneNumberId}: ${
               error instanceof Error ? error.message : "unknown failure"
             }`,
           );

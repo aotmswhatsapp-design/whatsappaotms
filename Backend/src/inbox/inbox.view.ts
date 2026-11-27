@@ -1,5 +1,7 @@
 import type {
   ConversationStatus,
+  FollowUpStatus,
+  LeadInterest,
   MessageDirection,
   MessageKind,
   MessageStatus,
@@ -32,6 +34,21 @@ const MEDIA_KINDS: ReadonlySet<MessageKind> = new Set([
 export const CONVERSATION_SELECT = {
   id: true,
   status: true,
+  interest: true,
+  interestScore: true,
+  interestReason: true,
+  interestAt: true,
+  /**
+   * The one open follow-up, if any. Served by the partial unique index on
+   * `follow_up_tasks (conversation_id) where status = 'OPEN'`, so a hundred
+   * rows still cost one query.
+   */
+  followUpTasks: {
+    where: { status: "OPEN" },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: { id: true, title: true, dueAt: true, status: true },
+  },
   aiPausedAt: true,
   aiPauseReason: true,
   unreadCount: true,
@@ -96,6 +113,14 @@ export type NoteSource = Prisma.InternalNoteGetPayload<{
 export interface ConversationView {
   id: string;
   status: ConversationStatus;
+  /** What the customer's words said about buying. */
+  interest: LeadInterest;
+  /** The evidence behind the stage, for the tooltip. */
+  interestScore: number | null;
+  interestReason: string | null;
+  interestAt: string | null;
+  /** The open follow-up, so the thread can offer it without a second read. */
+  openTask: { id: string; title: string; dueAt: string | null; status: FollowUpStatus } | null;
   contact: {
     id: string;
     waId: string;
@@ -206,6 +231,18 @@ export function conversationView(row: ConversationSource): ConversationView {
   return {
     id: row.id,
     status: row.status,
+    interest: row.interest,
+    interestScore: row.interestScore,
+    interestReason: row.interestReason,
+    interestAt: iso(row.interestAt),
+    openTask: row.followUpTasks[0]
+      ? {
+          id: row.followUpTasks[0].id,
+          title: row.followUpTasks[0].title,
+          dueAt: iso(row.followUpTasks[0].dueAt),
+          status: row.followUpTasks[0].status,
+        }
+      : null,
     contact: {
       id: row.contact.id,
       waId: row.contact.waId,

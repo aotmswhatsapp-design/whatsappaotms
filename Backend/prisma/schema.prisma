@@ -59,6 +59,8 @@ model User {
 
   assignedConversations Conversation[] @relation("ConversationAssignee")
   notes                 InternalNote[] @relation("NoteAuthor")
+  /// Follow-up tasks this user owns.
+  tasks                 FollowUpTask[] @relation("TaskAssignee")
   /// Threads this user paused the agent on by replying to one.
   aiPauses              Conversation[] @relation("AiPauseActor")
 
@@ -90,6 +92,8 @@ model Workspace {
   campaigns     Campaign[]
   agents        Agent[]
   botFlows      BotFlow[]
+  followUpTasks FollowUpTask[]
+  crmSettings   CrmSettings?
 
   /// The owner's module toggles, one row per role and module. Absent rows fall
   /// back to the defaults in `Backend/src/workspaces/modules.ts`, so a workspace
@@ -153,6 +157,13 @@ model WorkspaceMember {
   workspaceId String        @map("workspace_id") @db.Uuid
   userId      String        @map("user_id") @db.Uuid
   role        WorkspaceRole @default(AGENT)
+  /// Free text: "Sales Executive", "Support Agent". Round-robin filters on it.
+  designation      String?   @map("designation")
+  /// Digits only, country code first, no "+" — the same shape as Contact.waId.
+  personalWhatsApp String?   @map("personal_whatsapp")
+  /// Round-robin cursor. Written only by the lead router, never by a manual
+  /// reassignment in the inbox: handing a thread over must not skew rotation.
+  lastAssignedAt   DateTime? @map("last_assigned_at")
   createdAt   DateTime      @default(now()) @map("created_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -160,6 +171,7 @@ model WorkspaceMember {
 
   @@id([workspaceId, userId])
   @@index([userId])
+  @@index([workspaceId, designation])
   @@map("workspace_members")
 }
 
@@ -415,6 +427,15 @@ model Conversation {
   aiPausedAt         DateTime?          @map("ai_paused_at")
   aiPausedByUserId   String?            @map("ai_paused_by_user_id") @db.Uuid
   aiPauseReason      String?            @map("ai_pause_reason")
+  /// What the customer's words said about buying, decided by
+  /// `Backend/src/crm/interest.rules.ts`. UNKNOWN is "nothing said yet".
+  interest           LeadInterest @default(UNKNOWN)
+  /// The evidence of the message that decided the stage, clamped ±100.
+  interestScore      Int?               @map("interest_score")
+  /// The phrase that decided it (`matched "how much" (BUYING)`), `no buying or
+  /// refusal signal`, or `manual` after an override.
+  interestReason     String?            @map("interest_reason")
+  interestAt         DateTime?          @map("interest_at")
   /// The agent that answers this thread. Written on the first inbound message
   /// and kept, because two agents on one number must never take turns inside
   /// one conversation. Cleared — never cascaded — when that agent is deleted,
@@ -435,10 +456,12 @@ model Conversation {
   agent      Agent?          @relation("ConversationAgent", fields: [agentId], references: [id], onDelete: SetNull)
   messages   Message[]
   notes      InternalNote[]
+  followUpTasks FollowUpTask[]
 
   @@unique([accountId, contactId])
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, status, lastMessageAt])
+  @@index([workspaceId, interest, lastMessageAt])
   @@index([assignedToUserId])
   @@index([agentId])
   @@map("conversations")
@@ -1072,4 +1095,63 @@ model AgentRun {
   @@index([agentId, createdAt])
   @@index([conversationId, createdAt])
   @@map("agent_runs")
+}
+
+// ---------------------------------------------------------------------------
+// CRM: lead stage, follow-up tasks and lead-routing settings.
+//
+// A lead is a conversation plus a stage, never a second copy of the message
+// store. One open task per thread is enforced by a partial unique index that
+// the migration writes by hand, because Prisma cannot express one.
+// ---------------------------------------------------------------------------
+
+/// What a customer's words said about buying. UNKNOWN is "nothing said yet".
+enum LeadInterest {
+  UNKNOWN
+  INTERESTED
+  NOT_INTERESTED
+}
+
+enum FollowUpStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+model FollowUpTask {
+  id               String         @id @default(uuid()) @db.Uuid
+  workspaceId      String         @map("workspace_id") @db.Uuid
+  conversationId   String         @map("conversation_id") @db.Uuid
+  assignedToUserId String?        @map("assigned_to_user_id") @db.Uuid
+  title            String
+  note             String?
+  dueAt            DateTime?      @map("due_at")
+  status           FollowUpStatus @default(OPEN)
+  completedAt      DateTime?      @map("completed_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  assignedTo   User?        @relation("TaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status, dueAt])
+  @@index([assignedToUserId, status])
+  @@map("follow_up_tasks")
+}
+
+/// Same shape as BusinessProfile: the workspace id is the key. A workspace
+/// with no row reads the defaults in `crm.settings.ts`, not a seeded row.
+model CrmSettings {
+  workspaceId     String   @id @map("workspace_id") @db.Uuid
+  leadDesignation String?  @map("lead_designation")
+  autoAssign      Boolean  @default(true) @map("auto_assign")
+  autoTask        Boolean  @default(true) @map("auto_task")
+  taskDueHours    Int      @default(24) @map("task_due_hours")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("crm_settings")
 }
