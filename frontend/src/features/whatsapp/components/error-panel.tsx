@@ -44,8 +44,9 @@ export function ErrorPanel({
       onDisconnected();
       toast.push({
         tone: "info",
-        title: "Connection removed",
-        description: "The stored credentials were deleted.",
+        title: "Number disconnected",
+        description:
+          "The stored credentials were deleted. Its chat history is kept, and connecting this number again brings it back.",
       });
     } catch (error) {
       toast.push({

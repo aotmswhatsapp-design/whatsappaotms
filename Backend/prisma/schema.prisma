@@ -207,6 +207,10 @@ model WorkspaceInvitation {
 enum WhatsAppStatus {
   VERIFIED
   FAILED
+  /// The customer disconnected the number. The row and everything hanging off
+  /// it are kept so reconnecting the same number restores the history; every
+  /// credential is erased, which is what disconnect has to guarantee.
+  DISCONNECTED
 }
 
 /// Where the credentials came from. Only `MANUAL` is written now: every row is
@@ -226,7 +230,8 @@ enum WhatsAppSource {
 /// so it cannot stay hidden.
 ///
 /// A row exists only for credentials Meta confirmed, so status is VERIFIED on
-/// write; FAILED is reserved for a live re-check that no longer passes.
+/// write; FAILED is reserved for a live re-check that no longer passes, and
+/// DISCONNECTED for a deliberate disconnect that kept the row's history.
 /// `webhook_verified_at` is the line between "credentials accepted" and
 /// "actually receiving events": the sidebar is amber until it is set, and that
 /// state is derived rather than stored.
@@ -267,8 +272,11 @@ model WhatsAppAccount {
   status             WhatsAppStatus @default(VERIFIED)
   source             WhatsAppSource @default(MANUAL)
   lastVerifiedAt     DateTime?      @map("last_verified_at")
-  accessTokenCipher  String         @map("access_token_cipher")
-  verifyTokenCipher  String         @map("verify_token_cipher")
+  /// Null only on a DISCONNECTED row: disconnect erases the credentials, and
+  /// the row survives precisely so the conversations can. Nothing reads these
+  /// without going through a resolver that skips disconnected rows.
+  accessTokenCipher  String?        @map("access_token_cipher")
+  verifyTokenCipher  String?        @map("verify_token_cipher")
   /// Nullable: rows written before app secrets were collected stay readable.
   appSecretCipher    String?        @map("app_secret_cipher")
   /// Stamped by Meta's GET handshake, cleared when the token is rotated.
@@ -304,6 +312,9 @@ model WhatsAppAccount {
   /// nothing rather than guessing, matching how `currency` behaves.
   tokenExpiresAt     DateTime?      @map("token_expires_at")
   failureReason      String?        @map("failure_reason")
+  /// When the customer disconnected this number. Cleared by a reconnect, so a
+  /// non-null value with status VERIFIED cannot happen.
+  disconnectedAt     DateTime?      @map("disconnected_at")
   createdAt          DateTime       @default(now()) @map("created_at")
   updatedAt          DateTime       @updatedAt @map("updated_at")
 

@@ -80,8 +80,9 @@ export function LivePanel({
       onDisconnected();
       toast.push({
         tone: "info",
-        title: "Connection removed",
-        description: "The stored credentials and webhook proof were deleted.",
+        title: "Number disconnected",
+        description:
+          "The stored credentials were deleted. Its chat history is kept, and connecting this number again brings it back.",
       });
     } catch (error) {
       toast.push({
@@ -201,9 +202,10 @@ export function LivePanel({
 
       {confirming ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground">
-          Disconnecting deletes the token, the app secret and the webhook proof.
-          Meta keeps posting to the URL until you remove it in the Webhooks
-          panel of the app; those deliveries are ignored.
+          Disconnecting deletes the token, the app secret and the webhook
+          proof. Its conversations stay in the Inbox, and connecting this number
+          again brings them back. Meta keeps posting to the URL until you remove
+          it in the Webhooks panel of the app; those deliveries are ignored.
         </p>
       ) : null}
     </div>

@@ -242,6 +242,7 @@ export class WhatsAppWebhookService {
         displayPhoneNumber: true,
         businessAccountId: true,
         appSecretCipher: true,
+        status: true,
       },
     });
 
@@ -267,6 +268,17 @@ export class WhatsAppWebhookService {
     const changes = parseDelivery(payload);
 
     for (const account of accounts) {
+      // A disconnected number keeps its history but no longer owns a token, so
+      // nothing it receives can be trusted, stored or answered. Skipping here
+      // also keeps a late delivery from overwriting the DISCONNECTED status
+      // through the account-update path below.
+      if (account.status === "DISCONNECTED") {
+        this.logger.log(
+          `Delivery for disconnected number ${account.phoneNumberId}; ignored.`,
+        );
+        continue;
+      }
+
       const secret = account.appSecretCipher
         ? this.openOrNull(account.appSecretCipher)
         : null;
@@ -558,7 +570,9 @@ export class WhatsAppWebhookService {
     }
   }
 
-  private openOrNull(cipher: string): string | null {
+  private openOrNull(cipher: string | null): string | null {
+    if (!cipher) return null;
+
     try {
       return this.box.open(cipher);
     } catch {

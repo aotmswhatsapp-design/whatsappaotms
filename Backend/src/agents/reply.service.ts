@@ -180,11 +180,25 @@ export class ReplyService {
       return;
     }
 
+    // The number's row survives a disconnect so the thread stays readable, but
+    // its token does not. Answering through it is impossible, and failing here
+    // keeps the run's record honest instead of letting the sender throw.
+    const { account } = conversation;
+
+    if (!account.accessTokenCipher) {
+      await this.skip(run.id, "no-channel");
+      return;
+    }
+
     const target: SendTarget = {
       workspaceId: conversation.workspaceId,
       conversationId: conversation.id,
       waId: conversation.contact.waId,
-      account: conversation.account,
+      account: {
+        phoneNumberId: account.phoneNumberId,
+        graphVersion: account.graphVersion,
+        accessTokenCipher: account.accessTokenCipher,
+      },
     };
 
     // Cheapest first: two of these are one column and a comparison. The agent

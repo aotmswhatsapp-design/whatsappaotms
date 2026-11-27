@@ -20,6 +20,12 @@ type AccountReader = Pick<PrismaClient, "whatsAppAccount">;
  *
  * `select` is passed through because the callers disagree about what they may
  * read: a page load must not fetch the sealed access token, a send must.
+ *
+ * A DISCONNECTED row is never the answer. Disconnect keeps the row — and with
+ * it the number's whole conversation history — so the number can be reconnected
+ * without loss, but a row with no token cannot send, receive or be reported as
+ * connected. Excluding it here is what lets the customer's history outlive the
+ * connection while every reader still sees "no number connected".
  */
 export function defaultAccount<S extends Prisma.WhatsAppAccountSelect>(
   prisma: AccountReader,
@@ -27,7 +33,7 @@ export function defaultAccount<S extends Prisma.WhatsAppAccountSelect>(
   select: S,
 ): Prisma.PrismaPromise<Prisma.WhatsAppAccountGetPayload<{ select: S }> | null> {
   return prisma.whatsAppAccount.findFirst({
-    where: { workspaceId },
+    where: { workspaceId, status: { not: "DISCONNECTED" } },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     select,
   });

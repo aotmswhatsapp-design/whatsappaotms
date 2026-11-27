@@ -21,14 +21,30 @@ import { WhatsAppService } from "./whatsapp.service";
 
 const claims = { id: "user-1", email: "one@test.dev" } as AuthClaims;
 
-function service(owned: string[], isOnBizApp = false) {
+function service(
+  owned: string[],
+  isOnBizApp = false,
+  previous: Record<string, unknown> | null = null,
+) {
   const written: Record<string, unknown>[] = [];
   const started: { onBizApp: boolean }[] = [];
 
   const prisma = {
     whatsAppAccount: {
-      findUnique: async () => null,
+      findUnique: async () =>
+        previous
+          ? {
+              workspaceId: "ws-1",
+              appId: "app-1",
+              verifyTokenCipher: "sealed:old-token",
+              status: "VERIFIED",
+              ...previous,
+            }
+          : null,
       count: async () => 0,
+      // Promotion after the upsert: nothing else is connected, so it finds no
+      // default and no candidate and leaves the row as written.
+      findFirst: async () => null,
       upsert: async (args: { create: Record<string, unknown> }) => {
         written.push(args.create);
         return {
@@ -153,4 +169,35 @@ test("an account with several numbers is refused, not guessed", async () => {
   );
 
   assert.equal(written.length, 0);
+});
+
+test("reconnecting a disconnected number clears the mark and re-asks the sync", async () => {
+  const { service: whatsapp, written } = service(["109800000000000"], true, {
+    status: "DISCONNECTED",
+    verifyTokenCipher: null,
+  });
+
+  await whatsapp.connectEmbedded(claims, wabaOnly);
+
+  // The mark disconnect left must go, or the screen keeps calling a live number
+  // disconnected.
+  assert.equal(written[0].disconnectedAt, null);
+
+  // Meta re-grants both kinds on a new onboarding, so the stale stamps have to
+  // go too: their presence is what says "already asked for".
+  assert.equal(written[0].stateSyncAt, null);
+  assert.equal(written[0].historySyncAt, null);
+  assert.equal(written[0].historySyncDoneAt, null);
+});
+
+test("rotating a live number's token leaves its sync stamps alone", async () => {
+  const { service: whatsapp, written } = service(["109800000000000"], true);
+
+  await whatsapp.connectEmbedded(claims, wabaOnly);
+
+  // This row was never disconnected, so the sync it already asked for is not
+  // asked for again — a second request is not legal.
+  assert.equal(written[0].disconnectedAt, null);
+  assert.equal("historySyncAt" in written[0], false);
+  assert.equal("stateSyncAt" in written[0], false);
 });

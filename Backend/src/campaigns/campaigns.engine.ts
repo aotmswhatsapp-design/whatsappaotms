@@ -256,8 +256,13 @@ export class CampaignsEngine {
 
   /**
    * The number a campaign sends from: the one it is already pinned to, or the
-   * workspace's default while it is not pinned yet. Null when nothing is
-   * connected.
+   * workspace's default while it is not pinned yet. Null when nothing that can
+   * send is connected.
+   *
+   * A row without a token is skipped rather than returned. A campaign's pinned
+   * id outlives a disconnect, and handing the engine a row that cannot send
+   * would fail every recipient one by one instead of stopping the campaign with
+   * the one sentence `stopForNoChannel` writes.
    */
   async accountFor(
     workspaceId: string,
@@ -265,14 +270,20 @@ export class CampaignsEngine {
   ): Promise<SendAccount | null> {
     if (pinnedId) {
       const pinned = await this.prisma.whatsAppAccount.findFirst({
-        where: { id: pinnedId, workspaceId },
+        where: { id: pinnedId, workspaceId, status: { not: "DISCONNECTED" } },
         select: SEND_SELECT,
       });
 
-      if (pinned) return pinned;
+      if (pinned?.accessTokenCipher) {
+        return { ...pinned, accessTokenCipher: pinned.accessTokenCipher };
+      }
     }
 
-    return defaultAccount(this.prisma, workspaceId, SEND_SELECT);
+    const fallback = await defaultAccount(this.prisma, workspaceId, SEND_SELECT);
+
+    if (!fallback?.accessTokenCipher) return null;
+
+    return { ...fallback, accessTokenCipher: fallback.accessTokenCipher };
   }
 
   /**

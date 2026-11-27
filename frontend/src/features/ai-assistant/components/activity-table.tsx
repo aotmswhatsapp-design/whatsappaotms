@@ -46,6 +46,7 @@ const REASONS: Record<string, string> = {
   "no-context": "Nothing in the material matched",
   unavailable: "Answering failed",
   "no-agent": "No active agent on the number",
+  "no-channel": "The number was disconnected",
   handoff: "Handed to a person",
 };
 

@@ -8,7 +8,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, WhatsAppStatus } from "@prisma/client";
 
 import type { AuthClaims } from "../auth/auth.types";
 import { SecretBox } from "../common/crypto/secret-box";
@@ -631,6 +631,11 @@ export class WhatsAppService {
       accessTokenCipher: this.box.seal(token),
       verifyTokenCipher: this.box.seal(verifyToken),
       appSecretCipher: this.box.seal(input.appSecret),
+      // Reconnecting a number that was disconnected clears the mark, so the
+      // screen stops calling it disconnected, and re-arms the sync kinds Meta
+      // re-granted by that new onboarding.
+      disconnectedAt: null,
+      ...reconnectReset(previous),
     } as const;
 
     // `webhookVerifiedAt` is deliberately absent: a created row starts with
@@ -643,6 +648,12 @@ export class WhatsAppService {
       update: values,
       select: ACCOUNT_SELECT,
     });
+
+    // `isDefault` rides only on the create side, so reviving a disconnected row
+    // would otherwise leave the workspace's only number unmarked. Promotion is
+    // the same resolver disconnect uses, and it does nothing when a live default
+    // already exists.
+    await this.promoteDefault(workspaceId);
 
     const number = phone.display_phone_number ?? `id ${phoneId}`;
 
@@ -733,6 +744,8 @@ export class WhatsAppService {
     const { expiresAt } = await this.readTokenExpiry(app, version, token);
     const verifiedAt = new Date();
 
+    const previous = await this.heldNumber(phoneNumberId, workspaceId);
+
     const values = {
       phoneNumberId,
       businessAccountId: input.wabaId,
@@ -750,18 +763,20 @@ export class WhatsAppService {
       tokenExpiresAt: expiresAt === 0 ? null : new Date(expiresAt * 1000),
       failureReason: null,
       accessTokenCipher: this.box.seal(token),
-      // Meta verifies the handshake with the platform token, so this per-row
-      // secret is never pasted anywhere; the column is not nullable, so one is
-      // minted and left unread rather than special-cased in every read path.
+      // Meta verifies the handshake with the platform token, so this row's
+      // secret is never pasted anywhere. It is still written, because the hint
+      // on the connection screen reads it for both kinds of connection.
       verifyTokenCipher: this.box.seal(generateVerifyToken()),
       // Deliveries are signed by the platform app secret, not a customer one.
       appSecretCipher: null,
       // `subscribed_apps` is the proof the manual path gets from Meta's GET
       // handshake, so this connection is live the moment it succeeds.
       webhookVerifiedAt: verifiedAt,
+      // A reconnect clears the mark disconnect left, and re-arm the two sync
+      // kinds only when this row really was disconnected.
+      disconnectedAt: null,
+      ...reconnectReset(previous),
     } as const;
-
-    const previous = await this.heldNumber(phoneNumberId, workspaceId);
 
     const isDefault = await this.seedsDefault(workspaceId, previous !== null);
 
@@ -771,6 +786,10 @@ export class WhatsAppService {
       update: values,
       select: ACCOUNT_SELECT,
     });
+
+    // A revived row keeps its stored `isDefault`, which disconnect cleared. See
+    // the manual path: promotion is what puts the workspace back on its number.
+    await this.promoteDefault(workspaceId);
 
     // The 24-hour clock starts at onboarding, so the two calls are made here
     // rather than when the screen is next opened. Awaited because a person is
@@ -1168,11 +1187,18 @@ export class WhatsAppService {
   }
 
   /**
-   * Removes the number the workspace answers from — not every number it owns.
+   * Disconnects the number the workspace answers from — not every number it
+   * owns.
    *
-   * With one number those are the same act, so nothing changes. With several,
-   * deleting all of them would be a data loss no screen warned about: the rest
-   * stay connected and the oldest is promoted in the removed row's place.
+   * The row is kept rather than deleted. Deleting it cascades through
+   * `conversations`, and every thread, message, note and follow-up the customer
+   * ever collected went with it — which is why reconnecting a number used to
+   * land on an empty inbox. Only the credentials are erased and the row is
+   * marked DISCONNECTED: connecting the same number again upserts this same row,
+   * so the history is still there.
+   *
+   * With several numbers, the rest stay connected and the oldest live one is
+   * promoted in the disconnected row's place.
    */
   async disconnect(claims: AuthClaims): Promise<{ removed: boolean }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
@@ -1181,8 +1207,22 @@ export class WhatsAppService {
 
     if (!target) return { removed: false };
 
-    await this.prisma.whatsAppAccount.deleteMany({
+    // An update, not a delete. Everything that could still reach Meta or name
+    // the customer is nulled; nothing points at a row that cannot answer. The
+    // workspace filter keeps it honest even if the id were ever mis-resolved.
+    await this.prisma.whatsAppAccount.updateMany({
       where: { id: target.id, workspaceId },
+      data: {
+        status: "DISCONNECTED",
+        disconnectedAt: new Date(),
+        failureReason:
+          "Disconnected. The chat history is kept, and connecting this number again brings it back.",
+        accessTokenCipher: null,
+        verifyTokenCipher: null,
+        appSecretCipher: null,
+        webhookVerifiedAt: null,
+        isDefault: false,
+      },
     });
 
     await this.promoteDefault(workspaceId);
@@ -1195,17 +1235,23 @@ export class WhatsAppService {
    * none until here, and every reader that names no number would already fall
    * back to the oldest row — this writes that choice down, so the stored state
    * and the resolved state cannot disagree.
+   *
+   * A DISCONNECTED row is never promoted, and never counts as the current
+   * default: the row stays for its history, but it is not a number that can
+   * answer.
    */
   private async promoteDefault(workspaceId: string): Promise<void> {
+    const live = { not: "DISCONNECTED" } as const;
+
     const current = await this.prisma.whatsAppAccount.findFirst({
-      where: { workspaceId, isDefault: true },
+      where: { workspaceId, isDefault: true, status: live },
       select: { id: true },
     });
 
     if (current) return;
 
     const next = await this.prisma.whatsAppAccount.findFirst({
-      where: { workspaceId },
+      where: { workspaceId, status: live },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
@@ -1353,14 +1399,27 @@ export class WhatsAppService {
    * per matching row, which meant both inboxes received the message and both
    * agents answered it. `phoneNumberId` is unique now, and this is the check
    * that turns the index into a sentence instead of a P2002.
+   *
+   * A disconnected row is this workspace's to revive: the whole point of
+   * keeping it is that reconnecting lands on the same id, and therefore on the
+   * same conversations.
    */
   private async heldNumber(
     phoneNumberId: string,
     workspaceId: string,
-  ): Promise<{ appId: string | null; verifyTokenCipher: string } | null> {
+  ): Promise<{
+    appId: string | null;
+    verifyTokenCipher: string | null;
+    status: WhatsAppStatus;
+  } | null> {
     const row = await this.prisma.whatsAppAccount.findUnique({
       where: { phoneNumberId },
-      select: { workspaceId: true, appId: true, verifyTokenCipher: true },
+      select: {
+        workspaceId: true,
+        appId: true,
+        verifyTokenCipher: true,
+        status: true,
+      },
     });
 
     if (row && row.workspaceId !== workspaceId) {
@@ -1381,6 +1440,10 @@ export class WhatsAppService {
    * a second one must not move what campaigns, template submissions and reports
    * already answer from — switching the default is a deliberate act, not a side
    * effect of connecting.
+   *
+   * A disconnected row is not counted: it keeps its history but cannot answer,
+   * so reconnecting a workspace's only number makes that number the default
+   * again rather than leaving the workspace without one.
    */
   private async seedsDefault(
     workspaceId: string,
@@ -1388,7 +1451,11 @@ export class WhatsAppService {
   ): Promise<boolean> {
     if (numberExists) return false;
 
-    return (await this.prisma.whatsAppAccount.count({ where: { workspaceId } })) === 0;
+    const live = await this.prisma.whatsAppAccount.count({
+      where: { workspaceId, status: { not: "DISCONNECTED" } },
+    });
+
+    return live === 0;
   }
 
   private toPublic(row: AccountRow, trace: HandshakeTrace = NO_TRACE): PublicAccount {
@@ -1460,12 +1527,14 @@ export class WhatsAppService {
   }
 
   /** A rotated key makes old ciphertext unreadable; the hint degrades, not throws. */
-  private hintOf(cipher: string): string {
+  private hintOf(cipher: string | null): string {
     const plain = this.openOrNull(cipher);
     return plain ? this.box.hint(plain) : "••••";
   }
 
-  private openOrNull(cipher: string): string | null {
+  private openOrNull(cipher: string | null): string | null {
+    if (!cipher) return null;
+
     try {
       return this.box.open(cipher);
     } catch {
@@ -1473,6 +1542,41 @@ export class WhatsAppService {
     }
   }
 
+}
+
+/**
+ * The stamps a reconnect has to clear, and a live row must keep.
+ *
+ * Meta re-grants both synchronisations after an offboard/onboard, so a row that
+ * comes back carrying its old stamps would look "already asked for" forever —
+ * the same reason the reconnect webhook clears them. An ordinary token rotation
+ * on a live row must not: a second request is not legal, and asking anyway only
+ * produces an error sentence on the connection screen.
+ *
+ * Typed as its own six optional columns rather than `Partial<UpdateInput>`: a
+ * partial input spread into `create` would also carry `isDefault`'s field-update
+ * union, and Prisma refuses that on the create side.
+ */
+type SyncReset = {
+  stateSyncAt?: Date | null;
+  stateSyncRequestId?: string | null;
+  historySyncAt?: Date | null;
+  historySyncRequestId?: string | null;
+  historySyncDoneAt?: Date | null;
+  historySyncError?: string | null;
+};
+
+function reconnectReset(previous: { status: WhatsAppStatus } | null): SyncReset {
+  if (previous?.status !== "DISCONNECTED") return {};
+
+  return {
+    stateSyncAt: null,
+    stateSyncRequestId: null,
+    historySyncAt: null,
+    historySyncRequestId: null,
+    historySyncDoneAt: null,
+    historySyncError: null,
+  };
 }
 
 /**

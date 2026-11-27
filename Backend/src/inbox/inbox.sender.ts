@@ -680,6 +680,17 @@ export class InboxSender {
 
     const { account } = message.conversation;
 
+    // Meta hands the bytes back only to the number's token, and a disconnected
+    // row no longer has one. The message itself is still readable — only the
+    // download waits for a reconnect.
+    if (!account.accessTokenCipher) {
+      throw new ConflictException({
+        code: "NO_CHANNEL",
+        message:
+          "The number that received this file is disconnected, so WhatsApp will not hand it back. Reconnect the number and open it again.",
+      });
+    }
+
     let fetched: { bytes: Buffer; mime: string | null };
 
     try {

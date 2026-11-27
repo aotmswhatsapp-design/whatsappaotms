@@ -171,6 +171,9 @@ export class AnalyticsSyncService {
     failed: number;
   }> {
     const accounts = await this.prisma.whatsAppAccount.findMany({
+      // A disconnected row has no token to sync with; including it would record
+      // a failed run for a number the customer deliberately turned off.
+      where: { status: { not: "DISCONNECTED" } },
       select: { workspaceId: true },
       orderBy: { createdAt: "asc" },
     });
@@ -252,7 +255,7 @@ export class AnalyticsSyncService {
       id: string;
       graphVersion: string;
       businessAccountId: string;
-      accessTokenCipher: string;
+      accessTokenCipher: string | null;
       currency: string | null;
       insightsEnabledAt: Date | null;
     },
@@ -857,7 +860,9 @@ export class AnalyticsSyncService {
     };
   }
 
-  private openOrNull(cipher: string): string | null {
+  private openOrNull(cipher: string | null): string | null {
+    if (!cipher) return null;
+
     try {
       return this.box.open(cipher);
     } catch {

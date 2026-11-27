@@ -30,6 +30,7 @@ const account = {
   businessAccountId: "102290129340398",
   displayPhoneNumber: "+1 650 555 1234",
   appSecretCipher: null,
+  status: "VERIFIED",
 };
 
 function signed(payload: unknown): [raw: Buffer, signature: string] {
@@ -52,7 +53,7 @@ function delivery(field: string, value: Record<string, unknown>) {
   };
 }
 
-function fake() {
+function fake(row: Record<string, unknown> = account) {
   const imported: HistoryThread[][] = [];
   const absorbed: SyncedContact[][] = [];
   const attached: MediaAsset[] = [];
@@ -84,7 +85,7 @@ function fake() {
 
   const prisma = {
     whatsAppAccount: {
-      findMany: async () => [account],
+      findMany: async () => [row],
       update: async (args: { data: Record<string, unknown> }) => {
         accountUpdates.push(args.data);
         return account;
@@ -246,7 +247,6 @@ test("the declined history names its number without an entry wrapper", async () 
 
 test("a media asset fills the placeholder it names", async () => {
   const { webhook, attached } = fake();
-
   await webhook.delivery(
     ...signed(
       delivery("history", {
@@ -268,4 +268,45 @@ test("a media asset fills the placeholder it names", async () => {
   assert.equal(attached.length, 1);
   assert.equal(attached[0].wamid, "wamid.media");
   assert.equal(attached[0].kind, "IMAGE");
+});
+
+test("a delivery for a disconnected number is ignored, not stored", async () => {
+  const { webhook, imported, stored, accountUpdates } = fake({
+    ...account,
+    status: "DISCONNECTED",
+  });
+
+  await webhook.delivery(
+    ...signed(
+      delivery("history", {
+        messaging_product: "whatsapp",
+        metadata: { phone_number_id: "pn-1" },
+        history: [
+          {
+            metadata: { phase: 0, chunk_order: 1, progress: 100 },
+            threads: [
+              {
+                id: "919900000000",
+                messages: [
+                  {
+                    from: "919900000000",
+                    id: "wamid.after-disconnect",
+                    timestamp: "1739212624",
+                    type: "text",
+                    text: { body: "Are you open?" },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ),
+  );
+
+  // The row has no token, so nothing it receives can be trusted. Even the
+  // delivery stamp stays put, which is what keeps the connection screen honest.
+  assert.equal(imported.length, 0);
+  assert.equal(stored.length, 0);
+  assert.equal(accountUpdates.length, 0);
 });

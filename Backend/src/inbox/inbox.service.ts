@@ -56,6 +56,7 @@ const SEND_ACCOUNT_SELECT = {
   phoneNumberId: true,
   graphVersion: true,
   accessTokenCipher: true,
+  status: true,
 } satisfies Prisma.WhatsAppAccountSelect;
 
 export interface ChannelView {
@@ -868,10 +869,25 @@ export class InboxService {
       });
     }
 
+    // A disconnected row is still here, because that is what keeps this
+    // conversation readable — but it has no token, so nothing can leave through
+    // it. The copy names the fix instead of failing later inside the sender.
+    if (account.status === "DISCONNECTED" || !account.accessTokenCipher) {
+      throw new ConflictException({
+        code: "NO_CHANNEL",
+        message:
+          "This conversation's number is disconnected, so it cannot send. Reconnect the number and its history will be here waiting.",
+      });
+    }
+
     return {
       conversationId: conversation.id,
       waId: conversation.contact.waId,
-      account,
+      account: {
+        phoneNumberId: account.phoneNumberId,
+        graphVersion: account.graphVersion,
+        accessTokenCipher: account.accessTokenCipher,
+      },
       windowOpen: windowOpen(conversation.lastInboundAt),
     };
   }

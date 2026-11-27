@@ -11,7 +11,8 @@ export interface AccountForSync {
   id: string;
   phoneNumberId: string;
   graphVersion: string;
-  accessTokenCipher: string;
+  /** Null on a row whose credentials were erased, which cannot be asked. */
+  accessTokenCipher: string | null;
   onBizApp: boolean;
   stateSyncAt: Date | null;
   historySyncAt: Date | null;
@@ -122,7 +123,9 @@ export class CoexistenceStarter {
     }
   }
 
-  private openOrNull(cipher: string): string | null {
+  private openOrNull(cipher: string | null): string | null {
+    if (!cipher) return null;
+
     try {
       return this.box.open(cipher);
     } catch {

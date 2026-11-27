@@ -1097,7 +1097,9 @@ export class TemplatesService {
     });
   }
 
-  private openOrNull(cipher: string): string | null {
+  private openOrNull(cipher: string | null): string | null {
+    if (!cipher) return null;
+
     try {
       return this.box.open(cipher);
     } catch {
