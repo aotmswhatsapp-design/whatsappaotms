@@ -99,27 +99,28 @@ export function CardEditor({
           onChange={(event) => patch({ title: event.target.value })}
         />
         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-          The header above the message when there is no picture.{" "}
-          {card.title.length}/{HEADER_CHARS}
+          The header when there is no picture — or when the pictures travel
+          separately. {card.title.length}/{HEADER_CHARS}
         </p>
       </div>
 
       <div>
-        <p className="text-[13px] font-medium text-foreground">Picture</p>
+        <p className="text-[13px] font-medium text-foreground">Pictures</p>
         <div className="mt-1.5">
           <CardImageField
             agentId={agentId}
+            cardId={card.id}
             disabled={disabled}
-            // This card is left out: removing the picture it shows is how a
-            // card goes back to having none. The others are the ones a delete
-            // would leave pointing at nothing.
+            // This card is left out: removing a picture it sends is how the
+            // card goes back to having fewer. The others are the ones a
+            // delete would leave pointing at nothing.
             usedBy={(url) =>
               flow.cards
-                .filter((other) => other.id !== card.id && other.imageUrl === url)
+                .filter((other) => other.id !== card.id && other.imageUrls.includes(url))
                 .map((other) => other.title.trim() || "An untitled card")
             }
-            value={card.imageUrl}
-            onChange={(url) => patch({ imageUrl: url })}
+            value={card.imageUrls}
+            onChange={(urls) => patch({ imageUrls: urls })}
           />
         </div>
       </div>
@@ -164,7 +165,8 @@ export function CardEditor({
         {card.buttons.length === 0 ? (
           <p className="mt-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
             No buttons yet, so this card arrives as plain text. A button is what
-            lets the customer choose.
+            lets the customer choose. Pictures are still sent, each on its own,
+            before it.
           </p>
         ) : null}
 

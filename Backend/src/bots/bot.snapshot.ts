@@ -110,10 +110,33 @@ function cardAt(value: unknown): BotCard | null {
   return {
     id,
     title: stringAt(card.title) ?? "",
-    imageUrl: stringAt(card.imageUrl),
+    imageUrls: imageUrlsAt(card),
     info: stringAt(card.info) ?? "",
     buttons,
   };
+}
+
+/**
+ * The card's pictures, in order.
+ *
+ * `imageUrl` is the single-picture field every flow and every delivered card
+ * written before photo sets used; lifting it to a one-entry list is what lets
+ * those keep rendering. Duplicates are dropped because a hand-edited row is the
+ * only way to get them — saving refuses them — and the same picture twice is
+ * still one picture.
+ */
+function imageUrlsAt(card: Json): string[] {
+  const listed = Array.isArray(card.imageUrls)
+    ? card.imageUrls.filter(
+        (url): url is string => typeof url === "string" && url.trim().length > 0,
+      )
+    : [];
+
+  if (listed.length > 0) return [...new Set(listed)];
+
+  const single = stringAt(card.imageUrl);
+
+  return single ? [single] : [];
 }
 
 function buttonAt(value: unknown): BotButton | null {

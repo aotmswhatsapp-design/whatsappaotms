@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { BotAction, BotCard, BotButton } from "./bot.card";
 import {
+  deliverCard,
   LIST_OPEN_LABEL,
   NUMBERED_HINT,
   renderCard,
@@ -20,7 +21,7 @@ const button = (
 const card = (patch: Partial<BotCard> = {}): BotCard => ({
   id: "c1",
   title: "Menu",
-  imageUrl: null,
+  imageUrls: [],
   info: "Dosa 80. Idli 40.",
   buttons: [],
   ...patch,
@@ -190,7 +191,7 @@ test("the same cut applies to a list row title, at 24 characters", () => {
 test("a picture on the card becomes the interactive header", () => {
   const rendered = renderCard(
     card({
-      imageUrl: "https://example.com/menu.jpg",
+      imageUrls: ["https://example.com/menu.jpg"],
       buttons: [button("b-1", "Drinks")],
     }),
   );
@@ -292,4 +293,73 @@ test("the interactive payload is the shape the Graph call sends", () => {
 
   assert.equal(message.type, "button");
   assert.ok(Array.isArray((message.action as { buttons?: unknown[] }).buttons));
+});
+
+test("one picture on a card with buttons stays the bubble's header", () => {
+  const delivery = deliverCard(
+    card({
+      imageUrls: ["https://example.com/menu.jpg"],
+      buttons: [button("b-1", "Drinks")],
+    }),
+  );
+
+  assert.deepEqual(delivery.photos, []);
+  assert.deepEqual(wireOf(delivery.message, "buttons").interactive.header, {
+    type: "image",
+    image: { link: "https://example.com/menu.jpg" },
+  });
+});
+
+test("several pictures travel as their own messages, and the card keeps a text header", () => {
+  const delivery = deliverCard(
+    card({
+      imageUrls: ["https://example.com/one.jpg", "https://example.com/two.jpg"],
+      buttons: [button("b-1", "Drinks")],
+    }),
+  );
+
+  // In the order the owner listed them: that order is what the customer sees.
+  assert.deepEqual(delivery.photos, [
+    "https://example.com/one.jpg",
+    "https://example.com/two.jpg",
+  ]);
+
+  // No duplicate cover: the first picture already went out as a message.
+  assert.deepEqual(wireOf(delivery.message, "buttons").interactive.header, {
+    type: "text",
+    text: "Menu",
+  });
+});
+
+test("a card with no buttons delivers its pictures instead of dropping them", () => {
+  const delivery = deliverCard(
+    card({ imageUrls: ["https://example.com/one.jpg"], buttons: [] }),
+  );
+
+  assert.deepEqual(delivery.photos, ["https://example.com/one.jpg"]);
+  assert.equal(delivery.message.kind, "text");
+});
+
+test("a card too large for a list sends its picture separately rather than losing it", () => {
+  const delivery = deliverCard(
+    card({
+      imageUrls: ["https://example.com/one.jpg"],
+      buttons: Array.from({ length: 12 }, (_, at) => button(`b-${at}`, `Option ${at + 1}`)),
+    }),
+  );
+
+  assert.deepEqual(delivery.photos, ["https://example.com/one.jpg"]);
+
+  if (delivery.message.kind !== "text") {
+    throw new Error("a card with twelve choices is numbered text");
+  }
+
+  assert.match(delivery.message.body, /^1\) Option 1$/m);
+});
+
+test("a card with no pictures is still one message", () => {
+  const delivery = deliverCard(card({ buttons: [button("b-1", "Drinks")] }));
+
+  assert.deepEqual(delivery.photos, []);
+  assert.equal(delivery.message.kind, "buttons");
 });

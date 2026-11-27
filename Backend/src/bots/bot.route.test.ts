@@ -19,7 +19,7 @@ const button = (id: string, label: string, action: BotAction): BotButton => ({
 const card = (buttons: BotButton[]): BotCard => ({
   id: "c-root",
   title: "Menu",
-  imageUrl: null,
+  imageUrls: [],
   info: "Dosa 80. Idli 40.",
   buttons,
 });

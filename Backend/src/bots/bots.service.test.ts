@@ -74,7 +74,7 @@ const build = (prisma = new FakePrisma(), removed: string[] = []) =>
 const card = (id: string) => ({
   id,
   title: id,
-  imageUrl: null,
+  imageUrls: [],
   info: "Dosa 80.",
   buttons: [],
 });
@@ -246,7 +246,7 @@ test("a picture a saved card still shows is refused, naming the card", async () 
     flow: {
       id: "agent-1",
       rootCardId: "c-menu",
-      cards: [{ ...card("c-menu"), imageUrl: PICTURE_URL }],
+      cards: [{ ...card("c-menu"), imageUrls: [PICTURE_URL] }],
       rules: [],
     },
   });

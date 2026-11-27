@@ -11,7 +11,7 @@ import { messageView, type MessageSource } from "./inbox.view";
 const card = {
   id: "card-menu",
   title: "Menu",
-  imageUrl: "https://storage.test/bots/ws-a/agent-1/one.jpg",
+  imageUrls: ["https://storage.test/bots/ws-a/agent-1/one.jpg"],
   info: "Dosa 80.",
   buttons: [{ id: "btn-drinks", label: "Drinks", action: { kind: "handoff" } }],
 };
@@ -56,7 +56,7 @@ test("a sent card comes back with its picture and its buttons", () => {
   );
 
   assert.equal(view.direction, "OUTBOUND");
-  assert.equal(view.card?.imageUrl, card.imageUrl);
+  assert.equal(view.card?.imageUrls[0], card.imageUrls[0]);
   assert.equal(view.card?.buttons[0]?.label, "Drinks");
   assert.equal(
     view.payload,
@@ -104,4 +104,38 @@ test("a card sent as plain text still carries the card for the thread", () => {
   );
 
   assert.equal(view.card?.id, card.id);
+});
+
+test("a card frozen before photo sets keeps its single picture", () => {
+  const legacy = {
+    id: "card-menu",
+    title: "Menu",
+    imageUrl: "https://storage.test/bots/ws-a/agent-1/old.jpg",
+    info: "Dosa 80.",
+    buttons: [],
+  };
+
+  const view = messageView(
+    row({
+      payload: {
+        flow: { id: "agent-1", rootCardId: legacy.id, cards: [legacy], rules: [] },
+        cardId: legacy.id,
+      },
+    }),
+  );
+
+  assert.deepEqual(view.card?.imageUrls, [legacy.imageUrl]);
+});
+
+test("a photo sent on its own carries the link the bubble needs", () => {
+  const view = messageView(
+    row({
+      kind: "IMAGE",
+      body: null,
+      payload: { image: { link: "https://example.com/one.jpg" } },
+    }),
+  );
+
+  assert.deepEqual(view.payload, { kind: "image", link: "https://example.com/one.jpg" });
+  assert.equal(view.card, null);
 });

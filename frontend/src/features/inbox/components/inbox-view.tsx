@@ -334,12 +334,14 @@ export function InboxView({
     return () => window.clearTimeout(timer);
   }, [initialConversationId, openConversation]);
 
-  function handleSent(message: InboxMessage): void {
+  function handleSent(message: InboxMessage, photos: InboxMessage[] = []): void {
     setThread((current) =>
       current
         ? {
             ...current,
-            messages: [...current.messages, message],
+            // The pictures arrive first, then the card that names them, which
+            // is the order the customer's phone shows.
+            messages: [...current.messages, ...photos, message],
             conversation: {
               ...current.conversation,
               lastMessageAt: message.createdAt,

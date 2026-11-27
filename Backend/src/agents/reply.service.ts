@@ -6,7 +6,7 @@ import type { BotCard, BotFlow } from "../bots/bot.card";
 import { ruleReply } from "../bots/bot.rules";
 import { BotStore } from "../bots/bot.store";
 import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
-import { windowOpen } from "../inbox/inbox.view";
+import { windowOpen, type MessageView } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
 import { AgentRouter } from "./agent.router";
 import { HANDOFF_MESSAGE, cleanReply, matchesEscalation } from "./reply.prompt";
@@ -549,7 +549,10 @@ export class ReplyService {
     }
 
     try {
-      const sent =
+      // A card can leave as several messages — its pictures go first — but the
+      // run records the card itself: that is the message the agent wrote and
+      // the one a customer's tap will answer.
+      const sent: MessageView =
         turn.kind === "say"
           ? await this.sender.text({
               ...target,
@@ -557,13 +560,15 @@ export class ReplyService {
               quote: null,
               agentId,
             })
-          : await this.sender.interactive({
-              ...target,
-              flow: turn.flow,
-              card: turn.card,
-              quote: null,
-              agentId,
-            });
+          : (
+              await this.sender.interactive({
+                ...target,
+                flow: turn.flow,
+                card: turn.card,
+                quote: null,
+                agentId,
+              })
+            ).message;
 
       await this.prisma.agentRun.update({
         where: { id: runId },

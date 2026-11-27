@@ -166,6 +166,12 @@ export type MessagePayload =
       address: string | null;
     }
   | { kind: "contacts"; contacts: ContactCardEntry[] }
+  /**
+   * A picture we sent by link rather than uploaded. Only rows with no stored
+   * copy need it — our own uploads render from `mediaPath` — but a pasted
+   * address has nothing else to draw from.
+   */
+  | { kind: "image"; link: string }
   | null;
 
 export interface MessageView {
@@ -323,7 +329,7 @@ function cardOf(raw: Prisma.JsonValue): BotCard | null {
   return snapshot?.flow.cards.find((card) => card.id === snapshot.cardId) ?? null;
 }
 
-/** A location and a contact card are read back as the shape the bubble draws. */
+/** A location, a contact card and a sent picture are read back as the shape the bubble draws. */
 function payloadView(
   kind: MessageKind,
   raw: Prisma.JsonValue,
@@ -345,6 +351,18 @@ function payloadView(
       name: typeof value.name === "string" ? value.name : null,
       address: typeof value.address === "string" ? value.address : null,
     };
+  }
+
+  if (kind === "IMAGE") {
+    const image = value.image;
+
+    if (image === null || typeof image !== "object" || Array.isArray(image)) {
+      return null;
+    }
+
+    const link = (image as Record<string, unknown>).link;
+
+    return typeof link === "string" && link.length > 0 ? { kind: "image", link } : null;
   }
 
   if (kind === "CONTACTS" && Array.isArray(value.contacts)) {

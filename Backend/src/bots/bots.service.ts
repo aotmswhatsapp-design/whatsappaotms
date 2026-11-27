@@ -246,7 +246,8 @@ export class BotsService {
       throw error;
     });
 
-    const holders = flow?.cards.filter((card) => card.imageUrl === url) ?? [];
+    const holders =
+      flow?.cards.filter((card) => card.imageUrls.includes(url)) ?? [];
 
     if (holders.length > 0) {
       const [first] = holders;

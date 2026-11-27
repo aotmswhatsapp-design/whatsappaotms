@@ -144,6 +144,12 @@ type MessagePayload =
       address: string | null;
     }
   | { kind: "contacts"; contacts: ContactCardEntry[] }
+  /**
+   * A picture sent by address rather than from our bucket. Only rows with no
+   * stored copy carry it — the thread draws the link as it is, because there
+   * is nothing to sign.
+   */
+  | { kind: "image"; link: string }
   | null;
 
 export interface InboxNote {
@@ -351,13 +357,17 @@ export function sendTemplate(
  * card in the message's own payload, so the card the customer is looking at is
  * the one their tap is routed against. Editing the flow afterwards cannot
  * change what an old tap meant.
+ *
+ * A card with several pictures leaves as several messages: the pictures go
+ * first, in the card's order, and the card itself last. `photos` is those
+ * messages, so the thread can show them where they arrived.
  */
 export function sendCard(
   conversationId: string,
   flow: BotFlow,
   cardId: string,
   quotedMessageId?: string | null,
-): Promise<{ message: InboxMessage }> {
+): Promise<{ message: InboxMessage; photos: InboxMessage[] }> {
   return request(`/v1/inbox/conversations/${conversationId}/cards`, {
     method: "POST",
     body: JSON.stringify({

@@ -23,5 +23,8 @@ export const BODY_CHARS = 1024;
 /** The header line when a card has no picture. */
 export const HEADER_CHARS = 60;
 
+/** Pictures on one card; each past the first is its own message. */
+export const MAX_CARD_IMAGES = 10;
+
 /** A plain text message, which is where every fallback lands. */
 export const TEXT_CHARS = 4096;

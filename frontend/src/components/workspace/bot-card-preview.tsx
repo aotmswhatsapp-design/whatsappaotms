@@ -46,10 +46,13 @@ export function shapeNote(card: BotCard): string {
   const buttons = shownButtons(card).length;
 
   switch (shapeOfCard(card)) {
-    case "text":
-      return card.imageUrl
-        ? "The picture is not sent: a card with no buttons arrives as plain text, because an image with nothing to tap leaves the customer no way to choose. Add a button and the picture becomes its header."
+    case "text": {
+      const pictures = card.imageUrls.length;
+
+      return pictures > 0
+        ? `The card arrives as plain text because it has no buttons; ${pictures === 1 ? "its picture is" : `its ${pictures} pictures are`} sent first, each as its own message.`
         : "Arrives as plain text: a card with no buttons has nothing to tap.";
+    }
     case "buttons":
       return `Arrives with ${buttons} reply ${buttons === 1 ? "button" : "buttons"}.`;
     case "list":
@@ -82,7 +85,8 @@ export function BotCardPreview({
   const buttons = shownButtons(card);
   const title = card.title.trim();
   const info = card.info.trim();
-  const nothing = !title && !info && buttons.length === 0 && !card.imageUrl;
+  const nothing =
+    !title && !info && buttons.length === 0 && card.imageUrls.length === 0;
 
   return (
     <div
@@ -140,7 +144,8 @@ export function BotCardPreview({
           //
           // The picture is drawn even when the card has no buttons, so picking
           // one always shows what was picked; `shapeNote` says plainly that
-          // such a card still arrives as plain text.
+          // such a card still arrives as plain text, with the pictures sent
+          // ahead of it.
           <BotCardBody
             card={card}
             className="ml-auto w-[260px] max-w-full rounded-tr-none"
@@ -194,16 +199,25 @@ export function BotCardBody({
         className,
       )}
     >
-      {card.imageUrl ? (
-        // Meta fetches this URL from its own servers, so it is not a local
-        // path and `next/image` would need a remote pattern for an origin we
-        // do not control.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          alt=""
-          className="block aspect-[1.91/1] w-full object-cover"
-          src={card.imageUrl}
-        />
+      {card.imageUrls.length > 0 ? (
+        <div className="relative">
+          {/* Meta fetches this URL from its own servers, so it is not a local
+              path and `next/image` would need a remote pattern for an origin
+              we do not control. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            className="block aspect-[1.91/1] w-full object-cover"
+            src={card.imageUrls[0]}
+          />
+          {card.imageUrls.length > 1 ? (
+            // The rest are not drawn: WhatsApp has no album, so they arrive as
+            // their own image messages. The count is what says so on screen.
+            <span className="absolute right-1.5 bottom-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white tabular-nums">
+              +{card.imageUrls.length - 1}
+            </span>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="px-2.5 pt-2 pb-1.5">

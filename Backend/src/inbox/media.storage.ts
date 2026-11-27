@@ -160,6 +160,30 @@ export class MediaStorage {
   }
 
   /**
+   * The object path inside one of this bucket's public addresses, or null for
+   * a URL somebody else serves.
+   *
+   * A card picture is written into the flow as a public URL, so re-reading the
+   * path from it is what lets the sent message keep a stored copy: the thread
+   * draws media through a signed link, and a row with no path would claim the
+   * picture is gone. A pasted address from elsewhere answers null, and the row
+   * keeps the link instead.
+   */
+  pathInPublicUrl(url: string): string | null {
+    const { base } = this;
+
+    if (!this.isPublic || !base) return null;
+
+    const prefix = `${base}/storage/v1/object/public/${this.bucket}/`;
+
+    if (!url.startsWith(prefix)) return null;
+
+    const path = url.slice(prefix.length).split(/[?#]/u)[0];
+
+    return path.length > 0 ? path : null;
+  }
+
+  /**
    * The object's bytes, read back with the service key.
    *
    * This is what lets a template sample be re-sent to Meta on a retry: our copy

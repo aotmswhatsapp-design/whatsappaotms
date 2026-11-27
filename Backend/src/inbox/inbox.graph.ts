@@ -123,6 +123,44 @@ export class InboxGraph {
   }
 
   /**
+   * One picture, by public link.
+   *
+   * A card picture already lives on a public bucket, because Meta fetches it
+   * whenever the card is shown; sending it by `link` reuses that address
+   * instead of uploading a second copy only to get a media id.
+   */
+  async sendImageLink(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    link: string;
+    caption: string | null;
+    contextWamid: string | null;
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "image",
+          image: {
+            link: input.link,
+            ...(input.caption ? { caption: input.caption } : {}),
+          },
+          ...contextOf(input.contextWamid),
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
+  /**
    * A template message. The components are already in Meta's send shape, so
    * this only wraps them: the same rules that built them at creation decide
    * what a customer sees.

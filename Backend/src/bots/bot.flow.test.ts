@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { BotAction, BotCard, BotButton, BotFlow, BotRule } from "./bot.card";
 import { emptyFlow, flowProblem, MAX_CARDS } from "./bot.flow";
+import { MAX_CARD_IMAGES } from "./bot.limits";
 
 const button = (id: string, label: string, action: BotAction): BotButton => ({
   id,
@@ -13,7 +14,7 @@ const button = (id: string, label: string, action: BotAction): BotButton => ({
 const card = (id: string, buttons: BotButton[] = []): BotCard => ({
   id,
   title: id,
-  imageUrl: null,
+  imageUrls: [],
   info: "Dosa 80.",
   buttons,
 });
@@ -123,4 +124,26 @@ test("a body longer than a WhatsApp message is refused", () => {
   long.info = "x".repeat(1025);
 
   assert.match(flowProblem(flow([long])) ?? "", /longer than 1024 characters/);
+});
+
+test("one picture more than the limit is refused with the limit", () => {
+  const loaded = card("c-root");
+
+  loaded.imageUrls = Array.from(
+    { length: MAX_CARD_IMAGES + 1 },
+    (_, at) => `https://example.test/${at}.jpg`,
+  );
+
+  assert.match(
+    flowProblem(flow([loaded])) ?? "",
+    new RegExp(`at most ${MAX_CARD_IMAGES}`),
+  );
+});
+
+test("the same picture twice on one card is refused, not silently deduplicated", () => {
+  const twice = card("c-root");
+
+  twice.imageUrls = ["https://example.test/one.jpg", "https://example.test/one.jpg"];
+
+  assert.match(flowProblem(flow([twice])) ?? "", /same picture twice/);
 });

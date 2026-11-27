@@ -1,5 +1,5 @@
 import type { BotCard, BotFlow, BotRule } from "./bot.card";
-import { BODY_CHARS, MAX_LIST_ROWS, TEXT_CHARS } from "./bot.limits";
+import { BODY_CHARS, MAX_CARD_IMAGES, MAX_LIST_ROWS, TEXT_CHARS } from "./bot.limits";
 import { wordsOf } from "./bot.rules";
 
 /**
@@ -97,6 +97,24 @@ function cardProblem(card: BotCard, cardIds: Set<string>): string | null {
 
   if (card.info.length > BODY_CHARS) {
     return `"${named}" is longer than ${BODY_CHARS} characters.`;
+  }
+
+  // Each picture past the first is a message of its own, so the cap is what
+  // keeps one card from becoming a wall of bubbles. Refused here rather than
+  // clipped: silently dropping the eleventh picture would leave the owner
+  // believing it was attached.
+  if (card.imageUrls.length > MAX_CARD_IMAGES) {
+    return `"${named}" shows ${card.imageUrls.length} pictures; a card can show at most ${MAX_CARD_IMAGES}.`;
+  }
+
+  const pictures = new Set<string>();
+
+  for (const url of card.imageUrls) {
+    if (pictures.has(url)) {
+      return `"${named}" shows the same picture twice.`;
+    }
+
+    pictures.add(url);
   }
 
   const buttonIds = new Set<string>();

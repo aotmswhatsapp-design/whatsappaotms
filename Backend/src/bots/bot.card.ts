@@ -1,6 +1,10 @@
 /**
- * A bot is a tree of cards. One card is one message: an optional picture, the
- * information the business wants to give, and the buttons that lead on from it.
+ * A bot is a tree of cards. One card is one step: its pictures, the information
+ * the business wants to give, and the buttons that lead on from it.
+ *
+ * A card can therefore leave as several WhatsApp messages — the Cloud API has
+ * no album, so every picture past the first is sent on its own — but the card
+ * is still the unit the owner edits and a tap is routed by.
  *
  * Deliberately just data. Nothing here knows about Prisma, WhatsApp or HTTP, so
  * the renderer and the router can be exercised without either, and the stored
@@ -33,10 +37,17 @@ export interface BotButton {
 
 export interface BotCard {
   id: string;
-  /** The card's own name, shown as the header when the card has no image. */
+  /** The card's own name, shown as the header when the card has no pictures. */
   title: string;
-  /** A public URL. Meta fetches it, so it cannot be a local path. */
-  imageUrl: string | null;
+  /**
+   * Public URLs, in the order the customer receives them.
+   *
+   * Meta fetches each one, so none can be a local path. A list rather than a
+   * single picture because WhatsApp has no album: one picture can be an
+   * interactive header, and everything past it travels as its own image
+   * message. The first entry is the card's cover.
+   */
+  imageUrls: string[];
   /** The information itself: the body of the message. */
   info: string;
   /** In the order the customer sees them, which is also the order they number in. */

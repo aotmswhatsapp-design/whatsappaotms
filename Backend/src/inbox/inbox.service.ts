@@ -328,7 +328,7 @@ export class InboxService {
   }
 
   /**
-   * One card of a flow: the picture, the information, and the buttons.
+   * One card of a flow: the pictures, the information, and the buttons.
    *
    * The flow arrives with the request, even though the agent has a saved one in
    * `bot_flows`. That is the point: the copy stored in `messages.payload` is the
@@ -337,6 +337,10 @@ export class InboxService {
    * read by `snapshotIn` — the same function that reads it back out of
    * `messages.payload` — so what the customer saw and what a later tap is routed
    * against are the same object.
+   *
+   * The answer carries the pictures as their own messages, in order, because a
+   * card is several WhatsApp messages whenever it shows more than one: the
+   * thread has to append them before the card, not discover them on reload.
    *
    * Deliberately does not pause the agent, unlike a text reply. A human sending
    * a menu is not taking the thread over; the taps under that menu are the
@@ -347,7 +351,7 @@ export class InboxService {
     claims: AuthClaims,
     id: string,
     dto: SendCardDto,
-  ): Promise<{ message: MessageView }> {
+  ): Promise<{ message: MessageView; photos: MessageView[] }> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
     const { conversationId, waId, account } = await this.forSending(workspaceId, id);
 
@@ -363,17 +367,15 @@ export class InboxService {
       throw new BadRequestException("That card is not part of the flow.");
     }
 
-    return {
-      message: await this.sender.interactive({
-        workspaceId,
-        conversationId,
-        waId,
-        account,
-        flow: snapshot.flow,
-        card,
-        quote: await this.quoteOf(conversationId, dto.quotedMessageId),
-      }),
-    };
+    return this.sender.interactive({
+      workspaceId,
+      conversationId,
+      waId,
+      account,
+      flow: snapshot.flow,
+      card,
+      quote: await this.quoteOf(conversationId, dto.quotedMessageId),
+    });
   }
 
   async sendMedia(

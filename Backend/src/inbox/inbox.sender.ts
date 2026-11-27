@@ -11,7 +11,7 @@ import {
 import type { MessageKind, Prisma } from "@prisma/client";
 
 import type { BotCard, BotFlow } from "../bots/bot.card";
-import { renderCard } from "../bots/bot.render";
+import { deliverCard } from "../bots/bot.render";
 import { snapshotOf } from "../bots/bot.snapshot";
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
@@ -127,11 +127,11 @@ export class InboxSender {
   }
 
   /**
-   * A card: the information, the picture, and the buttons under them.
+   * A card: the pictures, the information, and the buttons under them.
    *
    * The message is rendered here rather than passed in, so what is stored and
    * what Meta receives can never disagree about the ladder — three buttons, a
-   * list, or numbered text.
+   * list, or numbered text — or about how many messages the card becomes.
    *
    * `payload` keeps the whole flow as it stood, not just the card that went out.
    * A tap is then answered from the payload: the next card is already in it, so
@@ -147,8 +147,28 @@ export class InboxSender {
       quote: Quote | null;
       agentId?: string;
     },
-  ): Promise<MessageView> {
-    const rendered = renderCard(input.card);
+  ): Promise<{ message: MessageView; photos: MessageView[] }> {
+    const delivery = deliverCard(input.card);
+
+    // Pictures first, in order: the card is the last bubble, so the buttons the
+    // customer is meant to tap sit under the photos rather than above them.
+    // Each is a message of its own because WhatsApp has no album.
+    const photos: MessageView[] = [];
+
+    for (const link of delivery.photos) {
+      const sent = await this.photo({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        waId: input.waId,
+        account: input.account,
+        link,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      });
+
+      if (sent) photos.push(sent);
+    }
+
+    const rendered = delivery.message;
 
     const row = await this.prisma.message.create({
       data: {
@@ -201,10 +221,69 @@ export class InboxSender {
         previewOf(rendered.body, `Card · ${input.card.title}`),
       );
 
-      return messageView(saved, quoteIndex(input.quote));
+      return { message: messageView(saved, quoteIndex(input.quote)), photos };
     } catch (error) {
       await this.markFailed(row.id, error);
       throw toHttp(error);
+    }
+  }
+
+  /**
+   * One card picture as its own message.
+   *
+   * Its row is written before Meta is called, like every other send. A failed
+   * picture never stops the card that follows it — the customer still needs the
+   * buttons — and the row carries Meta's own sentence, so the thread can say
+   * what happened instead of hiding it.
+   */
+  private async photo(
+    input: SendTarget & { link: string; agentId?: string },
+  ): Promise<MessageView | null> {
+    const path = this.storage.pathInPublicUrl(input.link);
+
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: "IMAGE",
+        status: "QUEUED",
+        // Our own uploads are always the optimised JPEG, so the thread can sign
+        // the stored copy. A pasted address from elsewhere has no path here;
+        // the link travels in `payload` and the bubble reads it from there.
+        ...(path ? { mediaPath: path, mediaMime: "image/jpeg" } : {}),
+        payload: { image: { link: input.link } } as Prisma.InputJsonValue,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid = await this.graph.sendImageLink({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        to: input.waId,
+        link: input.link,
+        caption: null,
+        contextWamid: null,
+      });
+
+      const sentAt = new Date();
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt },
+        select: MESSAGE_SELECT,
+      });
+
+      await this.bump(input.conversationId, sentAt, "Photo");
+
+      return messageView(saved);
+    } catch (error) {
+      this.logger.warn(`A card picture was not delivered: ${reasonOf(error)}`);
+
+      return this.markFailed(row.id, error);
     }
   }
 
@@ -732,13 +811,19 @@ export class InboxSender {
     return this.box.open(account.accessTokenCipher);
   }
 
-  private async markFailed(messageId: string, error: unknown): Promise<void> {
-    await this.prisma.message
+  private async markFailed(
+    messageId: string,
+    error: unknown,
+  ): Promise<MessageView | null> {
+    const failed = await this.prisma.message
       .update({
         where: { id: messageId },
         data: { status: "FAILED", errorReason: reasonOf(error) },
+        select: MESSAGE_SELECT,
       })
-      .catch(() => undefined);
+      .catch(() => null);
+
+    return failed ? messageView(failed) : null;
   }
 
   /** Keeps the queue ordered by what was said last. */

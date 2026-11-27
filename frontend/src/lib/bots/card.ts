@@ -34,10 +34,17 @@ export interface BotButton {
 
 export interface BotCard {
   id: string;
-  /** The card's own name, shown as the header when the card has no image. */
+  /** The card's own name, shown as the header when the card has no pictures. */
   title: string;
-  /** A public URL. Meta fetches it, so it cannot be a local path. */
-  imageUrl: string | null;
+  /**
+   * Public URLs, in the order the customer receives them.
+   *
+   * WhatsApp has no album: one picture and an interactive card means the
+   * picture is that bubble's header, and everything else travels as its own
+   * image message before the card. Meta fetches these, so none may be a
+   * local path.
+   */
+  imageUrls: string[];
   /** The information itself: the body of the message. */
   info: string;
   /** In the order the customer sees them. */
@@ -96,7 +103,7 @@ export function newCard(): BotCard {
   return {
     id: newBotId("card"),
     title: "",
-    imageUrl: null,
+    imageUrls: [],
     info: "",
     buttons: [],
   };

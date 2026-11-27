@@ -7,7 +7,6 @@ import { ChevronDown, Loader2, SendHorizontal } from "lucide-react";
 import {
   BotCardPreview,
   shapeNote,
-  shapeOfCard,
 } from "@/components/workspace/bot-card-preview";
 import type { BotFlow } from "@/lib/bots/card";
 
@@ -46,7 +45,8 @@ export function CardPanel({
   locked: boolean;
   quotedMessageId?: string | null;
   onModeChange: (mode: ComposerMode) => void;
-  onSent: (message: InboxMessage) => void;
+  /** The card itself, then any pictures sent ahead of it, in delivery order. */
+  onSent: (message: InboxMessage, photos?: InboxMessage[]) => void;
   /** Clears the composer's quote, the way a sent sentence does. */
   onSentQuote?: () => void;
 }) {
@@ -140,14 +140,14 @@ export function CardPanel({
     setError(null);
 
     try {
-      const { message } = await sendCard(
+      const { message, photos } = await sendCard(
         conversation.id,
         flow,
         card.id,
         quotedMessageId,
       );
 
-      onSent(message);
+      onSent(message, photos);
       onSentQuote?.();
       onModeChange("reply");
     } catch (cause) {
@@ -275,10 +275,10 @@ export function CardPanel({
             Preview
           </p>
           <BotCardPreview card={card} />
-          {/* The bubble draws the card's picture even though a card with no
-              buttons is sent as plain text; saying so keeps the preview from
-              promising an image that will not arrive. */}
-          {card.imageUrl && shapeOfCard(card) === "text" ? (
+          {/* The bubble draws the card's cover even though the rest of the
+              pictures arrive as their own messages; saying so keeps the
+              preview from promising an album WhatsApp does not have. */}
+          {card.imageUrls.length > 0 ? (
             <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
               {shapeNote(card)}
             </p>

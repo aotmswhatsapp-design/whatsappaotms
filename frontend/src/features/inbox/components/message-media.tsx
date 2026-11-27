@@ -29,6 +29,16 @@ import { formatBytes } from "../format";
 export function MessageMedia({ message }: { message: InboxMessage }) {
   const available = message.media?.available ?? false;
 
+  /**
+   * A picture we sent by pasting somebody else's address has no copy in our
+   * bucket, so there is nothing to sign. The bubble draws the address itself;
+   * without this the thread would claim a picture it just sent is gone.
+   */
+  const pasted =
+    message.kind === "IMAGE" && message.payload?.kind === "image"
+      ? message.payload.link
+      : null;
+
   const [link, setLink] = React.useState<MediaLink | null>(null);
   const [failure, setFailure] = React.useState<string | null>(null);
 
@@ -54,6 +64,25 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
   }, [message.id, available]);
 
   if (!available) {
+    if (pasted) {
+      return (
+        <a
+          href={pasted}
+          target="_blank"
+          rel="noreferrer"
+          className="block"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={pasted}
+            alt="Image attachment"
+            className="max-h-64 w-auto max-w-full rounded-lg"
+            loading="lazy"
+          />
+        </a>
+      );
+    }
+
     return (
       <p className="text-[13px] text-muted-foreground">
         {message.media?.name ?? "This attachment"} is no longer available from

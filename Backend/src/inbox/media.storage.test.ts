@@ -16,6 +16,9 @@ const CONFIG = {
 
 const storage = () => new MediaStorage(CONFIG as never, "agent-sources");
 
+const publicStorage = () =>
+  new MediaStorage(CONFIG as never, { name: "bot-media", public: true });
+
 /** The timeout `AbortSignal.timeout` produces, without waiting 30 s for it. */
 const timedOut = () =>
   Object.assign(new Error("The operation was aborted due to timeout"), {
@@ -103,4 +106,47 @@ test("a best-effort delete logs a timeout and returns", async () => {
   );
 
   assert.equal(media.configured, true);
+});
+
+test("a public address of this bucket reads back to its object path", () => {
+  const media = publicStorage();
+
+  assert.equal(
+    media.pathInPublicUrl(
+      "https://storage.test/storage/v1/object/public/bot-media/bots/ws-a/agent-1/one.jpg",
+    ),
+    "bots/ws-a/agent-1/one.jpg",
+  );
+});
+
+test("a cache-busting query never becomes part of the object path", () => {
+  const media = publicStorage();
+
+  assert.equal(
+    media.pathInPublicUrl(
+      "https://storage.test/storage/v1/object/public/bot-media/bots/one.jpg?v=2",
+    ),
+    "bots/one.jpg",
+  );
+});
+
+test("an address somebody else serves is not this bucket's path", () => {
+  const media = publicStorage();
+
+  assert.equal(media.pathInPublicUrl("https://example.com/one.jpg"), null);
+  assert.equal(
+    media.pathInPublicUrl(
+      "https://storage.test/storage/v1/object/public/other-bucket/one.jpg",
+    ),
+    null,
+  );
+});
+
+test("a private bucket has no public address to read a path from", () => {
+  assert.equal(
+    storage().pathInPublicUrl(
+      "https://storage.test/storage/v1/object/public/agent-sources/a/b.pdf",
+    ),
+    null,
+  );
 });

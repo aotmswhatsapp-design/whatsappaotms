@@ -38,13 +38,49 @@ export type Rendered =
   /** Everything a text message can carry, buttons numbered inside it. */
   | { kind: "text"; body: string };
 
+/**
+ * A card as it actually leaves the number.
+ *
+ * WhatsApp has no album: an interactive header holds one picture, and every
+ * other picture has to be a message of its own. This is the one place that
+ * decision is made, so the sender only iterates and the builder can say the
+ * same thing without duplicating the rule.
+ */
+export interface CardDelivery {
+  /** Pictures to send as their own image messages, in the order given. */
+  photos: string[];
+  /** The card message itself, sent after them. */
+  message: Rendered;
+}
+
+export function deliverCard(card: BotCard): CardDelivery {
+  const photos = card.imageUrls.filter((url) => url.trim().length > 0);
+  const rendered = renderCard(card);
+
+  // One picture and something to tap: the picture is the bubble's header,
+  // exactly as a card has always looked.
+  if (photos.length === 0 || (photos.length === 1 && rendered.kind !== "text")) {
+    return { photos: [], message: rendered };
+  }
+
+  // Everything else: the pictures arrive first, one message each, and the card
+  // follows with a text header so no picture is shown twice. A card with no
+  // buttons is in this branch too — its picture used to be dropped entirely,
+  // which is indefensible once a card can carry several.
+  return { photos, message: renderCard(card, "title") };
+}
+
 /** Copy, not business information: this is the label on the list's opener. */
 export const LIST_OPEN_LABEL = "See options";
 
 /** Copy, not business information: the line that tells a customer how to answer. */
 export const NUMBERED_HINT = "Reply with a number.";
 
-export function renderCard(card: BotCard): Rendered {
+export function renderCard(
+  card: BotCard,
+  /** `title` forces the text header, for a card whose pictures travel alone. */
+  header: "photo" | "title" = "photo",
+): Rendered {
   const buttons = shownButtons(card);
   const info = clip(card.info.trim(), TEXT_CHARS);
 
@@ -54,7 +90,7 @@ export function renderCard(card: BotCard): Rendered {
     return { kind: "text", body: info.length > 0 ? info : card.title.trim() };
   }
 
-  const header = headerOf(card);
+  const heading = headerOf(card, header);
 
   if (buttons.length <= MAX_BUTTONS) {
     return {
@@ -62,7 +98,7 @@ export function renderCard(card: BotCard): Rendered {
       body: info,
       interactive: {
         type: "button",
-        ...(header ? { header } : {}),
+        ...(heading ? { header: heading } : {}),
         body: { text: bodyText(info, card) },
         action: {
           buttons: buttons.map((button) => ({
@@ -82,7 +118,7 @@ export function renderCard(card: BotCard): Rendered {
       body: info,
       interactive: {
         type: "list",
-        ...(header ? { header } : {}),
+        ...(heading ? { header: heading } : {}),
         body: { text: bodyText(info, card) },
         action: {
           button: fit(LIST_OPEN_LABEL, LIST_BUTTON_LABEL),
@@ -111,10 +147,17 @@ function bodyText(info: string, card: BotCard): string {
   return fit(card.title, BODY_CHARS) || card.title.slice(0, BODY_CHARS);
 }
 
-function headerOf(card: BotCard): InteractiveMessage["header"] | null {
-  if (card.imageUrl) return { type: "image", image: { link: card.imageUrl } };
+function headerOf(
+  card: BotCard,
+  mode: "photo" | "title",
+): InteractiveMessage["header"] | null {
+  // `title` is used when the pictures travel as their own messages: putting
+  // one of them here would show the same picture twice.
+  const picture = mode === "photo" ? card.imageUrls[0] : undefined;
 
-  // No picture: the card's name becomes a text header, which is where a menu
+  if (picture) return { type: "image", image: { link: picture } };
+
+  // Otherwise the card's name becomes a text header, which is where a menu
   // heading belongs. Omitted entirely when there is nothing to say.
   const title = fit(card.title, HEADER_CHARS);
 
