@@ -144,3 +144,68 @@ test("the quoted message of a tap is kept, so the card it answered can be found"
 
   assert.equal(message.contextWamid, "wamid.card");
 });
+
+/** The coexistence shape: the business is `from`, the customer is `to`. */
+const echoDelivery = (message: Record<string, unknown>) => ({
+  object: "whatsapp_business_account",
+  entry: [
+    {
+      id: "waba-1",
+      changes: [
+        {
+          field: "smb_message_echoes",
+          value: {
+            messaging_product: "whatsapp",
+            metadata: {
+              display_phone_number: "919900000000",
+              phone_number_id: "pn-1",
+            },
+            contacts: [{ wa_id: "919800000000" }],
+            message_echoes: [message],
+          },
+        },
+      ],
+    },
+  ],
+});
+
+test("a reply sent from the WhatsApp Business app is kept, keyed by the customer", () => {
+  const [change] = parseDelivery(
+    echoDelivery({
+      from: "919900000000",
+      to: "919800000000",
+      id: "wamid.echo",
+      timestamp: "1700000000",
+      type: "text",
+      text: { body: "On my way" },
+    }),
+  );
+
+  assert.ok(change, "the echo produced no change");
+  assert.equal(change.messages.length, 0, "an echo is not an inbound message");
+  assert.equal(change.echoes.length, 1);
+
+  const [echo] = change.echoes;
+
+  // The store keys contacts and threads by the other party, which is the
+  // customer here — reading `from` would file the business under its own name.
+  assert.equal(echo.from, "919800000000");
+  assert.equal(echo.body, "On my way");
+  assert.equal(echo.kind, "TEXT");
+});
+
+test("an echo Meta sent without the customer's number is skipped, not guessed", () => {
+  const [change] = parseDelivery(
+    echoDelivery({
+      from: "919900000000",
+      to_user_id: "bsuid.123",
+      id: "wamid.echo",
+      timestamp: "1700000000",
+      type: "text",
+      text: { body: "On my way" },
+    }),
+  );
+
+  assert.ok(change, "the contacts in the delivery still count");
+  assert.equal(change.echoes.length, 0);
+});

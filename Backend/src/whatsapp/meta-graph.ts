@@ -83,6 +83,11 @@ export interface PhoneNumberDetails {
   verified_name?: string;
   quality_rating?: string;
   platform_type?: string;
+  /**
+   * True when the number is also in use in the WhatsApp Business app
+   * (coexistence). Messages sent there reach us as `message_echoes`.
+   */
+  is_on_biz_app?: boolean;
 }
 
 export interface BusinessDetails {
@@ -308,7 +313,7 @@ export class MetaGraph {
     return this.get<PhoneNumberDetails>(
       version,
       phoneNumberId,
-      "id,display_phone_number,verified_name,quality_rating,platform_type",
+      "id,display_phone_number,verified_name,quality_rating,platform_type,is_on_biz_app",
       token,
     );
   }

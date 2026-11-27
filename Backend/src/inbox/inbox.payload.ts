@@ -51,7 +51,13 @@ export type ParsedContents =
 
 export interface ParsedMessage {
   wamid: string;
-  /** The customer's number, digits only. */
+  /**
+   * The *customer's* number, digits only.
+   *
+   * On an echo — a message the business sent from the WhatsApp Business app —
+   * Meta puts the customer in `to`, so the parser reads that field instead and
+   * the store's thread keying works unchanged.
+   */
   from: string;
   timestamp: Date;
   kind: MessageKind;
@@ -78,6 +84,11 @@ export interface ParsedChange {
   phoneNumberId: string;
   contacts: ParsedContact[];
   messages: ParsedMessage[];
+  /**
+   * What the business sent from the WhatsApp Business app (coexistence).
+   * `from` holds the customer they wrote to, not the business.
+   */
+  echoes: ParsedMessage[];
   statuses: ParsedStatus[];
 }
 
@@ -166,6 +177,21 @@ export function parseDelivery(payload: unknown): ParsedChange[] {
         }
       }
 
+      // Coexistence: the business still answers customers from the WhatsApp
+      // Business app, and every one of those sends arrives here as an echo.
+      // Dropping them would leave the inbox showing only one side of a
+      // conversation the customer can see in full — and invite a second answer
+      // to a question already answered.
+      const echoes: ParsedMessage[] = [];
+
+      if (Array.isArray(value?.message_echoes)) {
+        for (const message of value.message_echoes) {
+          const parsed = parseMessage(message, "to");
+
+          if (parsed) echoes.push(parsed);
+        }
+      }
+
       const statuses: ParsedStatus[] = [];
 
       if (Array.isArray(value?.statuses)) {
@@ -176,21 +202,29 @@ export function parseDelivery(payload: unknown): ParsedChange[] {
         }
       }
 
-      if (messages.length === 0 && statuses.length === 0 && contacts.length === 0) {
+      if (
+        messages.length === 0 &&
+        echoes.length === 0 &&
+        statuses.length === 0 &&
+        contacts.length === 0
+      ) {
         continue;
       }
 
-      changes.push({ phoneNumberId, contacts, messages, statuses });
+      changes.push({ phoneNumberId, contacts, messages, echoes, statuses });
     }
   }
 
   return changes;
 }
 
-function parseMessage(input: unknown): ParsedMessage | null {
+function parseMessage(
+  input: unknown,
+  counterparty: "from" | "to" = "from",
+): ParsedMessage | null {
   const message = objectAt(input);
   const wamid = stringAt(message?.id);
-  const from = stringAt(message?.from);
+  const from = stringAt(message?.[counterparty]);
   const type = stringAt(message?.type);
 
   if (!message || !wamid || !from || !type) return null;

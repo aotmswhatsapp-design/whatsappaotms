@@ -46,7 +46,17 @@ declare global {
 
 /** What the dialog produced, or one sentence to show under the button. */
 export type SignupResult =
-  | { ok: true; code: string; wabaId: string; phoneNumberId: string }
+  | {
+      ok: true;
+      code: string;
+      wabaId: string;
+      /**
+       * Absent on a coexistence finish — a number that stays in use in the
+       * WhatsApp Business app. Meta reports only the business account there,
+       * and the server resolves the number from it.
+       */
+      phoneNumberId?: string;
+    }
   | { ok: false; message: string };
 
 let loader: Promise<void> | null = null;
@@ -147,9 +157,15 @@ export function runEmbeddedSignup(input: {
       resolve(result);
     };
 
-    /** Resolves once both halves exist, whichever order Meta sends them in. */
+    /**
+     * Resolves once both halves exist, whichever order Meta sends them in.
+     *
+     * The number is not required: a coexistence finish ends with the business
+     * account alone, and waiting for a number that will never arrive would
+     * reject a setup Meta has already completed.
+     */
     const settleIfComplete = () => {
-      if (!pendingCode || !chosen.wabaId || !chosen.phoneNumberId) return;
+      if (!pendingCode || !chosen.wabaId) return;
 
       settle({
         ok: true,
@@ -240,15 +256,16 @@ export function runEmbeddedSignup(input: {
           return;
         }
 
-        if (!chosen.wabaId || !chosen.phoneNumberId) {
+        if (!chosen.wabaId) {
           // The ids may still be in flight; give the FINISH message a moment
-          // before calling the setup incomplete.
+          // before calling the setup incomplete. Only the business account is
+          // required — the number can legitimately never arrive.
           pendingCode = code;
           idsTimer = window.setTimeout(() => {
             settle({
               ok: false,
               message:
-                "Meta did not report which business and number you chose. Run the setup again and finish every step.",
+                "Meta did not report which business account you chose. Run the setup again and finish every step.",
             });
           }, IDS_GRACE_MS);
           return;
@@ -265,9 +282,16 @@ export function runEmbeddedSignup(input: {
         config_id: input.configId,
         response_type: "code",
         override_default_response_type: true,
-        // v4 only. `featureType` and `sessionInfoVersion` belonged to the v2
-        // launch shape, which Meta retired on 15 October 2026.
-        extras: { setup: {} },
+        extras: {
+          setup: {},
+          // Coexistence: the screen Meta opens then offers "connect your
+          // existing WhatsApp Business app account" alongside the normal
+          // paths, and finishes with the business account alone. Without this
+          // the dialog cannot onboard a number that is already on the app.
+          featureType: "whatsapp_business_app_onboarding",
+          // The shape of the `WA_EMBEDDED_SIGNUP` messages this listener reads.
+          sessionInfoVersion: "3",
+        },
       },
     );
   });

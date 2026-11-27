@@ -278,6 +278,10 @@ const LABELS: Record<CheckKey, string> = {
 const UNREADABLE_SECRET =
   "The stored credentials can no longer be decrypted — the encryption key changed. Reconnect.";
 
+/** Why a one-click connection needs nothing pasted into Meta's console. */
+const DIRECT_DELIVERY =
+  "Meta delivers events here directly — there is nothing to paste into Meta's console.";
+
 /**
  * Everything the API discloses about a stored row. The cipher columns stay
  * server-side; what leaves is a last-four hint, which is enough for a human to
@@ -655,13 +659,15 @@ export class WhatsAppService {
       );
     }
 
-    if (!owned.includes(input.phoneNumberId)) {
+    const phoneNumberId = input.phoneNumberId ?? this.onlyOwned(owned);
+
+    if (!owned.includes(phoneNumberId)) {
       throw new BadRequestException(
         "That phone number is not part of the WhatsApp Business account you authorised. Pick a number from inside the account and try again.",
       );
     }
 
-    const phone = await this.readPhone(version, input.phoneNumberId, token);
+    const phone = await this.readPhone(version, phoneNumberId, token);
     const businessName = await this.readBusinessName(version, input.wabaId, token);
 
     try {
@@ -680,7 +686,7 @@ export class WhatsAppService {
     const verifiedAt = new Date();
 
     const values = {
-      phoneNumberId: input.phoneNumberId,
+      phoneNumberId,
       businessAccountId: input.wabaId,
       graphVersion: version,
       appId: app.appId,
@@ -706,23 +712,44 @@ export class WhatsAppService {
       webhookVerifiedAt: verifiedAt,
     } as const;
 
-    const previous = await this.heldNumber(input.phoneNumberId, workspaceId);
+    const previous = await this.heldNumber(phoneNumberId, workspaceId);
 
     const isDefault = await this.seedsDefault(workspaceId, previous !== null);
 
     const row = await this.prisma.whatsAppAccount.upsert({
-      where: { phoneNumberId: input.phoneNumberId },
+      where: { phoneNumberId },
       create: { userId, workspaceId, isDefault, ...values },
       update: values,
       select: ACCOUNT_SELECT,
     });
 
-    const number = phone.display_phone_number ?? `id ${input.phoneNumberId}`;
+    const number = phone.display_phone_number ?? `id ${phoneNumberId}`;
 
     return {
       account: this.toPublic(row),
-      summary: `Connected ${number}. Meta delivers events here directly — there is nothing to paste into Meta's console.`,
+      summary: phone.is_on_biz_app
+        ? `Connected ${number}. It stays usable in the WhatsApp Business app, and what you send there now appears in this inbox too. ${DIRECT_DELIVERY}`
+        : `Connected ${number}. ${DIRECT_DELIVERY}`,
     };
+  }
+
+  /**
+   * The number for a dialog that named none.
+   *
+   * A coexistence finish reports only the business account — the number is
+   * already in use in the WhatsApp Business app, so Meta does not return its
+   * id. An account with one number therefore names it unambiguously; an
+   * account with several does not, and guessing would write the wrong number
+   * into the workspace and route every customer to it.
+   */
+  private onlyOwned(owned: string[]): string {
+    if (owned.length === 1) return owned[0];
+
+    throw new BadRequestException(
+      owned.length === 0
+        ? "The account you authorised has no phone number in it. Add the number in the WhatsApp Business app and connect again."
+        : "The account you authorised has several numbers, and Meta did not say which one you connected. Connect the number again from its own settings in the WhatsApp Business app.",
+    );
   }
 
   /** Read-only: an account cannot exist before its user row does. */

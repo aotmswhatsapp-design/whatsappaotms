@@ -118,8 +118,9 @@ export function EmbeddedSignup({
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
             Sign in to Facebook and pick your WhatsApp Business account and
-            number. Meta verifies them and sends the result straight here — no
-            tokens, ids or callbacks to copy.
+            number — including one already in use in the WhatsApp Business app.
+            Meta verifies them and sends the result straight here: no tokens,
+            ids or callbacks to copy.
           </p>
         </div>
       </div>
@@ -129,6 +130,7 @@ export function EmbeddedSignup({
           "About a minute, and you can stop halfway without leaving anything half-connected.",
           "Meta keeps the credentials; this workspace only ever holds a reference.",
           "The connection is live the moment the window closes.",
+          "If you keep answering from the WhatsApp Business app, what you send there appears in this inbox too.",
         ].map((line) => (
           <li key={line} className="flex gap-2">
             <ShieldCheck

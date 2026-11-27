@@ -104,6 +104,12 @@ export class InboxStore {
       if (row) stored.push(row);
     }
 
+    // Echoes are written but not returned: see `storeEcho` for why nobody is
+    // waiting on them.
+    for (const echo of change.echoes) {
+      await this.storeEcho(account, change, echo);
+    }
+
     for (const status of change.statuses) {
       await this.applyStatus(status.wamid, status.status, status.error);
     }
@@ -118,21 +124,12 @@ export class InboxStore {
   ): Promise<StoredInbound | null> {
     const name = change.contacts.find((row) => row.waId === message.from);
 
-    const contact = await this.prisma.contact.upsert({
-      where: { workspaceId_waId: { workspaceId: account.workspaceId, waId: message.from } },
-      create: {
-        workspaceId: account.workspaceId,
-        waId: message.from,
-        profileName: name?.profileName ?? null,
-        phoneDisplay: message.from,
-        lastSeenAt: message.timestamp,
-      },
-      update: {
-        lastSeenAt: message.timestamp,
-        ...(name?.profileName ? { profileName: name.profileName } : {}),
-      },
-      select: { id: true },
-    });
+    const contact = await this.contactFor(
+      account,
+      message.from,
+      name?.profileName ?? null,
+      message.timestamp,
+    );
 
     const conversation = await this.prisma.conversation.upsert({
       where: { accountId_contactId: { accountId: account.id, contactId: contact.id } },
@@ -173,25 +170,7 @@ export class InboxStore {
     }
 
     const saved = await this.prisma.message.create({
-      data: {
-        workspaceId: account.workspaceId,
-        conversationId: conversation.id,
-        direction: "INBOUND",
-        kind: message.kind,
-        // Inbound needs no tick; "delivered" is the truthful terminal state.
-        status: "DELIVERED",
-        wamid: message.wamid,
-        body: message.body,
-        mediaId: message.mediaId,
-        mediaMime: message.mediaMime,
-        mediaName: message.mediaName,
-        mediaSha256: message.mediaSha256,
-        contextWamid: message.contextWamid,
-        ...(message.payload
-          ? { payload: message.payload as unknown as Prisma.InputJsonValue }
-          : {}),
-        createdAt: message.timestamp,
-      },
+      data: this.messageData(account, conversation.id, "INBOUND", "DELIVERED", message),
       select: { id: true },
     });
 
@@ -220,6 +199,126 @@ export class InboxStore {
       messageId: saved.id,
       kind: message.kind,
       body: message.body,
+    };
+  }
+
+  /** The customer identity a thread hangs from, created on first sight. */
+  private contactFor(
+    account: StoreAccount,
+    waId: string,
+    profileName: string | null,
+    at: Date,
+  ): Promise<{ id: string }> {
+    return this.prisma.contact.upsert({
+      where: { workspaceId_waId: { workspaceId: account.workspaceId, waId } },
+      create: {
+        workspaceId: account.workspaceId,
+        waId,
+        profileName,
+        phoneDisplay: waId,
+        lastSeenAt: at,
+      },
+      update: {
+        lastSeenAt: at,
+        // A customer can hide their profile name; keep the last one we saw.
+        ...(profileName ? { profileName } : {}),
+      },
+      select: { id: true },
+    });
+  }
+
+  /**
+   * A message the business sent from the WhatsApp Business app.
+   *
+   * Two rules make this different from an inbound write, and both come from
+   * Meta's coexistence documentation rather than from taste:
+   *
+   * - It is OUTBOUND and must not touch `lastInboundAt`. An app-sent message
+   *   neither creates nor extends the Cloud API customer-service window, so
+   *   moving that column would hand an agent a 24-hour window the API does not
+   *   actually have.
+   * - It is never unread and never returned to the caller. Nobody has to answer
+   *   their own message, and the reply pipeline would otherwise read it as a
+   *   customer asking something.
+   */
+  private async storeEcho(
+    account: StoreAccount,
+    change: ParsedChange,
+    echo: ParsedMessage,
+  ): Promise<void> {
+    const name = change.contacts.find((row) => row.waId === echo.from);
+
+    const contact = await this.contactFor(
+      account,
+      echo.from,
+      name?.profileName ?? null,
+      echo.timestamp,
+    );
+
+    const conversation = await this.prisma.conversation.upsert({
+      where: { accountId_contactId: { accountId: account.id, contactId: contact.id } },
+      create: {
+        workspaceId: account.workspaceId,
+        accountId: account.id,
+        contactId: contact.id,
+        lastMessageAt: echo.timestamp,
+        lastMessagePreview: preview(echo),
+        unreadCount: 0,
+      },
+      update: {},
+      select: { id: true, lastMessageAt: true },
+    });
+
+    const seen = await this.prisma.message.findUnique({
+      where: { wamid: echo.wamid },
+      select: { id: true },
+    });
+
+    if (seen) return;
+
+    await this.prisma.message.create({
+      data: this.messageData(account, conversation.id, "OUTBOUND", "SENT", echo),
+    });
+
+    // Same rule as inbound: an old retry must not drag the thread to the top.
+    if (echo.timestamp >= conversation.lastMessageAt) {
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: echo.timestamp,
+          lastMessagePreview: preview(echo),
+        },
+      });
+    }
+  }
+
+  /** The columns both directions write, so the two paths cannot drift apart. */
+  private messageData(
+    account: StoreAccount,
+    conversationId: string,
+    direction: "INBOUND" | "OUTBOUND",
+    status: "DELIVERED" | "SENT",
+    message: ParsedMessage,
+  ): Prisma.MessageUncheckedCreateInput {
+    return {
+      workspaceId: account.workspaceId,
+      conversationId,
+      direction,
+      kind: message.kind,
+      // Inbound needs no tick; "delivered" is the truthful terminal state. An
+      // echo has no delivery receipt at all, so "sent" is its last true one.
+      status,
+      wamid: message.wamid,
+      body: message.body,
+      mediaId: message.mediaId,
+      mediaMime: message.mediaMime,
+      mediaName: message.mediaName,
+      mediaSha256: message.mediaSha256,
+      contextWamid: message.contextWamid,
+      ...(message.payload
+        ? { payload: message.payload as unknown as Prisma.InputJsonValue }
+        : {}),
+      createdAt: message.timestamp,
     };
   }
 

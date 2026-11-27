@@ -234,7 +234,11 @@ export function fetchSignupConfig(): Promise<SignupConfig> {
 export interface EmbeddedSignupInput {
   code: string;
   wabaId: string;
-  phoneNumberId: string;
+  /**
+   * Absent when Meta finished with the business account alone — a number that
+   * stays in use in the WhatsApp Business app. The server resolves it then.
+   */
+  phoneNumberId?: string;
 }
 
 /**

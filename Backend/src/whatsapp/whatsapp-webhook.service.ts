@@ -14,6 +14,12 @@ import {
   wabaIds,
   type TemplateStatusEvent,
 } from "../templates/template-status";
+import {
+  accountEvents,
+  disconnectNote,
+  isDisconnect,
+  type AccountEvent,
+} from "./account-events";
 
 export type HandshakeOutcome =
   | { ok: true; challenge: string }
@@ -143,7 +149,16 @@ export class WhatsAppWebhookService {
 
     const numbers = phoneNumberIds(payload);
     const templateEvents = templateStatusEvents(payload);
-    const wabas = wabaIds(payload);
+    // An `account_update` names the customer's account in `value.waba_info`,
+    // because `entry[].id` is the partner's id there. Both are collected or a
+    // disconnection would never match a row.
+    const accountChanges = accountEvents(payload);
+    const wabas = [
+      ...new Set([
+        ...wabaIds(payload),
+        ...accountChanges.map((event) => event.wabaId),
+      ]),
+    ];
 
     if (numbers.length === 0 && wabas.length === 0) {
       this.logger.log("Webhook delivery named no number and no account; ignored.");
@@ -213,19 +228,26 @@ export class WhatsAppWebhookService {
         continue;
       }
 
-      // An account can be named by a template event alone, in which case there
-      // is no message to store.
+      // An account can be named by a template event or an account update
+      // alone, in which case there is no message to store.
       const receivedMessage = numbers.includes(account.phoneNumberId);
       const mine = templateEvents.filter(
         (event) => event.wabaId === account.businessAccountId,
       );
+      const updates = accountChanges.filter(
+        (event) => event.wabaId === account.businessAccountId,
+      );
 
-      if (!receivedMessage && mine.length === 0) continue;
+      if (!receivedMessage && mine.length === 0 && updates.length === 0) continue;
 
       await this.prisma.whatsAppAccount.update({
         where: { id: account.id },
         data: { lastEventAt: new Date(), eventCount: { increment: 1 } },
       });
+
+      if (updates.length > 0) {
+        await this.applyAccountEvents(account.id, updates);
+      }
 
       if (receivedMessage) {
         const stored = await this.store.record(
@@ -270,6 +292,49 @@ export class WhatsAppWebhookService {
 
       if (mine.length > 0) {
         await this.applyTemplateStatus(account.workspaceId, mine);
+      }
+    }
+  }
+
+  /**
+   * Meta telling us the connection itself changed state.
+   *
+   * A disconnection is written over the row rather than deleting it: the
+   * credentials stay for the owner to inspect, and `status: FAILED` is the
+   * state the connection screen already renders with a reason — so a number
+   * that silently stopped working finally says why. Nothing else in the app
+   * re-verifies a row without an owner action, which is why a reconnect is
+   * honoured too: otherwise a number would stay red forever after the customer
+   * fixed it on their side.
+   */
+  private async applyAccountEvents(
+    accountId: string,
+    events: AccountEvent[],
+  ): Promise<void> {
+    for (const event of events) {
+      if (isDisconnect(event)) {
+        await this.prisma.whatsAppAccount.update({
+          where: { id: accountId },
+          data: {
+            status: "FAILED",
+            failureReason: disconnectNote(event),
+            lastCheckAt: new Date(),
+          },
+        });
+
+        this.logger.warn(
+          `Account ${event.wabaId} reported ${event.event} (${event.reason ?? "no reason"}); marked unusable.`,
+        );
+        continue;
+      }
+
+      if (event.event === "ACCOUNT_RECONNECTED") {
+        await this.prisma.whatsAppAccount.update({
+          where: { id: accountId },
+          data: { status: "VERIFIED", failureReason: null },
+        });
+
+        this.logger.log(`Account ${event.wabaId} is connected again.`);
       }
     }
   }

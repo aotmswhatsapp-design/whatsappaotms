@@ -1,5 +1,11 @@
 import { Transform } from "class-transformer";
-import { IsString, Matches, MaxLength, MinLength } from "class-validator";
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 /**
  * Meta's dialog posts its result to the browser, which then forwards the three
@@ -28,9 +34,16 @@ export class EmbeddedSignupDto {
   @Matches(/^\d{5,25}$/, { message: "Business account ID is numeric, e.g. 1022..." })
   wabaId!: string;
 
-  /** The number's id, not the number itself. */
+  /**
+   * The number's id, not the number itself.
+   *
+   * Optional because a coexistence finish — a number that stays in use in the
+   * WhatsApp Business app — reports the business account only. The server then
+   * resolves the number from the authorised account.
+   */
+  @IsOptional()
   @Transform(trimmed)
   @IsString()
   @Matches(/^\d{5,25}$/, { message: "Phone number ID is numeric, e.g. 1098..." })
-  phoneNumberId!: string;
+  phoneNumberId?: string;
 }
