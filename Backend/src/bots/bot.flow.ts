@@ -110,11 +110,15 @@ function cardProblem(card: BotCard, cardIds: Set<string>): string | null {
   const pictures = new Set<string>();
 
   for (const url of card.imageUrls) {
-    if (pictures.has(url)) {
+    // Trimmed for the same reason the reader trims: " one.jpg" and "one.jpg"
+    // are one picture, and refusing that as a duplicate is honest about it.
+    const clean = url.trim();
+
+    if (pictures.has(clean)) {
       return `"${named}" shows the same picture twice.`;
     }
 
-    pictures.add(url);
+    pictures.add(clean);
   }
 
   const buttonIds = new Set<string>();

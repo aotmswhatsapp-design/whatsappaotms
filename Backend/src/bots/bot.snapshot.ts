@@ -127,9 +127,12 @@ function cardAt(value: unknown): BotCard | null {
  */
 function imageUrlsAt(card: Json): string[] {
   const listed = Array.isArray(card.imageUrls)
-    ? card.imageUrls.filter(
-        (url): url is string => typeof url === "string" && url.trim().length > 0,
-      )
+    ? card.imageUrls
+        // Trimmed because a stray space is not a different picture, and Meta
+        // would reject the address rather than ignore the space.
+        .filter((url): url is string => typeof url === "string")
+        .map((url) => url.trim())
+        .filter((url) => url.length > 0)
     : [];
 
   if (listed.length > 0) return [...new Set(listed)];
