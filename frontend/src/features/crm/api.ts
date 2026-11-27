@@ -100,6 +100,18 @@ export function setInterest(
   );
 }
 
+/**
+ * A manager's own errand on a lead, from the board. The server derives the
+ * title, the reason and the deadline. 409 `TASK_EXISTS` when the thread
+ * already owes one.
+ */
+export function createTask(conversationId: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(
+    `/v1/crm/conversations/${encodeURIComponent(conversationId)}/tasks`,
+    { method: "POST" },
+  );
+}
+
 export function fetchTasks(
   scope: "mine" | "all" = "mine",
 ): Promise<{ tasks: FollowUpTask[] }> {

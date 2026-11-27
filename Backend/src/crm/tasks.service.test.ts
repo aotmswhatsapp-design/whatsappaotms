@@ -10,6 +10,7 @@ import {
 import type { AuthClaims } from "../auth/auth.types";
 import type { PrismaService } from "../prisma/prisma.service";
 import type { WorkspacesService } from "../workspaces/workspaces.service";
+import type { CrmSettingsService } from "./crm.settings";
 import { TasksService } from "./tasks.service";
 
 const claims = { id: "user-1", email: "one@test.dev" } as AuthClaims;
@@ -54,7 +55,15 @@ function service(role: "OWNER" | "ADMIN" | "MANAGER" | "AGENT") {
     workspaceMember: {
       findUnique: async () => ({ personalWhatsApp: "919876543210", user: { fullName: "One Two" } }),
     },
-    workspace: { findUniqueOrThrow: async () => ({ name: "Dosa Corner" }) },
+    conversation: {
+      findFirst: async () => ({
+        id: "c-1",
+        assignedToUserId: null as string | null,
+        interestReason: null as string | null,
+        contact: { profileName: "Dosa", waId: "919900000000" },
+      }),
+    },
+    workspace: { findUniqueOrThrow: async () => ({ name: "Dosa Corner", ownerId: "owner-1" }) },
     internalNote: { create: async () => ({ id: "note-1" }) },
   } as unknown as PrismaService;
 
@@ -62,7 +71,22 @@ function service(role: "OWNER" | "ADMIN" | "MANAGER" | "AGENT") {
     primaryFor: async () => ({ userId: "user-1", workspaceId: "ws-1", role }),
   } as unknown as WorkspacesService;
 
-  return { tasks: new TasksService(prisma, workspaces), created, updated, listed };
+  const settings = {
+    plan: async () => ({
+      designation: "Sales",
+      storedDesignation: "Sales",
+      autoAssign: true,
+      autoTask: true,
+      taskDueHours: 48,
+    }),
+  } as unknown as CrmSettingsService;
+
+  return {
+    tasks: new TasksService(prisma, workspaces, settings),
+    created,
+    updated,
+    listed,
+  };
 }
 
 const input = {
@@ -98,6 +122,45 @@ test("a partial-index race is swallowed, not thrown at the webhook", async () =>
     };
 
   assert.equal(await tasks.create(input), null);
+});
+
+test("a manager's task from the board carries what the server derived", async () => {
+  const { tasks, created } = service("MANAGER");
+
+  assert.deepEqual(await tasks.createForConversation(claims, "c-1"), { ok: true });
+
+  const input = created[0] as {
+    title: string;
+    note: string;
+    dueAt: Date;
+    assignedToUserId: string;
+  };
+  assert.equal(input.title, "Follow up with Dosa");
+  // Nobody picked this lead up, so the owner carries it — as intake does.
+  assert.equal(input.assignedToUserId, "owner-1");
+  assert.equal(input.note, "Added by a manager from the board");
+  // The deadline comes from the routing settings, not from the caller.
+  assert.ok(Math.abs(input.dueAt.getTime() - (Date.now() + 48 * 3600_000)) < 5_000);
+});
+
+test("a lead that already owes a follow-up refuses a second one", async () => {
+  const { tasks } = service("MANAGER");
+  (tasks as unknown as { prisma: { followUpTask: { findFirst: () => Promise<unknown> } } }).prisma.followUpTask.findFirst =
+    async () => ({ id: "existing" });
+
+  await assert.rejects(() => tasks.createForConversation(claims, "c-1"), (error: unknown) => {
+    assert.ok(error instanceof ConflictException);
+    assert.equal((error.getResponse() as { code: string }).code, "TASK_EXISTS");
+    return true;
+  });
+});
+
+test("a conversation from another workspace answers 404, not 403", async () => {
+  const { tasks } = service("MANAGER");
+  (tasks as unknown as { prisma: { conversation: { findFirst: () => Promise<unknown> } } }).prisma.conversation.findFirst =
+    async () => null;
+
+  await assert.rejects(() => tasks.createForConversation(claims, "c-1"), NotFoundException);
 });
 
 test("an agent reads only their own tasks", async () => {

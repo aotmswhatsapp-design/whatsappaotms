@@ -200,7 +200,7 @@ export class LeadIntake {
 
     const name = conversation.contact.profileName ?? conversation.contact.waId;
 
-    await this.tasks.create({
+    const created = await this.tasks.create({
       workspaceId,
       conversationId: conversation.id,
       title: `Follow up with ${name}`,
@@ -210,5 +210,24 @@ export class LeadIntake {
       // carries it, and the strip names them like anybody else.
       assignedToUserId: assignee ?? ownerId,
     });
+
+    if (!created) return;
+
+    // A manager's refusal can land between the stage write above and this
+    // insert, and its own cancel then ran against a row that did not exist
+    // yet. Re-reading the stage closes that order without a transaction: a
+    // refusal that arrived while this pass was inserting takes the task with
+    // it, and one arriving after this read cancels the task itself.
+    const current = await this.prisma.conversation.findUnique({
+      where: { id: conversation.id, workspaceId },
+      select: { interest: true },
+    });
+
+    if (current?.interest !== "INTERESTED") {
+      await this.prisma.followUpTask.updateMany({
+        where: { id: created, status: "OPEN" },
+        data: { status: "CANCELLED" },
+      });
+    }
   }
 }

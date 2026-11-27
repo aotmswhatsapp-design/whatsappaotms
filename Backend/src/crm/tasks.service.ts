@@ -11,6 +11,8 @@ import type { AuthClaims } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { ROLE_RANK } from "../workspaces/workspace-roles.decorator";
 import { WorkspacesService } from "../workspaces/workspaces.service";
+import { CrmSettingsService } from "./crm.settings";
+import { MANUAL_REASON } from "./interest.rules";
 import type { UpdateTaskDto } from "./crm.dto";
 
 const TASK_SELECT = {
@@ -80,6 +82,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workspaces: WorkspacesService,
+    private readonly settings: CrmSettingsService,
   ) {}
 
   /** Returns the new id, or null when the thread already has an open task. */
@@ -111,6 +114,71 @@ export class TasksService {
       if ((error as { code?: string }).code === "P2002") return null;
       throw error;
     }
+  }
+
+  /**
+   * A manager's own errand on a lead, from the board.
+   *
+   * Goes through `create` above, so the one-open-task rule still has one
+   * home. The title, the reason and the deadline are derived here rather
+   * than taken from the caller; a lead nobody picked up falls to the owner,
+   * exactly as intake does when rotation finds nobody.
+   */
+  async createForConversation(
+    claims: AuthClaims,
+    conversationId: string,
+  ): Promise<{ ok: true }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, workspaceId },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        interestReason: true,
+        contact: { select: { profileName: true, waId: true } },
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException({
+        code: "CONVERSATION_MISSING",
+        message: "Unknown conversation.",
+      });
+    }
+
+    const [workspace, plan] = await Promise.all([
+      this.prisma.workspace.findUniqueOrThrow({
+        where: { id: workspaceId },
+        select: { ownerId: true },
+      }),
+      this.settings.plan(workspaceId),
+    ]);
+
+    const name =
+      conversation.contact?.profileName ?? conversation.contact?.waId ?? "this customer";
+    const reason = conversation.interestReason;
+
+    const created = await this.create({
+      workspaceId,
+      conversationId: conversation.id,
+      title: `Follow up with ${name}`,
+      note:
+        reason && reason !== MANUAL_REASON
+          ? `Interested: ${reason}`
+          : "Added by a manager from the board",
+      dueAt: new Date(Date.now() + plan.taskDueHours * 60 * 60 * 1000),
+      assignedToUserId: conversation.assignedToUserId ?? workspace.ownerId,
+    });
+
+    if (!created) {
+      throw new ConflictException({
+        code: "TASK_EXISTS",
+        message: "This lead already has an open follow-up.",
+      });
+    }
+
+    return { ok: true };
   }
 
   async list(

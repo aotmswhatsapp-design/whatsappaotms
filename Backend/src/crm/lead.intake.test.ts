@@ -30,24 +30,32 @@ const conversation = {
 function build(options: { assigned?: string | null; reason?: string | null } = {}) {
   const writes: Record<string, unknown>[] = [];
   const tasks: unknown[] = [];
+  // What the stage column would hold after the writes so far: a read must see
+  // the stage this pass wrote, exactly as the database would.
+  let staged: string = conversation.interest;
+  const row = () => ({
+    ...conversation,
+    interest: staged,
+    assignedToUserId: options.assigned ?? null,
+    interestReason: options.reason ?? null,
+    // A manual override only freezes intake while it is fresh, so the row
+    // has to carry the moment it was made: without it the test would run
+    // with no override in place and prove nothing.
+    interestAt: options.reason === MANUAL_REASON ? new Date() : null,
+  });
+
   const prisma = {
     workspace: { findUniqueOrThrow: async () => ({ ownerId: "owner-1" }) },
     conversation: {
-      findUnique: async () => ({
-        ...conversation,
-        assignedToUserId: options.assigned ?? null,
-        interestReason: options.reason ?? null,
-        // A manual override only freezes intake while it is fresh, so the row
-        // has to carry the moment it was made: without it the test would run
-        // with no override in place and prove nothing.
-        interestAt: options.reason === MANUAL_REASON ? new Date() : null,
-      }),
+      findUnique: async () => row(),
       update: async (args: Record<string, unknown>) => {
         writes.push(args);
-        return conversation;
+        return row();
       },
       updateMany: async (args: Record<string, unknown>) => {
         writes.push(args);
+        const data = (args as { data?: { interest?: string } }).data;
+        if (data?.interest) staged = data.interest;
         return { count: 1 };
       },
     },
@@ -181,13 +189,49 @@ test("a lost assignment claim still gives the task to the real assignee", async 
   rows.findUnique = async () => {
     lookups += 1;
     // Unassigned when the lead is read, somebody else's when the claim lands.
-    return lookups === 1 ? conversation : { assignedToUserId: "manual-agent" };
+    return lookups === 1
+      ? conversation
+      : { ...conversation, interest: "INTERESTED" as const, assignedToUserId: "manual-agent" };
   };
 
   await intake.consider({ workspaceId: "ws-1" }, [inbound]);
 
   assert.equal(picks(), 1);
   assert.equal((tasks[0] as { assignedToUserId: string }).assignedToUserId, "manual-agent");
+});
+
+test("a refusal that lands while the task is inserted takes the task with it", async () => {
+  const { intake, writes, tasks, creates } = build();
+  const rows = (
+    intake as unknown as {
+      prisma: { conversation: { findUnique: () => Promise<unknown> } };
+    }
+  ).prisma.conversation;
+
+  let lookups = 0;
+  rows.findUnique = async () => {
+    lookups += 1;
+    // Interested when the pass read it, refused by the time the errand is
+    // written: the refusal's own cancel ran before the task existed.
+    return lookups === 1
+      ? { ...conversation, interest: "INTERESTED" as const }
+      : { interest: "NOT_INTERESTED" as const };
+  };
+
+  await intake.consider({ workspaceId: "ws-1" }, [inbound]);
+
+  assert.equal(creates(), 1);
+  assert.equal(
+    writes.some(
+      (row) =>
+        "where" in row &&
+        "data" in row &&
+        (row.where as { id?: string }).id === "task-1" &&
+        (row.data as { status?: string }).status === "CANCELLED",
+    ),
+    true,
+  );
+  assert.equal(tasks.length, 1);
 });
 
 test("a manual override is left alone", async () => {

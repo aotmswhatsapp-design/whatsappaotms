@@ -61,9 +61,9 @@ export class UsersService {
       update: {
         email,
         lastSeenAt: new Date(),
-        // Only overwrite when the provider actually supplied a value —
-        // otherwise a Google-less login would blank a name set elsewhere.
-        ...(fullName ? { fullName } : {}),
+        // The stored name belongs to the team: the owner edits it on the Team
+        // screen, so provider metadata only seeds a fresh row. Syncing it here
+        // would rename somebody back on their next request.
         ...(avatarUrl ? { avatarUrl } : {}),
       },
       select: {

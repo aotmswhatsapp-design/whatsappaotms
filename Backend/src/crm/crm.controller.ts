@@ -64,6 +64,18 @@ export class CrmController {
     return this.crm.setInterest(claims, id, dto.interest);
   }
 
+  /**
+   * POST /api/v1/crm/conversations/:id/tasks — a manager's own errand on a
+   * lead, from the board. Title, reason and deadline are derived on the
+   * server; 409 `TASK_EXISTS` when the thread already owes one.
+   */
+  @Post("conversations/:id/tasks")
+  @RequiresModule("crm")
+  @Roles("MANAGER")
+  createTask(@CurrentUser() claims: AuthClaims, @Param("id", ParseUUIDPipe) id: string) {
+    return this.tasks.createForConversation(claims, id);
+  }
+
   /** GET /api/v1/crm/tasks?scope=mine|all — open follow-ups, soonest first. */
   @Get("tasks")
   @RequiresModule("inbox")

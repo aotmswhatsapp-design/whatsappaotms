@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 import {
   ApiError,
+  createTask,
   fetchCrmSettings,
   fetchPipeline,
   fetchTasks,
@@ -151,6 +152,22 @@ export function CrmView() {
     }
   }
 
+  async function createFollowUp(conversationId: string) {
+    setBusyId(conversationId);
+
+    try {
+      await createTask(conversationId);
+      // The board draws the new task's strip, and My follow-ups owns it now,
+      // so both re-read rather than patching a row into a server-ordered list.
+      setPipelineAttempt((value) => value + 1);
+      setTasksAttempt((value) => value + 1);
+    } catch (caught) {
+      setPipelineError(readError(caught, "The follow-up could not be created."));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   function taskChanged() {
     // The list is server-ordered and only holds open work, so a closed or
     // moved task is re-read rather than patched in place — a patch would keep
@@ -255,6 +272,7 @@ export function CrmView() {
             busyId={busyId}
             canOverride={canOverride}
             columns={pipeline.columns}
+            onCreateTask={(id) => void createFollowUp(id)}
             onOverride={(id, next) => void override(id, next)}
           />
         )}

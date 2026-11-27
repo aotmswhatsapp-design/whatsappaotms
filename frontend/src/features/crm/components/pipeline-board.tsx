@@ -18,18 +18,22 @@ const SELECT =
 /**
  * The pipeline as four columns, not a table: a stage is a place a conversation
  * sits in, and a lead that moves should be seen to move. The card's body is a
- * link into the thread — the board is a map, and the work happens in the inbox.
+ * link into the thread — the board is a map, and the work happens in the inbox
+ * — except that a manager may open a follow-up here for a lead intake left
+ * alone.
  */
 export function PipelineBoard({
   columns,
   canOverride,
   busyId,
   onOverride,
+  onCreateTask,
 }: {
   columns: PipelineView["columns"];
   canOverride: boolean;
   busyId: string | null;
   onOverride: (conversationId: string, interest: LeadInterest) => void;
+  onCreateTask: (conversationId: string) => void;
 }) {
   return (
     <div className="flex gap-3 overflow-x-auto pb-2">
@@ -122,6 +126,17 @@ export function PipelineBoard({
                         {shortDate(lead.openTask.dueAt)}
                       </span>
                     </p>
+                  ) : canOverride ? (
+                    <button
+                      aria-label={`Create a follow-up for ${name}`}
+                      className="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-medium text-brand outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={busyId === lead.id}
+                      onClick={() => onCreateTask(lead.id)}
+                      type="button"
+                    >
+                      <CalendarClock aria-hidden="true" className="size-3" />
+                      Follow up
+                    </button>
                   ) : null}
                 </li>
               );

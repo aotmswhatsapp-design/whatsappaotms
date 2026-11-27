@@ -25,6 +25,9 @@ const FIELD =
  * name colleagues see, the designation lead rotation sorts by, and the number
  * the "Send from my WhatsApp" link opens.
  *
+ * The owner's own sheet omits the designation — rotation never includes them —
+ * but keeps the name and the number, because they carry unrouted follow-ups.
+ *
  * Email is deliberately absent — it is the Supabase identity, and changing it
  * is a verified flow of its own, not a field on this form.
  */
@@ -69,7 +72,9 @@ export function MemberProfileSheet({
         // Omitted rather than sent empty: an empty name would clear the one
         // the person signed up with.
         fullName: name.trim() || undefined,
-        designation: designation.trim() || null,
+        // Rotation never includes the owner, so their sheet has no
+        // designation field; sending one would write a value nobody reads.
+        ...(member.owner ? {} : { designation: designation.trim() || null }),
         personalWhatsApp: digits || null,
       });
 
@@ -127,28 +132,33 @@ export function MemberProfileSheet({
             />
           </div>
 
-          <div>
-            <Label htmlFor="profile-designation">Designation</Label>
-            <input
-              className={FIELD}
-              id="profile-designation"
-              list="profile-designations"
-              maxLength={40}
-              onChange={(event) => setDesignation(event.target.value)}
-              placeholder="Sales, Support, Dispatch"
-              type="text"
-              value={designation}
-            />
-            <datalist id="profile-designations">
-              {designations.map((row) => (
-                <option key={row} value={row} />
-              ))}
-            </datalist>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
-              Lead rotation sorts by this exact label, so reuse one that already
-              exists. Two spellings are two pools that never merge.
-            </p>
-          </div>
+          {/* Rotation never includes the owner, so a designation on their row
+              would be a field nothing reads; the name and the number still
+              matter, because they carry unrouted follow-ups. */}
+          {member.owner ? null : (
+            <div>
+              <Label htmlFor="profile-designation">Designation</Label>
+              <input
+                className={FIELD}
+                id="profile-designation"
+                list="profile-designations"
+                maxLength={40}
+                onChange={(event) => setDesignation(event.target.value)}
+                placeholder="Sales, Support, Dispatch"
+                type="text"
+                value={designation}
+              />
+              <datalist id="profile-designations">
+                {designations.map((row) => (
+                  <option key={row} value={row} />
+                ))}
+              </datalist>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+                Lead rotation sorts by this exact label, so reuse one that
+                already exists. Two spellings are two pools that never merge.
+              </p>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="profile-whatsapp">Personal WhatsApp</Label>

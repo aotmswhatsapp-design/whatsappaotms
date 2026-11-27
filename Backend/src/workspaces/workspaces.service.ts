@@ -634,6 +634,12 @@ export class WorkspacesService {
    * Removes a membership. The owner is refused by name — there is no second
    * owner to hand the workspace to, so leaving would orphan it.
    *
+   * Their work does not leave with them: an open follow-up moves to the owner
+   * (the same fallback intake uses when rotation finds nobody), and their
+   * threads become unassigned so the next interested message can bind them to
+   * a real member. `FollowUpTask.assignedTo` points at the user, not the
+   * membership, so its `SetNull` never fires here.
+   *
    * Reached only by the owner's route today, so a member cannot remove
    * themselves; asking to be removed is the path back until a self-leave
    * route exists.
@@ -652,6 +658,18 @@ export class WorkspacesService {
           "The workspace owner cannot be removed, and ownership cannot be transferred yet.",
       });
     }
+
+    // Before the membership goes, so a failure here leaves a state that a
+    // second attempt can still repair.
+    await this.prisma.followUpTask.updateMany({
+      where: { workspaceId, assignedToUserId: userId, status: "OPEN" },
+      data: { assignedToUserId: workspace.ownerId },
+    });
+
+    await this.prisma.conversation.updateMany({
+      where: { workspaceId, assignedToUserId: userId },
+      data: { assignedToUserId: null },
+    });
 
     const result = await this.prisma.workspaceMember.deleteMany({
       where: { workspaceId, userId },

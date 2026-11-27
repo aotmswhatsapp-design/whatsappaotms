@@ -493,9 +493,9 @@ function MembersTable({
             You
           </span>
         ) : null}
-        {/* The owner's own row has none: rotation excludes the owner, so a
-            designation there would be a field nothing reads. */}
-        {canManage && !member.owner ? (
+        {/* The owner's own row has one too: rotation skips them, but they
+            carry unrouted follow-ups and need a number to send from. */}
+        {canManage ? (
           <button
             aria-label={`Edit the profile for ${member.name ?? member.email}`}
             className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
