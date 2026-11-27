@@ -41,7 +41,6 @@ import { cn } from "@/lib/utils";
 
 import {
   ApiError,
-  fetchThread,
   hideMessage,
   removeConversation,
   resumeAi,
@@ -103,6 +102,7 @@ export function MessageThread({
   onNote,
   onDeleted,
   onMessageHidden,
+  onWritten,
 }: {
   thread: ThreadPayload | null;
   agents: InboxAgent[];
@@ -111,6 +111,11 @@ export function MessageThread({
   loading: boolean;
   onBack: () => void;
   onChanged: (conversation: Conversation) => void;
+  /**
+   * A CRM write landed. The parent re-reads the row and sequences it against
+   * the poll, so two quick changes cannot undo each other.
+   */
+  onWritten: () => void;
   onMessage: (message: InboxMessage) => void;
   /** A reaction replaced or removed; null means nothing is left to show. */
   onReaction: (targetId: string, message: InboxMessage | null) => void;
@@ -265,25 +270,6 @@ export function MessageThread({
         description: errorText(error),
         tone: "error",
       });
-    }
-  }
-
-  /**
-   * The server's own row after a CRM write.
-   *
-   * Spreading the conversation captured at render time would drag a status or
-   * assignee that a poll had already refreshed back to the older values, so
-   * two quick changes could undo each other. The re-read is the one snapshot
-   * both of them agree on; a manual "not interested" also cancels the open
-   * task server-side, which no local patch can predict.
-   */
-  async function rereadConversation(id: string): Promise<void> {
-    try {
-      const payload = await fetchThread(id);
-      onChanged(payload.conversation);
-    } catch {
-      // The three-second poll reads the row anyway; a failed refresh must not
-      // overwrite a write that has already succeeded.
     }
   }
 
@@ -673,11 +659,11 @@ export function MessageThread({
         conversationId={conversation.id}
         interest={conversation.interest}
         interestReason={conversation.interestReason}
-        onChanged={() => void rereadConversation(conversation.id)}
+        onChanged={onWritten}
       />
 
       <FollowUpStrip
-        onChanged={() => void rereadConversation(conversation.id)}
+        onChanged={onWritten}
         task={conversation.openTask}
       />
 

@@ -226,6 +226,18 @@ export function InboxView({
     };
   }, [filters]);
 
+  /**
+   * How many answers this screen has installed for the open thread. A read
+   * remembers the value it saw when it was issued and drops its answer if the
+   * screen moved on meanwhile: the write's own answer is newer than anything
+   * a read that started before it could return. The poll moves the counter
+   * when it starts as well as when it lands, so a poll arriving first is not
+   * overwritten by a refresh that began before it. Without the stamp, a poll
+   * or a re-read still in flight can put a status back that a colleague's
+   * change (or our own) already replaced.
+   */
+  const revision = React.useRef(0);
+
   // While a thread is open, poll it. Stopping is part of the cleanup, so a
   // fast switch between conversations cannot leave two timers running.
   React.useEffect(() => {
@@ -235,9 +247,14 @@ export function InboxView({
     let timer = 0;
 
     const tick = async (): Promise<void> => {
+      // Starting the poll also moves the counter: every read issued before it
+      // is older than what this poll will return, and must not land after it.
+      const at = ++revision.current;
+
       try {
         const next = await fetchThread(selectedId);
-        if (active) {
+
+        if (active && revision.current === at) {
           setThread((current) =>
             withoutHidden(hiddenRef.current, mergeThread(current, next)),
           );
@@ -365,6 +382,10 @@ export function InboxView({
   }
 
   function handleChanged(conversation: Conversation): void {
+    // A write's answer is the newest thing this screen has seen: anything a
+    // read started before it returns must not replace it.
+    revision.current += 1;
+
     setThread((current) =>
       current?.conversation.id === conversation.id
         ? { ...current, conversation }
@@ -380,6 +401,32 @@ export function InboxView({
           : row,
       ),
     );
+  }
+
+  /**
+   * A write the thread made itself — a stage change, or a follow-up closed.
+   *
+   * The row is re-read here, in the component that owns the data, so the
+   * answer can be sequenced against the poll: `revision` moves first, and any
+   * read still in flight from before the write is dropped when it comes back.
+   * The re-read is what keeps a manual "not interested" from showing the
+   * follow-up it cancelled server-side.
+   */
+  async function handleWritten(): Promise<void> {
+    revision.current += 1;
+
+    const id = selectedRef.current;
+    if (!id) return;
+
+    const at = revision.current;
+
+    try {
+      const next = await fetchThread(id);
+      if (revision.current !== at || selectedRef.current !== id) return;
+      handleChanged(next.conversation);
+    } catch {
+      // The poll reads the row on its next beat.
+    }
   }
 
   /**
@@ -591,6 +638,7 @@ export function InboxView({
             viewerId={viewerId}
             onBack={() => setSelectedId(null)}
             onChanged={handleChanged}
+            onWritten={() => void handleWritten()}
             onDeleted={handleDeleted}
             onMessage={handleSent}
             onMessageHidden={handleMessageHidden}
