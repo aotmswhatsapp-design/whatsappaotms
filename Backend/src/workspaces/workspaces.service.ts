@@ -661,15 +661,7 @@ export class WorkspacesService {
 
     // Before the membership goes, so a failure here leaves a state that a
     // second attempt can still repair.
-    await this.prisma.followUpTask.updateMany({
-      where: { workspaceId, assignedToUserId: userId, status: "OPEN" },
-      data: { assignedToUserId: workspace.ownerId },
-    });
-
-    await this.prisma.conversation.updateMany({
-      where: { workspaceId, assignedToUserId: userId },
-      data: { assignedToUserId: null },
-    });
+    await this.releaseWork(workspaceId, userId, workspace.ownerId);
 
     const result = await this.prisma.workspaceMember.deleteMany({
       where: { workspaceId, userId },
@@ -682,7 +674,34 @@ export class WorkspacesService {
       });
     }
 
+    // A task can be inserted between the release above and the delete, by a
+    // pass that read the assignee while they were still here. The writers
+    // re-check membership after inserting, but one that checked just before
+    // the delete still needs this second pass.
+    await this.releaseWork(workspaceId, userId, workspace.ownerId);
+
     return { ok: true };
+  }
+
+  /**
+   * Hands a departing member's work back to the workspace: their OPEN
+   * follow-ups to the owner, their threads unassigned so the next interested
+   * message can bind them to somebody who is still here.
+   */
+  private async releaseWork(
+    workspaceId: string,
+    userId: string,
+    ownerId: string,
+  ): Promise<void> {
+    await this.prisma.followUpTask.updateMany({
+      where: { workspaceId, assignedToUserId: userId, status: "OPEN" },
+      data: { assignedToUserId: ownerId },
+    });
+
+    await this.prisma.conversation.updateMany({
+      where: { workspaceId, assignedToUserId: userId },
+      data: { assignedToUserId: null },
+    });
   }
 
   private async accessRows(

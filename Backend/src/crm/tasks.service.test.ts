@@ -163,6 +163,16 @@ test("a conversation from another workspace answers 404, not 403", async () => {
   await assert.rejects(() => tasks.createForConversation(claims, "c-1"), NotFoundException);
 });
 
+test("a task whose assignee left the team falls back to the owner", async () => {
+  const { tasks, updated } = service("OWNER");
+  (tasks as unknown as { prisma: { workspaceMember: { findUnique: () => Promise<unknown> } } }).prisma.workspaceMember.findUnique =
+    async () => null;
+
+  assert.equal(await tasks.create(input), "task-1");
+  // The assignee was a snapshot; membership is the authority.
+  assert.equal((updated[0] as { assignedToUserId: string }).assignedToUserId, "owner-1");
+});
+
 test("an agent reads only their own tasks", async () => {
   const { tasks, listed } = service("AGENT");
   const result = await tasks.list(claims, "mine");

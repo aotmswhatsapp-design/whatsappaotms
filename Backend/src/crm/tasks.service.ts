@@ -107,6 +107,32 @@ export class TasksService {
         select: { id: true },
       });
 
+      // The assignee is a snapshot taken before the insert: they can leave the
+      // team while this row is being written, and the row alone cannot tell —
+      // the foreign key is to the user, not to the membership. Membership is
+      // the authority, so a task that would point at a non-member falls back
+      // to the owner, exactly as an unrouted lead does.
+      const assignee = input.assignedToUserId;
+
+      if (assignee) {
+        const member = await this.prisma.workspaceMember.findUnique({
+          where: { workspaceId_userId: { workspaceId: input.workspaceId, userId: assignee } },
+          select: { userId: true },
+        });
+
+        if (!member) {
+          const owner = await this.prisma.workspace.findUniqueOrThrow({
+            where: { id: input.workspaceId },
+            select: { ownerId: true },
+          });
+
+          await this.prisma.followUpTask.update({
+            where: { id: created.id },
+            data: { assignedToUserId: owner.ownerId },
+          });
+        }
+      }
+
       return created.id;
     } catch (error) {
       // Two deliveries in the same instant: the index picks one, and the loser

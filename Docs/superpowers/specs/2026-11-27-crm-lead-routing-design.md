@@ -415,9 +415,13 @@ and gains one entry rather than being loosened.
   IS NULL` and the partial unique index on open tasks.
 - **No designation configured.** No rotation, no silently wrong assignment; the
   lead stays unassigned and the task names the owner.
-- **Assignee leaves the workspace.** `onDelete: SetNull` on both relations keeps
-  the task and the conversation; the strip shows "unassigned" and the board
-  offers reassignment.
+- **Assignee leaves the workspace.** Removing a member hands their open
+  follow-ups to the owner and unassigns their threads. Task creation re-checks
+  membership after inserting and falls back to the owner, and removal releases
+  the departing member's work on both sides of the delete, so no open task can
+  keep an assignee who is no longer here. Deleting the user outright still
+  nulls both relations (`onDelete: SetNull`); the strip then shows
+  "unassigned".
 - **Classifier wrong.** The reason is visible in the thread and overridable; an
   override writes `interestReason = "manual"` and intake never silently reverses
   a manual stage for the next 24 hours.
