@@ -353,6 +353,36 @@ export class MetaGraph {
   }
 
   /**
+   * Asks Meta to share what the WhatsApp Business app already holds: the
+   * address book (`smb_app_state_sync`) and 180 days of conversations
+   * (`history`).
+   *
+   * Legal once per kind and only within 24 hours of onboarding, which is why
+   * the caller stores the `request_id` rather than repeating the call. The
+   * answer says the request was accepted, not that any history was shared.
+   */
+  async requestSmbAppData(input: {
+    version: string;
+    phoneNumberId: string;
+    token: string;
+    syncType: "smb_app_state_sync" | "history";
+  }): Promise<{ requestId: string | null }> {
+    const answer = await this.send<{ request_id?: string }>(
+      this.urlOf(input.version, [input.phoneNumberId, "smb_app_data"]),
+      {
+        method: "POST",
+        token: input.token,
+        body: { messaging_product: "whatsapp", sync_type: input.syncType },
+      },
+    );
+
+    // A missing id is tolerated rather than a shape error: the request may
+    // well have been accepted, and a caller that treats this as a failure
+    // would ask again — which Meta does not allow.
+    return { requestId: textOf(answer.request_id) };
+  }
+
+  /**
    * The profile customers see. `whatsapp_business_profile` is a collection
    * node — it answers `{ data: [ … ] }` with at most one entry — so the
    * unwrapping belongs here rather than in every caller.

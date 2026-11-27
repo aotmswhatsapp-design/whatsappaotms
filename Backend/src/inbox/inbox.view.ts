@@ -71,6 +71,7 @@ export const MESSAGE_SELECT = {
   wamid: true,
   direction: true,
   kind: true,
+  imported: true,
   agentId: true,
   status: true,
   body: true,
@@ -171,6 +172,8 @@ export interface MessageView {
   id: string;
   direction: MessageDirection;
   kind: MessageKind;
+  /** A row mirrored from the WhatsApp Business app's history. */
+  imported: boolean;
   status: MessageStatus;
   body: string | null;
   /**
@@ -278,6 +281,7 @@ export function messageView(
     id: row.id,
     direction: row.direction,
     kind: row.kind,
+    imported: row.imported,
     status: row.status,
     body: row.body,
     agentId: row.agentId,
@@ -425,6 +429,10 @@ export function kindLabel(kind: MessageKind): string {
       return "[contact card]";
     case "REACTION":
       return "[reaction]";
+    case "MEDIA_PENDING":
+      // The chunk said a media message exists and nothing about its type; the
+      // asset either lands or it does not.
+      return "[media]";
     default:
       return "[message]";
   }

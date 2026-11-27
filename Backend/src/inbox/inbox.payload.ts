@@ -100,7 +100,7 @@ const MEDIA: Record<string, MessageKind> = {
   sticker: "STICKER",
 };
 
-function kindOf(type: string): MessageKind {
+export function kindOf(type: string): MessageKind {
   switch (type) {
     case "text":
       return "TEXT";
@@ -114,6 +114,11 @@ function kindOf(type: string): MessageKind {
       return "INTERACTIVE";
     case "reaction":
       return "REACTION";
+    // A history chunk says a media message exists and nothing about its type;
+    // the asset arrives in its own webhook. Guessing IMAGE here would be a lie
+    // in the thread until that asset lands.
+    case "media_placeholder":
+      return "MEDIA_PENDING";
     default:
       return MEDIA[type] ?? "UNSUPPORTED";
   }

@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   CircleAlert,
   FileText,
+  ImageOff,
   Loader2,
   MapPin,
   MousePointerClick,
@@ -167,6 +168,10 @@ const LABELS: Partial<
   UNSUPPORTED: {
     label: "This message type can't be shown here",
     icon: <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />,
+  },
+  MEDIA_PENDING: {
+    label: "This message's media was not shared.",
+    icon: <ImageOff aria-hidden="true" className="size-3.5 shrink-0" />,
   },
 };
 

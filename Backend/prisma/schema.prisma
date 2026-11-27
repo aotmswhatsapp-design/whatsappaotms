@@ -283,6 +283,22 @@ model WhatsAppAccount {
   /// is one-way and per WABA, so this records a promise rather than a setting
   /// we can toggle back.
   insightsEnabledAt  DateTime?      @map("insights_enabled_at")
+  /// True when Meta reports the number is also in use in the WhatsApp
+  /// Business app. `smb_app_data` is legal only for these rows, so this
+  /// decides whether the two sync calls are attempted at all.
+  onBizApp             Boolean   @default(false) @map("on_biz_app")
+  /// Written only after Meta accepted the request, which is what makes a
+  /// retry safe: an unaccepted request leaves these null.
+  stateSyncAt          DateTime? @map("state_sync_at")
+  stateSyncRequestId   String?   @map("state_sync_request_id")
+  historySyncAt        DateTime? @map("history_sync_at")
+  historySyncRequestId String?   @map("history_sync_request_id")
+  /// Meta reported `progress: 100`, or declined the sync. Null means the
+  /// history is still arriving or was never asked for.
+  historySyncDoneAt    DateTime? @map("history_sync_done_at")
+  /// The sentence the connection screen shows: a refusal, a decline, a dead
+  /// token. Cleared when a new history request succeeds.
+  historySyncError     String?   @map("history_sync_error")
   /// When the stored business token lapses, as Meta reported at connect time.
   /// Null means "Meta said it never expires" or "not yet known" — the UI says
   /// nothing rather than guessing, matching how `currency` behaves.
@@ -369,6 +385,9 @@ enum MessageKind {
   /// mistaken for a reply.
   REACTION
   UNSUPPORTED
+  /// A history row whose chunk carried no contents: the media asset arrives in
+  /// a separate webhook, and only for the last 14 days.
+  MEDIA_PENDING
 }
 
 /// QUEUED exists so a crash between our insert and Meta's answer leaves a
@@ -501,6 +520,9 @@ model Message {
   /// Contents of a kind that is neither text nor a file: a location's
   /// coordinates, a contact card's fields. Typed by `kind`, never guessed.
   payload        Json?
+  /// A row mirrored from the WhatsApp Business app's history. Echoes and live
+  /// deliveries stay false: those happened while we were listening.
+  imported       Boolean          @default(false)
   /// Set by the campaign runner. Null for every other send, which is what
   /// keeps campaign insights a single indexed groupBy.
   campaignId     String?          @map("campaign_id") @db.Uuid

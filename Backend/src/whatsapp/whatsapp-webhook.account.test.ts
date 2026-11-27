@@ -7,8 +7,10 @@ import type { ConfigService } from "@nestjs/config";
 import type { ReplyIntake } from "../agents/reply.intake";
 import type { SecretBox } from "../common/crypto/secret-box";
 import type { LeadIntake } from "../crm/lead.intake";
+import type { HistoryStore } from "../inbox/history.store";
 import type { InboxStore } from "../inbox/inbox.store";
 import type { PrismaService } from "../prisma/prisma.service";
+import type { CoexistenceStarter } from "./coexistence.starter";
 import { WhatsAppWebhookService } from "./whatsapp-webhook.service";
 
 /**
@@ -61,7 +63,7 @@ function fake() {
       },
       update: async (args: { where: { id: string }; data: Record<string, unknown> }) => {
         accountUpdates.push(args);
-        return {};
+        return account;
       },
     },
     messageTemplate: { updateMany: async () => ({ count: 0 }) },
@@ -78,6 +80,14 @@ function fake() {
     { record: async () => [] } as unknown as InboxStore,
     { enqueue: async () => undefined } as unknown as ReplyIntake,
     { consider: async () => undefined } as unknown as LeadIntake,
+    {
+      import: async () => ({ written: 0, skipped: 0 }),
+      attachMedia: async () => undefined,
+      absorbContacts: async () => 0,
+      noteComplete: async () => undefined,
+      noteDeclined: async () => undefined,
+    } as unknown as HistoryStore,
+    { begin: async () => undefined } as unknown as CoexistenceStarter,
   );
 
   return { webhook, accountUpdates, lookedUp };

@@ -6,6 +6,7 @@ import { SecretBox } from "../common/crypto/secret-box";
 import { CrmModule } from "../crm/crm.module";
 import { InboxModule } from "../inbox/inbox.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { CoexistenceStarter } from "./coexistence.starter";
 import { MetaGraph } from "./meta-graph";
 import { WhatsAppController } from "./whatsapp.controller";
 import { WhatsAppService } from "./whatsapp.service";
@@ -20,7 +21,15 @@ import { WhatsAppWebhookService } from "./whatsapp-webhook.service";
   // The webhook controller must come from this module even though it has no
   // guard: it needs SecretBox, and one module means one place to look.
   controllers: [WhatsAppController, WhatsAppWebhookController],
-  providers: [WhatsAppService, WhatsAppWebhookService, MetaGraph, SecretBox],
+  // CoexistenceStarter asks Meta for the two synchronisations a Business-app
+  // number is entitled to, at connect time and on a reconnect.
+  providers: [
+    WhatsAppService,
+    WhatsAppWebhookService,
+    CoexistenceStarter,
+    MetaGraph,
+    SecretBox,
+  ],
   // Templates talk to the same Graph API and open the same stored secrets, so
   // they consume these two rather than building a second client that drifts.
   exports: [MetaGraph, SecretBox],

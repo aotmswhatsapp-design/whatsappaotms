@@ -93,6 +93,21 @@ export class WhatsAppController {
   }
 
   /**
+   * POST /api/v1/whatsapp/connection/sync — asks Meta again for whatever the
+   * 24-hour synchronisation is still missing.
+   *
+   * Throttled like `connect`: every accepted call reaches Graph, and Meta
+   * allows each kind once, so a stray tap must not become a loop.
+   */
+  @Post("connection/sync")
+  @Roles("OWNER")
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  syncConnection(@CurrentUser() claims: AuthClaims) {
+    return this.whatsapp.syncNow(claims);
+  }
+
+  /**
    * GET /api/v1/whatsapp/profile — the business profile customers see, read
    * from Meta for the stored number. Throttled like `connect` because every
    * call is a Graph request rather than a database read.

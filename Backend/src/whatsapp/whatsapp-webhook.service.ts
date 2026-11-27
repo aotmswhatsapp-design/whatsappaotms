@@ -2,12 +2,14 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import type { Prisma } from "@prisma/client";
 
 import { ReplyIntake } from "../agents/reply.intake";
 import { SecretBox } from "../common/crypto/secret-box";
 import { LeadIntake } from "../crm/lead.intake";
+import { HistoryStore } from "../inbox/history.store";
 import { parseDelivery } from "../inbox/inbox.payload";
-import { InboxStore } from "../inbox/inbox.store";
+import { InboxStore, type StoreAccount } from "../inbox/inbox.store";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   templateStatusEvents,
@@ -20,6 +22,19 @@ import {
   isDisconnect,
   type AccountEvent,
 } from "./account-events";
+import {
+  historyDeclined,
+  historyProgress,
+  historyThreads,
+  mediaAssets,
+  stateSyncContacts,
+  type DeclinedSync,
+  type HistoryThread,
+  type MediaAsset,
+  type SyncProgress,
+  type SyncedContact,
+} from "./coexistence";
+import { CoexistenceStarter } from "./coexistence.starter";
 
 export type HandshakeOutcome =
   | { ok: true; challenge: string }
@@ -29,6 +44,42 @@ export type HandshakeOutcome =
 /** How long a trace row is worth keeping, and how often the sweep runs. */
 const KEEP_MS = 7 * 86_400_000;
 const SWEEP_MS = 3_600_000;
+
+/** What `CoexistenceStarter.begin` reads, and nothing else. */
+const ACCOUNT_SYNC_SELECT = {
+  id: true,
+  phoneNumberId: true,
+  graphVersion: true,
+  accessTokenCipher: true,
+  onBizApp: true,
+  stateSyncAt: true,
+  historySyncAt: true,
+} satisfies Prisma.WhatsAppAccountSelect;
+
+/** What one coexistence delivery can carry, already parsed. */
+type SyncDelivery = {
+  threads: HistoryThread[];
+  contacts: SyncedContact[];
+  assets: MediaAsset[];
+  progress: SyncProgress[];
+  declines: DeclinedSync[];
+};
+
+/**
+ * Whether any coexistence payload in this delivery names the number.
+ *
+ * A history chunk carries no message, so the message-shaped guard below would
+ * skip the account and the import would never run.
+ */
+function namesNumber(parsed: SyncDelivery, phoneNumberId: string): boolean {
+  return (
+    parsed.threads.some((row) => row.phoneNumberId === phoneNumberId) ||
+    parsed.contacts.some((row) => row.phoneNumberId === phoneNumberId) ||
+    parsed.assets.some((row) => row.phoneNumberId === phoneNumberId) ||
+    parsed.progress.some((row) => row.phoneNumberId === phoneNumberId) ||
+    parsed.declines.some((row) => row.phoneNumberId === phoneNumberId)
+  );
+}
 
 /**
  * The public half of the module: what Meta calls, unauthenticated.
@@ -50,6 +101,8 @@ export class WhatsAppWebhookService {
     private readonly store: InboxStore,
     private readonly intake: ReplyIntake,
     private readonly leads: LeadIntake,
+    private readonly history: HistoryStore,
+    private readonly coexistence: CoexistenceStarter,
   ) {}
 
   /**
@@ -153,6 +206,13 @@ export class WhatsAppWebhookService {
     // because `entry[].id` is the partner's id there. Both are collected or a
     // disconnection would never match a row.
     const accountChanges = accountEvents(payload);
+    // Coexistence: parsed once per delivery, beside the template statuses, and
+    // each account below takes only the rows that name its number.
+    const threads = historyThreads(payload);
+    const syncContacts = stateSyncContacts(payload);
+    const assets = mediaAssets(payload);
+    const progress = historyProgress(payload);
+    const declines = historyDeclined(payload);
     const wabas = [
       ...new Set([
         ...wabaIds(payload),
@@ -179,6 +239,7 @@ export class WhatsAppWebhookService {
         id: true,
         workspaceId: true,
         phoneNumberId: true,
+        displayPhoneNumber: true,
         businessAccountId: true,
         appSecretCipher: true,
       },
@@ -228,9 +289,17 @@ export class WhatsAppWebhookService {
         continue;
       }
 
-      // An account can be named by a template event or an account update
-      // alone, in which case there is no message to store.
-      const receivedMessage = numbers.includes(account.phoneNumberId);
+      // A history change carries `metadata.phone_number_id` too, so naming the
+      // number is not proof there is a message. Only a parsed change with
+      // something in it may run the inbox path.
+      const receivedMessage = changes.some(
+        (change) =>
+          change.phoneNumberId === account.phoneNumberId &&
+          (change.contacts.length > 0 ||
+            change.messages.length > 0 ||
+            change.echoes.length > 0 ||
+            change.statuses.length > 0),
+      );
       const mine = templateEvents.filter(
         (event) => event.wabaId === account.businessAccountId,
       );
@@ -238,7 +307,26 @@ export class WhatsAppWebhookService {
         (event) => event.wabaId === account.businessAccountId,
       );
 
-      if (!receivedMessage && mine.length === 0 && updates.length === 0) continue;
+      const sync: SyncDelivery = {
+        threads,
+        contacts: syncContacts,
+        assets,
+        progress,
+        declines,
+      };
+      const hasSync = namesNumber(sync, account.phoneNumberId);
+
+      // A coexistence delivery is a delivery: it moves the stamps the sidebar
+      // reads, and it must reach the sync path even though it carries no
+      // message for the inbox.
+      if (
+        !receivedMessage &&
+        !hasSync &&
+        mine.length === 0 &&
+        updates.length === 0
+      ) {
+        continue;
+      }
 
       await this.prisma.whatsAppAccount.update({
         where: { id: account.id },
@@ -249,15 +337,18 @@ export class WhatsAppWebhookService {
         await this.applyAccountEvents(account.id, updates);
       }
 
+      // The same literal `store.record` is given below.
+      const target: StoreAccount = {
+        id: account.id,
+        workspaceId: account.workspaceId,
+        phoneNumberId: account.phoneNumberId,
+        displayPhoneNumber: account.displayPhoneNumber,
+      };
+
+      await this.applySync(target, sync);
+
       if (receivedMessage) {
-        const stored = await this.store.record(
-          {
-            id: account.id,
-            workspaceId: account.workspaceId,
-            phoneNumberId: account.phoneNumberId,
-          },
-          changes,
-        );
+        const stored = await this.store.record(target, changes);
 
         this.logger.log(`Signed delivery stored for ${account.phoneNumberId}.`);
 
@@ -329,13 +420,110 @@ export class WhatsAppWebhookService {
       }
 
       if (event.event === "ACCOUNT_RECONNECTED") {
-        await this.prisma.whatsAppAccount.update({
+        const row = await this.prisma.whatsAppAccount.update({
           where: { id: accountId },
-          data: { status: "VERIFIED", failureReason: null },
+          data: {
+            status: "VERIFIED",
+            failureReason: null,
+            // Meta re-grants the synchronisation after an offboard/onboard, so
+            // stale stamps would suppress a legal sync. `lastVerifiedAt` moves
+            // with them because it is what the 24-hour retry window is measured
+            // from — leaving it would refuse a sync Meta has just allowed.
+            lastVerifiedAt: new Date(),
+            lastCheckAt: new Date(),
+            stateSyncAt: null,
+            stateSyncRequestId: null,
+            historySyncAt: null,
+            historySyncRequestId: null,
+            historySyncDoneAt: null,
+            historySyncError: null,
+          },
+          select: ACCOUNT_SYNC_SELECT,
+        });
+
+        // Not awaited: Meta is waiting on this delivery, and a slow Graph call
+        // here becomes a retried webhook. The stamps make a duplicate run safe.
+        void this.coexistence.begin(row).catch((error: unknown) => {
+          this.logger.warn(
+            `Could not request the sync for ${row.phoneNumberId}: ${
+              error instanceof Error ? error.message : "unknown failure"
+            }`,
+          );
         });
 
         this.logger.log(`Account ${event.wabaId} is connected again.`);
       }
+    }
+  }
+
+  /**
+   * The coexistence half of a delivery: history chunks, the address book and
+   * media assets.
+   *
+   * Each step is isolated. A chunk that fails to write must not stop the live
+   * message path beneath it, and must not answer Meta with a 500 for a delivery
+   * it would only retry into the same failure.
+   */
+  private async applySync(
+    account: StoreAccount,
+    parsed: SyncDelivery,
+  ): Promise<void> {
+    const mine = (rows: { phoneNumberId: string }[]) =>
+      rows.some((row) => row.phoneNumberId === account.phoneNumberId);
+
+    // Nothing in this delivery names this number: skip without a round trip.
+    if (!namesNumber(parsed, account.phoneNumberId)) {
+      return;
+    }
+
+    const decline = parsed.declines.find(
+      (row) => row.phoneNumberId === account.phoneNumberId,
+    );
+    const progress = parsed.progress.find(
+      (row) => row.phoneNumberId === account.phoneNumberId,
+    );
+
+    if (decline) {
+      await this.quietly("the declined history", () =>
+        this.history.noteDeclined(account, decline.sentence),
+      );
+    } else if (progress?.progress === 100) {
+      await this.quietly("the finished history", () =>
+        this.history.noteComplete(account),
+      );
+    }
+
+    if (mine(parsed.threads)) {
+      await this.quietly("a history chunk", () =>
+        this.history.import(account, parsed.threads),
+      );
+    }
+
+    if (mine(parsed.contacts)) {
+      await this.quietly("the address book", () =>
+        this.history.absorbContacts(account, parsed.contacts),
+      );
+    }
+
+    for (const asset of parsed.assets) {
+      await this.quietly("a media asset", () =>
+        this.history.attachMedia(account, asset),
+      );
+    }
+  }
+
+  private async quietly(
+    label: string,
+    run: () => Promise<unknown>,
+  ): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      this.logger.error(
+        `Could not write ${label} for a coexistence delivery: ${
+          error instanceof Error ? error.message : "unknown failure"
+        }`,
+      );
     }
   }
 
@@ -463,12 +651,23 @@ function parseJson(raw: Buffer): unknown {
 /**
  * `entry[].changes[].value.metadata.phone_number_id`, deduplicated. Meta batches
  * several changes into one delivery, and they can belong to different numbers.
+ *
+ * The root-level read exists for one payload and one only: Meta's history
+ * decline arrives as a bare object with no `entry` wrapper, and without this
+ * the refusal names no number, is ignored as unregistered, and the screen waits
+ * forever for a sync that was refused.
  */
 function phoneNumberIds(payload: unknown): string[] {
   const found = new Set<string>();
+  const root = payload as
+    | { entry?: unknown; metadata?: { phone_number_id?: unknown } }
+    | null;
 
-  const entries = (payload as { entry?: unknown } | null)?.entry;
-  if (!Array.isArray(entries)) return [];
+  const bare = root?.metadata?.phone_number_id;
+  if (typeof bare === "string" && bare.length > 0) found.add(bare);
+
+  const entries = root?.entry;
+  if (!Array.isArray(entries)) return [...found];
 
   for (const entry of entries) {
     const changes = (entry as { changes?: unknown } | null)?.changes;

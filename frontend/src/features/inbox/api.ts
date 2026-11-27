@@ -19,6 +19,7 @@ export type MessageKind =
   | "INTERACTIVE"
   | "TEMPLATE"
   | "REACTION"
+  | "MEDIA_PENDING"
   | "UNSUPPORTED";
 export type MessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
 
@@ -83,6 +84,8 @@ export interface InboxMessage {
   id: string;
   direction: MessageDirection;
   kind: MessageKind;
+  /** A row mirrored from the business's own phone, not a live delivery. */
+  imported: boolean;
   status: MessageStatus;
   body: string | null;
   /**

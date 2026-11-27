@@ -14,6 +14,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import { SecretBox } from "../common/crypto/secret-box";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
+import { CoexistenceStarter } from "./coexistence.starter";
 import { defaultAccount } from "./default-account";
 import type { ConnectWhatsAppDto } from "./dto/connect-whatsapp.dto";
 import type { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
@@ -93,6 +94,26 @@ const NO_TRACE: HandshakeTrace = {
   lastUnmatchedHint: null,
 };
 
+/**
+ * What the connection screen knows about the 24-hour synchronisation.
+ *
+ * Computed from the stamps rather than stored as a status, because "requested
+ * but not finished" is a real state that no single timestamp names.
+ */
+export interface CoexistenceSyncView {
+  /** False means the card is absent: the number has no business-app data. */
+  onBizApp: boolean;
+  /** When Meta accepted the history request; null means it was never asked. */
+  requestedAt: string | null;
+  /** Meta's own id, which its support asks for. Not a webhook key. */
+  requestId: string | null;
+  doneAt: string | null;
+  /** Meta's sentence: a refusal, a decline, a dead token. */
+  error: string | null;
+  /** True only while something is still unrequested and the window is open. */
+  retryAllowed: boolean;
+}
+
 export interface PublicAccount {
   phoneNumberId: string;
   /** What the workspace calls this number; null means the screen shows digits. */
@@ -113,6 +134,10 @@ export interface PublicAccount {
   status: string;
   /** Which path created this row; the detail panel words itself by it. */
   source: string;
+  /** True when the number is also in use in the WhatsApp Business app. */
+  onBizApp: boolean;
+  /** The 24-hour synchronisation, in the shape the screen reads. */
+  sync: CoexistenceSyncView;
   /** When the business token lapses, ISO-formatted. Null means never or unknown. */
   tokenExpiresAt: string | null;
   lastVerifiedAt: string | null;
@@ -302,6 +327,13 @@ const ACCOUNT_SELECT = {
   businessName: true,
   status: true,
   source: true,
+  onBizApp: true,
+  stateSyncAt: true,
+  stateSyncRequestId: true,
+  historySyncAt: true,
+  historySyncRequestId: true,
+  historySyncDoneAt: true,
+  historySyncError: true,
   lastVerifiedAt: true,
   lastCheckAt: true,
   tokenExpiresAt: true,
@@ -315,6 +347,21 @@ const ACCOUNT_SELECT = {
 } satisfies Prisma.WhatsAppAccountSelect;
 
 type AccountRow = Prisma.WhatsAppAccountGetPayload<{ select: typeof ACCOUNT_SELECT }>;
+
+/** What a sync retry reads: the two request stamps and the window's anchor. */
+const SYNC_SELECT = {
+  id: true,
+  phoneNumberId: true,
+  graphVersion: true,
+  accessTokenCipher: true,
+  onBizApp: true,
+  stateSyncAt: true,
+  historySyncAt: true,
+  historySyncRequestId: true,
+  historySyncDoneAt: true,
+  historySyncError: true,
+  lastVerifiedAt: true,
+} satisfies Prisma.WhatsAppAccountSelect;
 
 /** The subset the status path needs; a page load should not read secrets. */
 const STATUS_SELECT = {
@@ -383,6 +430,7 @@ export class WhatsAppService {
     private readonly meta: MetaGraph,
     private readonly box: SecretBox,
     private readonly config: ConfigService,
+    private readonly coexistence: CoexistenceStarter,
   ) {
     this.callbackUrl = config.get<string>("WHATSAPP_WEBHOOK_PUBLIC_URL") ?? null;
     this.statusTtlMs = config.get<number>("WHATSAPP_STATUS_TTL_MS") ?? 300_000;
@@ -694,6 +742,7 @@ export class WhatsAppService {
       verifiedName: phone.verified_name ?? null,
       qualityRating: phone.quality_rating ?? null,
       businessName,
+      onBizApp: phone.is_on_biz_app === true,
       status: "VERIFIED",
       source: "EMBEDDED_SIGNUP",
       lastVerifiedAt: verifiedAt,
@@ -721,6 +770,20 @@ export class WhatsAppService {
       create: { userId, workspaceId, isDefault, ...values },
       update: values,
       select: ACCOUNT_SELECT,
+    });
+
+    // The 24-hour clock starts at onboarding, so the two calls are made here
+    // rather than when the screen is next opened. Awaited because a person is
+    // waiting for the verdict, and these take about as long as the six Graph
+    // reads above. `begin` itself decides whether they are legal.
+    await this.coexistence.begin({
+      id: row.id,
+      phoneNumberId: row.phoneNumberId,
+      graphVersion: row.graphVersion,
+      accessTokenCipher: row.accessTokenCipher,
+      onBizApp: row.onBizApp,
+      stateSyncAt: row.stateSyncAt,
+      historySyncAt: row.historySyncAt,
     });
 
     const number = phone.display_phone_number ?? `id ${phoneNumberId}`;
@@ -767,6 +830,46 @@ export class WhatsAppService {
       stage: stageOf(row),
       callbackUrl: this.callbackUrl,
     };
+  }
+
+  /**
+   * Asks Meta again for whatever the synchronisation is still missing.
+   *
+   * The only honest retry. Inside the 24-hour window Meta can still say yes,
+   * and a transport failure that stole the first attempt is the customer's
+   * problem only if nothing lets them fix it.
+   */
+  async syncNow(claims: AuthClaims): Promise<{ sync: CoexistenceSyncView }> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+    const row = await defaultAccount(this.prisma, workspaceId, SYNC_SELECT);
+
+    if (!row) {
+      throw new BadRequestException("Connect a number first.");
+    }
+
+    if (!row.onBizApp) {
+      throw new BadRequestException(
+        "This number is not used in the WhatsApp Business app, so there is no history to sync.",
+      );
+    }
+
+    // Something is still unrequested. Both accepted is a no-op answered with
+    // the current state, not an error: a screen may repeat itself.
+    const pending = !row.stateSyncAt || !row.historySyncAt;
+
+    if (pending && !withinSyncWindow(row.lastVerifiedAt)) {
+      throw new BadRequestException(
+        "Meta only accepts this within 24 hours of connecting. The customer has to disconnect and connect again from the WhatsApp Business app.",
+      );
+    }
+
+    if (pending) {
+      await this.coexistence.begin(row);
+    }
+
+    const after = await defaultAccount(this.prisma, workspaceId, SYNC_SELECT);
+
+    return { sync: syncViewOf(after ?? row) };
   }
 
   /**
@@ -1302,6 +1405,8 @@ export class WhatsAppService {
       businessName: row.businessName,
       status: row.status,
       source: row.source,
+      onBizApp: row.onBizApp,
+      sync: syncViewOf(row),
       tokenExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
       lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
       lastCheckAt: row.lastCheckAt?.toISOString() ?? null,
@@ -1390,6 +1495,37 @@ function stageOf(row: {
 }): ConnectionStage {
   if (row.status === "FAILED") return "error";
   return isReceiving(row) ? "live" : "webhook";
+}
+
+const SYNC_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function withinSyncWindow(at: Date | null): boolean {
+  return at !== null && Date.now() - at.getTime() <= SYNC_WINDOW_MS;
+}
+
+function syncViewOf(row: {
+  onBizApp: boolean;
+  stateSyncAt: Date | null;
+  historySyncAt: Date | null;
+  historySyncRequestId: string | null;
+  historySyncDoneAt: Date | null;
+  historySyncError: string | null;
+  lastVerifiedAt: Date | null;
+}): CoexistenceSyncView {
+  return {
+    onBizApp: row.onBizApp,
+    requestedAt: row.historySyncAt?.toISOString() ?? null,
+    requestId: row.historySyncRequestId,
+    doneAt: row.historySyncDoneAt?.toISOString() ?? null,
+    error: row.historySyncError,
+    // Once both kinds were accepted there is nothing left to ask for; once it
+    // is done, asking again needs the customer to offboard and onboard.
+    retryAllowed:
+      row.onBizApp &&
+      row.historySyncDoneAt === null &&
+      (!row.stateSyncAt || !row.historySyncAt) &&
+      withinSyncWindow(row.lastVerifiedAt),
+  };
 }
 
 function deriveStatus(row: StatusRow): StatusPayload {

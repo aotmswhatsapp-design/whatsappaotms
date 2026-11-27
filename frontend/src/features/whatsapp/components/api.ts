@@ -26,6 +26,21 @@ export interface WebhookFacts {
   lastUnmatchedHint: string | null;
 }
 
+/** What the screen knows about the 24-hour synchronisation. */
+export interface CoexistenceSync {
+  /** False means the card is absent: the number has no business-app data. */
+  onBizApp: boolean;
+  /** When Meta accepted the history request; null means it was never asked. */
+  requestedAt: string | null;
+  /** Meta's own id. It is what Meta's support asks for, not a webhook key. */
+  requestId: string | null;
+  doneAt: string | null;
+  /** Meta's sentence: a refusal, a decline, a dead token. */
+  error: string | null;
+  /** True only while something is still unrequested and the window is open. */
+  retryAllowed: boolean;
+}
+
 export interface WhatsAppAccount {
   phoneNumberId: string;
   businessAccountId: string;
@@ -39,6 +54,10 @@ export interface WhatsAppAccount {
   status: string;
   /** `MANUAL` rows were typed in; `EMBEDDED_SIGNUP` rows came from Meta's dialog. */
   source: "MANUAL" | "EMBEDDED_SIGNUP";
+  /** True when the number is also usable in the WhatsApp Business app. */
+  onBizApp: boolean;
+  /** The 24-hour synchronisation, in the shape this screen reads. */
+  sync: CoexistenceSync;
   /** When the business token lapses. Null means never-expiring or unknown. */
   tokenExpiresAt: string | null;
   lastVerifiedAt: string | null;
@@ -154,6 +173,13 @@ export function fetchBusinessProfile(): Promise<BusinessProfilePayload> {
 export function disconnectWhatsApp(): Promise<{ removed: boolean }> {
   return request<{ removed: boolean }>("/v1/whatsapp/connection", {
     method: "DELETE",
+  });
+}
+
+/** Asks Meta again for whatever the 24-hour sync is still missing. */
+export function startHistorySync(): Promise<{ sync: CoexistenceSync }> {
+  return request<{ sync: CoexistenceSync }>("/v1/whatsapp/connection/sync", {
+    method: "POST",
   });
 }
 

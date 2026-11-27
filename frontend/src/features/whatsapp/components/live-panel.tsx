@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 import { ApiError, disconnectWhatsApp, type WhatsAppAccount } from "./api";
+import { CoexistenceCard } from "./coexistence-card";
 import { expiryDays, expiryState } from "./token-expiry";
 import { WebhookFields } from "./webhook-fields";
 import { when } from "./when";
@@ -122,6 +123,8 @@ export function LivePanel({
           </div>
         ))}
       </dl>
+
+      {account.onBizApp ? <CoexistenceCard sync={account.sync} /> : null}
 
       {state === "soon" || state === "expired" ? (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[13px] leading-relaxed">

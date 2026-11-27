@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { MessageKind, MessageStatus, Prisma } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
+import { contactFor } from "./contact.identity";
 import type {
   ParsedChange,
   ParsedDeliveryStatus,
@@ -24,6 +25,12 @@ export interface StoreAccount {
   id: string;
   workspaceId: string;
   phoneNumberId: string;
+  /**
+   * Meta's pretty form, e.g. `+91 98000 00000`. Optional because the live path
+   * ignores it; the history path needs it to tell the business's own media
+   * from a customer's, and `phoneNumberId` is a different kind of id entirely.
+   */
+  displayPhoneNumber?: string | null;
 }
 
 /** One inbound message this delivery actually inserted. */
@@ -124,12 +131,17 @@ export class InboxStore {
   ): Promise<StoredInbound | null> {
     const name = change.contacts.find((row) => row.waId === message.from);
 
-    const contact = await this.contactFor(
+    const contact = await contactFor(
+      this.prisma,
       account,
-      message.from,
+      { phone: message.from, bsuid: null },
       name?.profileName ?? null,
       message.timestamp,
     );
+
+    // A live delivery always names a phone, so this is a shape guard rather
+    // than a real branch — but returning here keeps one rule for both stores.
+    if (!contact) return null;
 
     const conversation = await this.prisma.conversation.upsert({
       where: { accountId_contactId: { accountId: account.id, contactId: contact.id } },
@@ -202,31 +214,6 @@ export class InboxStore {
     };
   }
 
-  /** The customer identity a thread hangs from, created on first sight. */
-  private contactFor(
-    account: StoreAccount,
-    waId: string,
-    profileName: string | null,
-    at: Date,
-  ): Promise<{ id: string }> {
-    return this.prisma.contact.upsert({
-      where: { workspaceId_waId: { workspaceId: account.workspaceId, waId } },
-      create: {
-        workspaceId: account.workspaceId,
-        waId,
-        profileName,
-        phoneDisplay: waId,
-        lastSeenAt: at,
-      },
-      update: {
-        lastSeenAt: at,
-        // A customer can hide their profile name; keep the last one we saw.
-        ...(profileName ? { profileName } : {}),
-      },
-      select: { id: true },
-    });
-  }
-
   /**
    * A message the business sent from the WhatsApp Business app.
    *
@@ -248,12 +235,15 @@ export class InboxStore {
   ): Promise<void> {
     const name = change.contacts.find((row) => row.waId === echo.from);
 
-    const contact = await this.contactFor(
+    const contact = await contactFor(
+      this.prisma,
       account,
-      echo.from,
+      { phone: echo.from, bsuid: null },
       name?.profileName ?? null,
       echo.timestamp,
     );
+
+    if (!contact) return;
 
     const conversation = await this.prisma.conversation.upsert({
       where: { accountId_contactId: { accountId: account.id, contactId: contact.id } },

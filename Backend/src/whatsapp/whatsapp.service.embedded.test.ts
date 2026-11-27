@@ -8,6 +8,7 @@ import type { AuthClaims } from "../auth/auth.types";
 import type { SecretBox } from "../common/crypto/secret-box";
 import type { PrismaService } from "../prisma/prisma.service";
 import type { WorkspacesService } from "../workspaces/workspaces.service";
+import type { CoexistenceStarter } from "./coexistence.starter";
 import type { EmbeddedSignupDto } from "./dto/embedded-signup.dto";
 import type { MetaGraph } from "./meta-graph";
 import { WhatsAppService } from "./whatsapp.service";
@@ -22,6 +23,7 @@ const claims = { id: "user-1", email: "one@test.dev" } as AuthClaims;
 
 function service(owned: string[], isOnBizApp = false) {
   const written: Record<string, unknown>[] = [];
+  const started: { onBizApp: boolean }[] = [];
 
   const prisma = {
     whatsAppAccount: {
@@ -82,8 +84,13 @@ function service(owned: string[], isOnBizApp = false) {
   } as unknown as WorkspacesService;
 
   return {
-    service: new WhatsAppService(prisma, workspaces, meta, box, config),
+    service: new WhatsAppService(prisma, workspaces, meta, box, config, {
+      begin: async (row: { onBizApp: boolean }) => {
+        started.push(row);
+      },
+    } as unknown as CoexistenceStarter),
     written,
+    started,
   };
 }
 
@@ -108,6 +115,30 @@ test("a number that stays in the business app is reported as shared", async () =
   const result = await whatsapp.connectEmbedded(claims, wabaOnly);
 
   assert.match(result.summary, /WhatsApp Business app/);
+});
+
+test("a number that stays in the business app has the sync asked for", async () => {
+  const { service: whatsapp, written, started } = service(
+    ["109800000000000"],
+    true,
+  );
+
+  await whatsapp.connectEmbedded(claims, wabaOnly);
+
+  assert.equal(written[0].onBizApp, true);
+  assert.equal(started.length, 1);
+  assert.equal(started[0].onBizApp, true);
+});
+
+test("a plain cloud number is never asked for business-app data", async () => {
+  const { service: whatsapp, started } = service(["109800000000000"], false);
+
+  await whatsapp.connectEmbedded(claims, wabaOnly);
+
+  // `begin` is still called: it is the one place that decides, so the rule
+  // cannot drift between the caller and the starter.
+  assert.equal(started.length, 1);
+  assert.equal(started[0].onBizApp, false);
 });
 
 test("an account with several numbers is refused, not guessed", async () => {

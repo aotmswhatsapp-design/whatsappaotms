@@ -22,6 +22,7 @@ function row(patch: Partial<MessageSource>): MessageSource {
     wamid: "wamid.1",
     direction: "OUTBOUND",
     kind: "INTERACTIVE",
+    imported: false,
     agentId: null,
     status: "SENT",
     body: "Dosa 80.",

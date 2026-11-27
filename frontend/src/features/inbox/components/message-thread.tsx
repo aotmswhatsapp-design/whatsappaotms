@@ -14,6 +14,7 @@ import {
   LayoutTemplate,
   Loader2,
   MoreHorizontal,
+  Smartphone,
   SmilePlus,
   StickyNote,
   Trash2,
@@ -840,6 +841,15 @@ function Bubble({
                   · tap opens “{message.template.tapTarget.title}”
                 </span>
               ) : null}
+            </p>
+          ) : null}
+
+          {/* A send the business made on its phone and we mirrored in. Without
+              this an agent reads it as a colleague's reply. */}
+          {message.imported && outbound ? (
+            <p className="mb-1 flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+              <Smartphone aria-hidden="true" className="size-3 shrink-0" />
+              <span>WhatsApp Business app</span>
             </p>
           ) : null}
 
