@@ -46,7 +46,10 @@ function build(options: { assigned?: string | null; reason?: string | null } = {
         writes.push(args);
         return conversation;
       },
-      updateMany: async () => ({ count: 1 }),
+      updateMany: async (args: Record<string, unknown>) => {
+        writes.push(args);
+        return { count: 1 };
+      },
     },
     contact: {
       update: async (args: Record<string, unknown>) => {
@@ -140,6 +143,51 @@ test("a thread that already has an assignee is never reassigned", async () => {
 
   assert.equal(picks(), 0);
   assert.equal(creates(), 1);
+});
+
+test("a stage write that loses a race stops the rest", async () => {
+  const { intake, writes, picks, creates } = build();
+  (intake as unknown as { prisma: { conversation: { updateMany: (args: unknown) => Promise<{ count: number }> } } }).prisma.conversation.updateMany =
+    async (args) => {
+      writes.push(args as Record<string, unknown>);
+      return { count: 0 };
+    };
+
+  await intake.consider({ workspaceId: "ws-1" }, [inbound]);
+
+  assert.equal(picks(), 0);
+  assert.equal(creates(), 0);
+  // The stage write is the only write attempted.
+  assert.equal(writes.length, 1);
+});
+
+test("a lost assignment claim still gives the task to the real assignee", async () => {
+  const { intake, tasks, picks } = build();
+  const rows = (
+    intake as unknown as {
+      prisma: {
+        conversation: {
+          updateMany: (args: { where: { assignedToUserId?: unknown } }) => Promise<{ count: number }>;
+          findUnique: () => Promise<unknown>;
+        };
+      };
+    }
+  ).prisma.conversation;
+
+  rows.updateMany = async (args) =>
+    "assignedToUserId" in args.where ? { count: 0 } : { count: 1 };
+
+  let lookups = 0;
+  rows.findUnique = async () => {
+    lookups += 1;
+    // Unassigned when the lead is read, somebody else's when the claim lands.
+    return lookups === 1 ? conversation : { assignedToUserId: "manual-agent" };
+  };
+
+  await intake.consider({ workspaceId: "ws-1" }, [inbound]);
+
+  assert.equal(picks(), 1);
+  assert.equal((tasks[0] as { assignedToUserId: string }).assignedToUserId, "manual-agent");
 });
 
 test("a manual override is left alone", async () => {

@@ -17,6 +17,12 @@ export interface AccessView {
   role: AccessRole;
   /** The modules this role may open. An owner's list is the whole registry. */
   modules: ModuleKey[];
+  /**
+   * Whether the caller has a personal WhatsApp on their membership. The
+   * follow-up strip sends from it, so its Send button can say why it is off
+   * instead of failing after the click.
+   */
+  hasPersonalWhatsApp: boolean;
 }
 
 /** The three role→module lists the owner edits, as one object. */
@@ -48,6 +54,7 @@ export function fetchAccess(): Promise<AccessView> {
       modules: view.modules.filter(
         (key): key is ModuleKey => moduleIn(key) !== null,
       ),
+      hasPersonalWhatsApp: view.hasPersonalWhatsApp === true,
     }),
   );
 }

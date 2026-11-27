@@ -84,6 +84,11 @@ function useAccessState(): AccessState {
 export function useAccess(): {
   role: AccessRole | null;
   modules: ModuleKey[] | null;
+  /**
+   * Null until the access read answers: a control must not claim the number
+   * is missing while the answer is still in flight.
+   */
+  hasPersonalWhatsApp: boolean | null;
   failed: boolean;
 } {
   const { access, failed } = useAccessState();
@@ -91,6 +96,7 @@ export function useAccess(): {
   return {
     role: access?.role ?? null,
     modules: access?.modules ?? null,
+    hasPersonalWhatsApp: access ? access.hasPersonalWhatsApp : null,
     failed,
   };
 }

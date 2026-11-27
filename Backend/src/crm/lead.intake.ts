@@ -129,8 +129,18 @@ export class LeadIntake {
       reason: conversation.interestReason,
     });
 
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
+    const staged = await this.prisma.conversation.updateMany({
+      where: {
+        id: conversation.id,
+        workspaceId,
+        // Re-checked inside the statement: a manager's override can land while
+        // the previous message is being read, and it must survive this write.
+        OR: [
+          { interestAt: null },
+          { interestAt: { lt: new Date(Date.now() - MANUAL_FREEZE_MS) } },
+          { interestReason: { not: MANUAL_REASON } },
+        ],
+      },
       data: {
         interest: verdict.interest,
         interestScore: verdict.score,
@@ -138,6 +148,10 @@ export class LeadIntake {
         interestAt: new Date(),
       },
     });
+
+    // Nothing was staged, so the tags, the assignment and the errand all belong
+    // to the decision that won the race.
+    if (staged.count === 0) return;
 
     await this.prisma.contact.update({
       where: { id: conversation.contactId },
@@ -168,7 +182,17 @@ export class LeadIntake {
           data: { assignedToUserId: picked },
         });
 
-        if (claimed.count > 0) assignee = picked;
+        // Losing that race does not lose the errand: the task follows whoever
+        // the conversation now belongs to, not the owner by default.
+        assignee =
+          claimed.count > 0
+            ? picked
+            : ((
+                await this.prisma.conversation.findUnique({
+                  where: { id: conversation.id, workspaceId },
+                  select: { assignedToUserId: true },
+                })
+              )?.assignedToUserId ?? null);
       }
     }
 

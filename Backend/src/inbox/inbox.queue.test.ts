@@ -177,3 +177,45 @@ test("a Manager may hand a conversation to anybody in the workspace", async () =
 
   assert.equal(updated.conversation.id, "c-1");
 });
+
+test("a stage filter narrows the queue like the status filter", async () => {
+  const { inbox, lastQuery } = service("MANAGER");
+
+  await inbox.list(claims, { interest: "INTERESTED" } as ListConversationsDto);
+
+  assert.equal((lastQuery() as { interest?: string }).interest, "INTERESTED");
+});
+
+test("the Follow-up filter asks for a thread that still owes a task", async () => {
+  const { inbox, lastQuery } = service("MANAGER");
+
+  await inbox.list(claims, { followUp: "open" } as ListConversationsDto);
+
+  assert.deepEqual(lastQuery(), {
+    workspaceId: "ws-1",
+    interest: "INTERESTED",
+    followUpTasks: { some: { status: "OPEN" } },
+  });
+});
+
+test("the Follow-up filter narrows an Agent's queue instead of replacing it", async () => {
+  const { inbox, lastQuery } = service("AGENT");
+
+  await inbox.list(claims, { followUp: "open" } as ListConversationsDto);
+
+  const where = lastQuery() as {
+    AND?: unknown;
+    followUpTasks?: unknown;
+  };
+
+  assert.deepEqual(where.AND, [
+    {
+      OR: [
+        { assignedToUserId: "user-1" },
+        { assignedToUserId: null, status: { not: "CLOSED" } },
+      ],
+    },
+  ]);
+  assert.deepEqual(where.followUpTasks, { some: { status: "OPEN" } });
+  assert.equal((where as { interest?: string }).interest, "INTERESTED");
+});

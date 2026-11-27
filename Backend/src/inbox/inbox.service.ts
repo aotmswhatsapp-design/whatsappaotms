@@ -116,6 +116,16 @@ export class InboxService {
 
     if (query.status) where.status = query.status;
 
+    if (query.interest) where.interest = query.interest;
+
+    // "Follow-up" is derived, not stored: the row is interested and still
+    // owes a task, which is exactly the board's Follow-up column. It sets the
+    // stage itself, so a caller cannot ask for a refusal that owes a task.
+    if (query.followUp === "open") {
+      where.interest = "INTERESTED";
+      where.followUpTasks = { some: { status: "OPEN" } };
+    }
+
     if (query.accountId) {
       if (!isUuid(query.accountId)) {
         throw new BadRequestException("Unknown number filter.");

@@ -78,6 +78,12 @@ export interface AccessView {
   role: WorkspaceRole;
   /** Module keys in registry order; an OWNER gets every one. */
   modules: ModuleKey[];
+  /**
+   * Whether this caller has a personal WhatsApp on their membership. The
+   * follow-up strip sends from it, so the strip disables Send with the reason
+   * instead of letting the click fail. The number itself stays off the wire.
+   */
+  hasPersonalWhatsApp: boolean;
 }
 
 /** The owner's matrix, with the registry so the screen needs no second read. */
@@ -255,9 +261,21 @@ export class WorkspacesService {
 
   /** What the caller may open, for the shell's sidebar. */
   async access(claims: AuthClaims): Promise<AccessView> {
-    const { workspaceId, role } = await this.primaryFor(claims);
+    const { workspaceId, userId, role } = await this.primaryFor(claims);
 
-    return { role, modules: await this.modulesFor(workspaceId, role) };
+    const [modules, membership] = await Promise.all([
+      this.modulesFor(workspaceId, role),
+      this.prisma.workspaceMember.findFirst({
+        where: { workspaceId, userId },
+        select: { personalWhatsApp: true },
+      }),
+    ]);
+
+    return {
+      role,
+      modules,
+      hasPersonalWhatsApp: Boolean(membership?.personalWhatsApp?.trim()),
+    };
   }
 
   /**

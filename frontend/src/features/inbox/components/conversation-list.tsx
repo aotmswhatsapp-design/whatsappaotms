@@ -11,6 +11,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  INTEREST_LABELS,
+  type LeadInterest,
+} from "@/features/crm/api";
 import { cn } from "@/lib/utils";
 
 import {
@@ -32,6 +36,40 @@ const ASSIGNEES: { value: string; label: string }[] = [
   { value: "me", label: "Assigned to me" },
   { value: "unassigned", label: "Unassigned" },
 ];
+
+/**
+ * The stage menu. Every row but "Follow-up" is a stored interest; that row is
+ * the derived pair of an interested lead and the task it still owes, so it
+ * travels as its own query parameter rather than pretending to be a stage.
+ */
+const STAGES: {
+  key: string;
+  label: string;
+  interest?: LeadInterest;
+  followUp?: "open";
+}[] = [
+  { key: "", label: "Any stage" },
+  { key: "UNKNOWN", label: INTEREST_LABELS.UNKNOWN, interest: "UNKNOWN" },
+  { key: "INTERESTED", label: INTEREST_LABELS.INTERESTED, interest: "INTERESTED" },
+  { key: "FOLLOW_UP", label: "Follow-up", followUp: "open" },
+  {
+    key: "NOT_INTERESTED",
+    label: INTEREST_LABELS.NOT_INTERESTED,
+    interest: "NOT_INTERESTED",
+  },
+];
+
+/** Whether one stage row is the filter in force. */
+function stageInForce(
+  row: (typeof STAGES)[number],
+  filters: ConversationFilters,
+): boolean {
+  if (row.key === "") return !filters.interest && !filters.followUp;
+
+  return row.followUp
+    ? filters.followUp === row.followUp
+    : filters.interest === row.interest;
+}
 
 /**
  * The queue. Filters are owned by the parent so a refresh keeps them, and the
@@ -65,13 +103,23 @@ export function ConversationList({
     STATUSES.find((row) => row.value === (filters.status ?? ""))?.label ?? "All statuses";
   const assigneeLabel =
     ASSIGNEES.find((row) => row.value === (filters.assignee ?? ""))?.label ?? "Anyone";
+  const stageLabel =
+    STAGES.find((row) => stageInForce(row, filters))?.label ?? "Any stage";
 
   // Clearing unmounts the button that had focus, so focus is handed back to
   // the field rather than dropped on the body.
   const field = React.useRef<HTMLInputElement>(null);
 
-  const filtered = Boolean(filters.status || filters.assignee);
-  const summary = filtered ? `${statusLabel} · ${assigneeLabel}` : "All chats";
+  // Only the filters that are doing something, so the pill says "Interested"
+  // rather than "All statuses · Anyone · Interested".
+  const active = [
+    filters.status ? statusLabel : null,
+    filters.assignee ? assigneeLabel : null,
+    filters.interest || filters.followUp ? stageLabel : null,
+  ].filter((value): value is string => Boolean(value));
+
+  const filtered = active.length > 0;
+  const summary = filtered ? active.join(" · ") : "All chats";
 
   // One label per calendar day, in the order the rows arrive (newest first).
   // A queue that is a day old reads as two stacks instead of an undated list.
@@ -161,6 +209,26 @@ export function ConversationList({
                 </DropdownMenuItem>
               ))}
 
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Stage</DropdownMenuLabel>
+              {STAGES.map((row) => (
+                <DropdownMenuItem
+                  key={row.key}
+                  onSelect={() =>
+                    onFiltersChange({
+                      ...filters,
+                      interest: row.interest,
+                      followUp: row.followUp,
+                    })
+                  }
+                >
+                  {row.label}
+                  {stageInForce(row, filters) ? (
+                    <Check className="ml-auto" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+
               {filtered ? (
                 <>
                   <DropdownMenuSeparator />
@@ -221,7 +289,11 @@ export function ConversationList({
 
         {!loading && conversations.length === 0 ? (
           <p className="px-4 py-8 text-center text-[12.5px] leading-relaxed text-muted-foreground">
-            {filters.search || filters.status || filters.assignee
+            {filters.search ||
+            filters.status ||
+            filters.assignee ||
+            filters.interest ||
+            filters.followUp
               ? "No conversation matches these filters."
               : "No conversations yet. A customer's first message opens one."}
           </p>
@@ -296,6 +368,19 @@ export function ConversationList({
                               {conversation.lastMessagePreview ??
                                 "No messages yet"}
                             </span>
+
+                            {conversation.interest !== "UNKNOWN" ? (
+                              <span
+                                className={cn(
+                                  "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                                  conversation.interest === "INTERESTED"
+                                    ? "bg-brand-soft text-brand"
+                                    : "bg-secondary text-muted-foreground",
+                                )}
+                              >
+                                {INTEREST_LABELS[conversation.interest]}
+                              </span>
+                            ) : null}
 
                             {unread ? (
                               <span className="ml-auto grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold text-brand-foreground tabular-nums">

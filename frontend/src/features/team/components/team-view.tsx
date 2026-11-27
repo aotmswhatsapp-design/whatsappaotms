@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   LoaderCircle,
+  Pencil,
   Trash2,
   UserPlus,
   Users,
@@ -35,6 +36,7 @@ import {
   type TeamWorkspace,
 } from "../api";
 import { PermissionsCard } from "./permissions-card";
+import { MemberProfileSheet } from "./member-profile-sheet";
 
 const FIELD =
   "mt-1.5 h-9 w-full rounded-lg border border-input bg-background px-3 text-[13.5px] text-foreground shadow-xs outline-none transition-shadow placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]";
@@ -45,6 +47,7 @@ const SELECT =
 const MEMBER_COLUMNS = [
   { key: "member", label: "Member" },
   { key: "role", label: "Role" },
+  { key: "designation", label: "Designation" },
   { key: "access", label: "Access", className: "text-right" },
 ];
 
@@ -73,6 +76,21 @@ export function TeamView({ viewerId }: { viewerId: string }) {
   const [attempt, setAttempt] = React.useState(0);
   // Declared before the loading return: a hook cannot live below it.
   const [tab, setTab] = React.useState<"members" | "permissions">("members");
+
+  /**
+   * Every designation already in use, for the sheet's datalist. Offering them
+   * is what stops "sales" and "Sales" becoming two pools.
+   */
+  const designations = React.useMemo(
+    () => [
+      ...new Set(
+        (workspace?.members ?? [])
+          .map((member) => member.designation)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ].sort(),
+    [workspace],
+  );
 
   React.useEffect(() => {
     let active = true;
@@ -221,6 +239,7 @@ export function TeamView({ viewerId }: { viewerId: string }) {
 
           <MembersTable
             canManage={canManage}
+            designations={designations}
             members={workspace.members}
             onMemberChanged={replaceMember}
             onMemberRemoved={dropMember}
@@ -394,6 +413,7 @@ function InviteCard({
 
 function MembersTable({
   canManage,
+  designations,
   members,
   viewerId,
   onMemberChanged,
@@ -401,6 +421,7 @@ function MembersTable({
   onToast,
 }: {
   canManage: boolean;
+  designations: string[];
   members: Member[];
   viewerId: string;
   onMemberChanged: (member: Member) => void;
@@ -409,6 +430,8 @@ function MembersTable({
 }) {
   const [armed, setArmed] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
+  /** The row whose profile sheet is open; null when none is. */
+  const [editing, setEditing] = React.useState<Member | null>(null);
 
   async function setRole(member: Member, role: MemberRole) {
     if (role === member.role) return;
@@ -470,6 +493,18 @@ function MembersTable({
             You
           </span>
         ) : null}
+        {/* The owner's own row has none: rotation excludes the owner, so a
+            designation there would be a field nothing reads. */}
+        {canManage && !member.owner ? (
+          <button
+            aria-label={`Edit the profile for ${member.name ?? member.email}`}
+            className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            onClick={() => setEditing(member)}
+            type="button"
+          >
+            <Pencil aria-hidden="true" className="size-3" />
+          </button>
+        ) : null}
       </p>
       {member.name ? (
         <p className="mt-0.5 text-xs text-muted-foreground">{member.email}</p>
@@ -494,6 +529,10 @@ function MembersTable({
         ))}
       </select>
     ),
+
+    <span className="truncate text-[12.5px] text-muted-foreground" key="designation">
+      {member.designation ?? "—"}
+    </span>,
 
     <div className="flex justify-end" key="access">
       {member.owner ? (
@@ -558,6 +597,18 @@ function MembersTable({
         }
         rows={rows}
       />
+
+      {editing ? (
+        <MemberProfileSheet
+          designations={designations}
+          member={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(member) => {
+            onMemberChanged(member);
+            setEditing(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

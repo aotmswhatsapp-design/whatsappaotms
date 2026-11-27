@@ -36,7 +36,7 @@ export default function TeamPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        description="Roles decide who sends campaigns, who answers the inbox and who manages the workspace. Only the owner invites people and changes roles — and with no mailer in this deployment, an invitation is a link you pass on yourself."
+        description="Roles decide who sends campaigns, who answers the inbox and who manages the workspace. Only the owner invites people and changes roles — and with no mailer in this deployment, an invitation is a link you pass on yourself. Each person also gets a designation and their own WhatsApp number, so interested leads rotate to the right desk and follow-ups go out from the right phone."
         eyebrow={nav.group}
         title={nav.title}
       />

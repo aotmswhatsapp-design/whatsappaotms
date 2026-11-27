@@ -51,6 +51,13 @@ export interface Member {
   avatarUrl: string | null;
   /** The workspace owner: role immutable, membership irremovable. */
   owner: boolean;
+  /**
+   * The label lead rotation sorts by. Null means the owner has not set one,
+   * and a person without one is never handed a lead.
+   */
+  designation: string | null;
+  /** Digits only, country code first; null when unset. */
+  personalWhatsApp: string | null;
 }
 
 /**
@@ -117,6 +124,25 @@ export function removeMember(userId: string): Promise<{ ok: true }> {
   return request<{ ok: true }>(
     `/v1/workspaces/members/${encodeURIComponent(userId)}`,
     { method: "DELETE" },
+  );
+}
+
+/**
+ * The parts of a person's profile the owner controls. Email is not among them:
+ * it is the identity they sign in with, and changing it is a verified flow of
+ * its own.
+ */
+export function updateMemberProfile(
+  userId: string,
+  input: {
+    fullName?: string;
+    designation?: string | null;
+    personalWhatsApp?: string | null;
+  },
+): Promise<{ member: Member }> {
+  return request<{ member: Member }>(
+    `/v1/workspaces/members/${encodeURIComponent(userId)}/profile`,
+    { method: "PATCH", body: JSON.stringify(input) },
   );
 }
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardBoard } from "@/components/workspace/dashboard/dashboard-board";
 import { PageHeader } from "@/components/workspace/page-header";
+import { FollowUpsCard } from "@/features/crm/components/follow-ups-card";
 import { ConnectCta } from "@/features/whatsapp/components/connect-cta";
 import { getSessionUser } from "@/lib/auth/session";
 
@@ -31,6 +32,8 @@ async function Overview() {
       />
 
       <DashboardBoard />
+
+      <FollowUpsCard />
     </div>
   );
 }

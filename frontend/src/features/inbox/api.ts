@@ -1,3 +1,4 @@
+import type { FollowUpTaskRef, LeadInterest } from "@/features/crm/api";
 import { request, upload } from "@/lib/api/http";
 import type { BotCard, BotFlow, BotView } from "@/lib/bots/card";
 
@@ -68,6 +69,14 @@ export interface Conversation {
   /** Why, in one word — `human`, `manual`, `handoff`, `no-context`,
       `unavailable`. A tooltip. */
   aiPauseReason: string | null;
+  /** Where the classifier put this lead. `manual` in the reason means a person did. */
+  interest: LeadInterest;
+  /** The deciding message's evidence; null once a person set the stage. */
+  interestScore: number | null;
+  interestReason: string | null;
+  interestAt: string | null;
+  /** The open follow-up, so the thread can offer it without a second read. */
+  openTask: FollowUpTaskRef | null;
 }
 
 export interface InboxMessage {
@@ -160,6 +169,13 @@ export interface ConversationFilters {
   status?: ConversationStatus;
   /** A user id, `me`, or `unassigned`. */
   assignee?: string;
+  /** A stage, so the queue can be read one column of the board at a time. */
+  interest?: LeadInterest;
+  /**
+   * The derived "Follow-up" stage: an interested thread that still owes a
+   * task. Its own filter, because no stored interest value describes it.
+   */
+  followUp?: "open";
 }
 
 /** A fresh, short-lived link for one attachment. */
@@ -181,6 +197,8 @@ export function fetchConversations(
   if (filters.search?.trim()) query.set("search", filters.search.trim());
   if (filters.status) query.set("status", filters.status);
   if (filters.assignee) query.set("assignee", filters.assignee);
+  if (filters.interest) query.set("interest", filters.interest);
+  if (filters.followUp) query.set("followUp", filters.followUp);
 
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
 

@@ -12,6 +12,7 @@ import {
   PlugZap,
   QrCode,
   Sparkles,
+  Target,
   Users,
   Workflow,
 } from "lucide-react";
@@ -79,6 +80,13 @@ export const workspaceNav: WorkspaceNavGroup[] = [
         description: "Import, tag and manage your contact list",
         icon: Contact,
         module: "contacts",
+      },
+      {
+        title: "Leads",
+        href: "/workspace/crm",
+        description: "Interested chats, follow-up tasks and who receives new leads",
+        icon: Target,
+        module: "crm",
       },
       {
         title: "QR codes",

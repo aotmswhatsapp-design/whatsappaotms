@@ -18,6 +18,20 @@ export class ListConversationsDto {
   @IsIn(["OPEN", "PENDING", "CLOSED"])
   status?: "OPEN" | "PENDING" | "CLOSED";
 
+  /** One stage, when the queue is being read as a lead list. */
+  @IsOptional()
+  @IsIn(["UNKNOWN", "INTERESTED", "NOT_INTERESTED"])
+  interest?: "UNKNOWN" | "INTERESTED" | "NOT_INTERESTED";
+
+  /**
+   * The menu's fourth stage, "Follow-up": a stage the row does not store,
+   * because it is the pair of an interested lead and the task still owed on
+   * it. A filter of its own keeps the three-value `interest` contract intact.
+   */
+  @IsOptional()
+  @IsIn(["open"])
+  followUp?: "open";
+
   @IsOptional()
   @IsString()
   @MaxLength(64)
