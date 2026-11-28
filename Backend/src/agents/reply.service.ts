@@ -15,6 +15,7 @@ import { windowOpen, type MessageView } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
 import { AgentRouter } from "./agent.router";
 import { OpenRouter } from "./ai.openrouter";
+import { DocumentsService } from "./documents/documents.service";
 import { detectLanguage, type LanguageCode } from "./language.detect";
 import { handoffLine, matchesEscalation } from "./reply.prompt";
 import { RetrievalService } from "./retrieval.service";
@@ -74,6 +75,7 @@ export class ReplyService {
     private readonly retrieval: RetrievalService,
     private readonly router: AgentRouter,
     private readonly store: BotStore,
+    private readonly documents: DocumentsService,
     /** Absent on a deployment with no key: the extractive answer is the reply. */
     @Optional() private readonly ai?: OpenRouter,
   ) {}
@@ -397,6 +399,36 @@ export class ReplyService {
         started,
         language.code,
       );
+      return;
+    }
+
+    // A file the customer asked for by name leaves as the file itself. After the
+    // business's own cards and keyword rules, because those are sentences the
+    // owner wrote for exactly this question, and before retrieval, because no
+    // chunk can hand over a PDF. A request that names no file — or one the agent
+    // does not have, or one too large to send — is not an error here: the answer
+    // below is the reply, exactly as it would have been.
+    const document = await this.documents.deliver({
+      workspaceId: conversation.workspaceId,
+      agentId: agent.id,
+      question,
+      target,
+    });
+
+    if (document.sent) {
+      // Deliberately not swallowed, unlike the writes below. If this one fails
+      // the run must end FAILED: left CLAIMED, the sweep would requeue it and
+      // the customer would receive the same file twice.
+      await this.prisma.agentRun.update({
+        where: { id: run.id },
+        data: {
+          status: "SENT",
+          outboundMessageId: document.messageId,
+          latencyMs: Date.now() - started,
+          reason: null,
+          error: null,
+        },
+      });
       return;
     }
 

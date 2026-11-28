@@ -14,6 +14,15 @@ import {
 /** Uploads and downloads of customer files need more room than a lookup. */
 const TIMEOUT_MS = 30_000;
 
+/**
+ * A document is pushed to Meta before it can be sent, and bytes take time: a
+ * 10 MB brochure over a slow uplink is minutes, not seconds. Thirty seconds cut
+ * that upload off while Meta was still assembling it, which reads as a failed
+ * send for a file that fits every rule we check. The same ceiling
+ * `meta-graph.ts` uses for its own uploads.
+ */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
 const SENDABLE: Partial<Record<MessageKind, string>> = {
   IMAGE: "image",
   DOCUMENT: "document",
@@ -263,6 +272,7 @@ export class InboxGraph {
       method: "POST",
       token: input.token,
       form,
+      timeoutMs: UPLOAD_TIMEOUT_MS,
     });
 
     if (!payload.id) {
@@ -523,8 +533,16 @@ export class InboxGraph {
 
   private async request<T>(
     url: URL,
-    init: { method: "GET" | "POST"; token: string; json?: unknown; form?: FormData },
+    init: {
+      method: "GET" | "POST";
+      token: string;
+      json?: unknown;
+      form?: FormData;
+      /** Set where the call moves bytes rather than a JSON body. */
+      timeoutMs?: number;
+    },
   ): Promise<T> {
+    const timeoutMs = init.timeoutMs ?? TIMEOUT_MS;
     const headers: Record<string, string> = {
       accept: "application/json",
       authorization: `Bearer ${init.token}`,
@@ -547,12 +565,12 @@ export class InboxGraph {
         method: init.method,
         headers,
         body,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       const reason =
         error instanceof Error && error.name === "TimeoutError"
-          ? `no answer within ${TIMEOUT_MS / 1000}s`
+          ? `no answer within ${timeoutMs / 1000}s`
           : error instanceof Error
             ? error.message
             : "unknown network failure";

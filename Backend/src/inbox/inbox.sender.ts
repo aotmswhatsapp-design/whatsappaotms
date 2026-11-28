@@ -456,6 +456,8 @@ export class InboxSender {
       file: UploadedMedia;
       caption: string | null;
       quote: Quote | null;
+      /** Set when an agent sent it, so the Activity tab can attribute it. */
+      agentId?: string;
     },
   ): Promise<MessageView> {
     const { file } = input;
@@ -482,6 +484,7 @@ export class InboxSender {
         mediaMime: file.mimetype,
         mediaSize: file.size,
         contextWamid: input.quote?.wamid ?? null,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
       },
       select: MESSAGE_SELECT,
     });
