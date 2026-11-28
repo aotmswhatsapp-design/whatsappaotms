@@ -273,6 +273,24 @@ test("a scan-only PDF is drawn and read, page numbers intact", async () => {
   assert.deepEqual(meta, { kind: "document", pages: 1, ocr: 1 });
 });
 
+test("a 32-page brochure is read whole, not refused at the ceiling", async () => {
+  const asked: number[][] = [];
+
+  const { blocks, meta } = await extractSource(
+    { bytes: blankPdf(32), mime: "application/pdf", name: "brochure-32.pdf" },
+    {
+      ocr: async (_bytes, pages) => {
+        asked.push(pages);
+        return new Map(pages.map((page) => [page, "DUO brochure, price list inside."]));
+      },
+    },
+  );
+
+  assert.deepEqual(asked, [Array.from({ length: 32 }, (_, at) => at + 1)]);
+  assert.equal(blocks.length, 32);
+  assert.deepEqual(meta, { kind: "document", pages: 32, ocr: 32 });
+});
+
 test("a scan wider than the OCR ceiling is refused before a page is drawn", async () => {
   let drawn = false;
 

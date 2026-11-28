@@ -91,10 +91,14 @@ const ROWS_PER_BLOCK = 20;
  *  this without trying. */
 export const OCR_MIN_CHARS = 24;
 
-/** How many pages one document may send to OCR. Recognition is about a second
- *  a page of CPU in the process that also answers messages, so the ceiling is
- *  what keeps one upload from becoming everyone's slow afternoon. */
-export const OCR_MAX_PAGES = 30;
+/** How many pages one document may send to OCR.
+ *
+ * Recognition runs from one to a few seconds a page in the process that also
+ * answers messages, so fifty pages is a couple of minutes of CPU — inside the
+ * job's own budget — while a two-hundred-page scan would outlast the lease and
+ * be handed to a second worker halfway through. The ceiling is what keeps one
+ * upload predictable; a real brochure is thirty pages, and must fit. */
+export const OCR_MAX_PAGES = 50;
 
 /** The language the OCR model is loaded for. English covers the catalogue
  *  copy and price lists these brochures are made of. */
