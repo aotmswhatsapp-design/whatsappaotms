@@ -151,26 +151,35 @@ export async function ocrPages(
       const viewport = page.getViewport({ scale: scaleFor(page.getViewport({ scale: 1 })) });
 
       const canvas = newCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-      const context = canvas.getContext("2d") as {
-        fillStyle: string;
-        fillRect: (x: number, y: number, width: number, height: number) => void;
-      };
 
-      // A scan is paper: drawn on a transparent canvas, a page whose own
-      // background is missing reads as light text on nothing.
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
+      try {
+        const context = canvas.getContext("2d") as {
+          fillStyle: string;
+          fillRect: (x: number, y: number, width: number, height: number) => void;
+        };
 
-      const render = page.render({
-        canvasContext: context,
-        viewport,
-      } as unknown as Parameters<typeof page.render>[0]);
+        // A scan is paper: drawn on a transparent canvas, a page whose own
+        // background is missing reads as light text on nothing.
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
 
-      await render.promise;
+        const render = page.render({
+          canvasContext: context,
+          viewport,
+        } as unknown as Parameters<typeof page.render>[0]);
 
-      out.set(number, await reader.read(canvas.toBuffer("image/png")));
+        await render.promise;
 
-      page.cleanup();
+        out.set(number, await reader.read(canvas.toBuffer("image/png")));
+      } finally {
+        // Native pixels do not belong to the JS heap, so nothing collects this
+        // page's while the next one is drawn — and a page at the pixel ceiling
+        // is some 80 MB of them. Zeroing the canvas is how pdfjs's own factory
+        // frees one, and here it happens per page rather than per document.
+        canvas.width = 0;
+        canvas.height = 0;
+        page.cleanup();
+      }
     }
   } catch (error) {
     logger.warn(

@@ -118,9 +118,17 @@ export class DocumentsService {
    *
    * Read wider than it keeps. The same rule as retrieval applies: the ranking
    * decides after the rows are known, so the ones a tie-break will reject still
-   * have to arrive — but only `READY` files, because a row that failed
-   * extraction may be a corrupt file or the wrong thing entirely, and a customer
-   * cannot un-receive a document.
+   * have to arrive.
+   *
+   * `status` is deliberately not a filter. Indexing is what lets the agent
+   * answer questions *about* a file; it is not what makes the file itself
+   * deliverable. The bytes are the operator's own upload, stored before
+   * indexing ever begins — so a brochure whose text could not be extracted is
+   * still exactly the brochure the customer asked for. Filtering on `READY`
+   * made such a file permanently unsendable: a 32-page scan that outran the
+   * indexing budget turned "send me the brochure" into a paragraph, forever,
+   * with nothing on screen to connect the two. The refusal keeps its own
+   * meaning where it belongs — on the Sources row, with a Retry beside it.
    *
    * The size cut is in SQL so an oversized upload is never downloaded just to be
    * refused.
@@ -143,7 +151,6 @@ export class DocumentsService {
         where: {
           agentId: input.agentId,
           kind: "FILE",
-          status: "READY",
           storagePath: { not: null },
           size: { lte: MAX_MEDIA_BYTES },
           // Defence in depth: `agentId` is already the tenant's, but a filter

@@ -128,7 +128,7 @@ test("a question that is not a request never touches the database", async () => 
   assert.equal(sends.length, 0);
 });
 
-test("only this agent's ready files, under the ceiling, are candidates", async () => {
+test("candidates are this agent's stored files under the ceiling, whatever their index says", async () => {
   const { service, queries } = harness({ rows: [row()] });
 
   await deliver(service, "send me the brochure");
@@ -137,9 +137,10 @@ test("only this agent's ready files, under the ceiling, are candidates", async (
 
   assert.equal(where.agentId, "ag-1");
   assert.equal(where.kind, "FILE");
-  // A row that failed extraction may be a corrupt file, and a customer cannot
-  // un-receive a document.
-  assert.equal(where.status, "READY");
+  // Indexing is what lets the agent answer questions about a file; the stored
+  // bytes are what it hands over. A brochure whose OCR outran the budget is
+  // still the brochure the customer asked for.
+  assert.equal("status" in where, false);
   assert.deepEqual(where.size, { lte: MAX_MEDIA_BYTES });
   assert.deepEqual(where.storagePath, { not: null });
   // Defence in depth: the tenant is named, not implied by the agent id.
