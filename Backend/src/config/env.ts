@@ -162,8 +162,17 @@ export const envSchema = z.object({
     .optional()
     .or(z.literal("").transform(() => undefined)),
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-  /** Used when an agent names no model of its own, spelled `vendor/model`. */
-  OPENROUTER_MODEL: z.string().min(3).default("openai/gpt-4o"),
+  /**
+   * Used when an agent names no model of its own, spelled `vendor/model`.
+   *
+   * The free router is the default because the common case is an account with
+   * no credits: `openai/gpt-4o` and `openrouter/auto` both answer 402 there on
+   * every call, which is invisible — the reply path quietly falls back to the
+   * extractive answer and nobody is told why. `openrouter/free` routes across
+   * the zero-cost models and needs nothing on deposit. Once credits exist,
+   * `openai/gpt-4o` is the better default: set it here or per agent.
+   */
+  OPENROUTER_MODEL: z.string().min(3).default("openrouter/free"),
   /** Sent as HTTP-Referer. OpenRouter uses it for attribution, not for auth. */
   OPENROUTER_SITE_URL: z
     .string()

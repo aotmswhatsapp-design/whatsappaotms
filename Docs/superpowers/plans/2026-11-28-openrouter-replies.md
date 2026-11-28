@@ -66,6 +66,20 @@ that both go through `answerFrom`. No migration: `agents.model`,
    `OpenRouter` is a provider so the router and both services receive it.
 10. **Gates** — typecheck, full suite, build; report counts.
 
+## Live check (2026-11-28)
+
+The key authenticates, but the account has never purchased credits: `openai/gpt-4o`
+and `openrouter/auto` both answer **402 Insufficient credits**, so neither can be
+the default yet. `OPENROUTER_MODEL` therefore defaults to `openrouter/free`
+(zero balance, routes across the free models). Verified end-to-end against the
+compiled path with the real key: Telugu question, `via: "model"`, reply
+`మసాలా దోస — ₹80.`, about two seconds, cost 0. Switch to `openai/gpt-4o` once
+credits are added — one variable, no code change.
+
+A refusal used to be invisible: the reply path falls back to the extractive
+answer and the customer is still served. `ai.openrouter.ts` now logs one warning
+per refusal or empty model answer, naming the model and the vendor's sentence.
+
 ## Known limit to disclose
 
 `AgentsRunner` answers **one run per tick (1 s)**. A 10 s model call therefore

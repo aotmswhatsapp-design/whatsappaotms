@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 /** One turn, as OpenRouter's chat completions endpoint spells it. */
@@ -59,6 +59,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  */
 @Injectable()
 export class OpenRouter {
+  private readonly logger = new Logger(OpenRouter.name);
   private readonly base: string;
   private readonly key: string | null;
   private readonly model: string;
@@ -74,7 +75,7 @@ export class OpenRouter {
     const key = config.get<string>("OPEN_ROUTER_API_KEY") ?? "";
 
     this.key = key.trim().length > 0 ? key.trim() : null;
-    this.model = config.get<string>("OPENROUTER_MODEL") ?? "openai/gpt-4o";
+    this.model = config.get<string>("OPENROUTER_MODEL") ?? "openrouter/free";
     this.referer = config.get<string>("OPENROUTER_SITE_URL") ?? null;
     this.title = config.get<string>("OPENROUTER_SITE_NAME") ?? "AOTMS";
     this.timeoutMs = config.get<number>("OPENROUTER_TIMEOUT_MS") ?? DEFAULT_TIMEOUT_MS;
@@ -127,14 +128,17 @@ export class OpenRouter {
     }
 
     if (!response.ok) {
-      return {
-        ok: false,
-        reason: "refused",
-        // Kept because it is the only place the vendor's own sentence survives:
-        // "402 insufficient credit" and "429 rate limited" are the same status
-        // line and a completely different fix.
-        detail: `OpenRouter answered ${response.status}${await messageOf(response)}`,
-      };
+      const detail = `OpenRouter answered ${response.status}${await messageOf(response)}`;
+
+      // Kept because it is the only place the vendor's own sentence survives:
+      // "402 insufficient credit" and "429 rate limited" are the same status
+      // line and a completely different fix. Logged because the reply path
+      // treats every refusal the same way — it falls back to the extractive
+      // answer and the customer is still served, so a dead key or an empty
+      // account would otherwise be invisible in production.
+      this.logger.warn(`${model}: ${detail}`);
+
+      return { ok: false, reason: "refused", detail };
     }
 
     const payload = (await response.json().catch(() => null)) as {
@@ -146,6 +150,12 @@ export class OpenRouter {
     const text = typeof content === "string" ? content.trim() : "";
 
     if (text.length === 0) {
+      // A reasoning model can spend the whole `max_tokens` budget thinking and
+      // return no visible content at all. Same outcome as a refusal — the
+      // extractive answer speaks — but worth a line, because it looks like a
+      // model that works.
+      this.logger.warn(`${model}: the model returned no visible text.`);
+
       return {
         ok: false,
         reason: "empty",
