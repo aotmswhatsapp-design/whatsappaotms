@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { AgentRouter } from "./agent.router";
+import { AgentRouter, type SmartRouting } from "./agent.router";
 
 /** One candidate, in the shape `findMany` selects. */
 const agent = (id: string, name: string, description: string | null = null) => ({
@@ -95,4 +95,141 @@ test("a question with no subject falls back to the oldest agent", async () => {
   ]);
 
   assert.equal((await ask(router, "hello there, thanks!")).agentId, "older");
+});
+
+/**
+ * A provider that answers what it is told to. `configured` is spread in so a
+ * test can build the unkeyed client the same way.
+ */
+function aiOf(
+  reply: { ok: true; text: string } | { ok: false; reason: string },
+  configured = true,
+) {
+  const seen: { messages: { role: string; content: string }[] }[] = [];
+
+  return {
+    seen,
+    ai: {
+      configured,
+      chat: async (request: { messages: { role: string; content: string }[] }) => {
+        seen.push(request);
+        return reply;
+      },
+    } as never,
+  };
+}
+
+const smarts = (
+  agents: ReturnType<typeof agent>[],
+  ai?: ReturnType<typeof aiOf>["ai"],
+) => new AgentRouter({ agent: { findMany: async () => agents } } as never, ai);
+
+const smart = (
+  router: AgentRouter,
+  question: string,
+  agentId: string | null = null,
+): Promise<SmartRouting> =>
+  router.chooseSmart({ whatsappAccountId: "acct-1", agentId, question });
+
+test("a question the words already settle never costs a model call", async () => {
+  const { ai, seen } = aiOf({ ok: true, text: "billing" });
+  const router = smarts(
+    [agent("billing", "Billing"), agent("menu", "Menu and prices")],
+    ai,
+  );
+
+  const routing = await smart(router, "what are your prices?");
+
+  assert.equal(routing.agentId, "menu");
+  assert.equal(routing.via, "local");
+  assert.equal(seen.length, 0);
+});
+
+test("a thread that already has an owner is never re-routed by a model", async () => {
+  const { ai, seen } = aiOf({ ok: true, text: "menu" });
+  const router = smarts(
+    [agent("billing", "Billing"), agent("menu", "Menu and prices")],
+    ai,
+  );
+
+  const routing = await smart(router, "where is my parcel", "billing");
+
+  assert.equal(routing.agentId, "billing");
+  assert.equal(routing.sticky, true);
+  assert.equal(routing.via, "local");
+  assert.equal(seen.length, 0);
+});
+
+test("when the words claim nobody, the model reads the question", async () => {
+  const { ai, seen } = aiOf({ ok: true, text: "parcels" });
+  const router = smarts(
+    [agent("menu", "Menu and prices"), agent("parcels", "Parcel tracking")],
+    ai,
+  );
+
+  // Not one word of this appears in either agent; the old router would have
+  // handed it to the oldest.
+  const routing = await smart(router, "nenu Banglore ki pampinchali");
+
+  assert.equal(routing.agentId, "parcels");
+  assert.equal(routing.via, "model");
+
+  // The model is shown the candidates it may choose from, never an id it
+  // could not have seen.
+  assert.match(seen[0]?.messages[1]?.content ?? "", /Parcel tracking/);
+  assert.match(seen[0]?.messages[1]?.content ?? "", /Banglore/);
+});
+
+test("an id that is not on the shortlist is refused, and the oldest answers", async () => {
+  const { ai } = aiOf({ ok: true, text: "some-other-workspace-agent" });
+  const router = smarts(
+    [agent("older", "Billing"), agent("newer", "Parcel tracking")],
+    ai,
+  );
+
+  const routing = await smart(router, "nenu Banglore ki pampinchali");
+
+  assert.equal(routing.agentId, "older");
+  assert.equal(routing.via, "fallback");
+});
+
+test("a model that fails or times out falls back to the word overlap", async () => {
+  const { ai } = aiOf({ ok: false, reason: "timeout" });
+  const router = smarts(
+    [agent("older", "Billing"), agent("newer", "Parcel tracking")],
+    ai,
+  );
+
+  const routing = await smart(router, "nenu Banglore ki pampinchali");
+
+  assert.equal(routing.agentId, "older");
+  assert.equal(routing.via, "fallback");
+});
+
+test("a tie is exactly the case worth asking about", async () => {
+  const { ai, seen } = aiOf({ ok: true, text: "newer" });
+  const router = smarts(
+    [agent("older", "Billing", "prices"), agent("newer", "Menu", "prices")],
+    ai,
+  );
+
+  const routing = await smart(router, "what are the prices?");
+
+  assert.equal(seen.length, 1);
+  assert.equal(routing.agentId, "newer");
+  assert.equal(routing.via, "model");
+});
+
+test("with no key configured the old router is the only router", async () => {
+  const { ai, seen } = aiOf({ ok: true, text: "newer" }, false);
+  const router = smarts(
+    [agent("older", "Billing"), agent("newer", "Parcel tracking")],
+    ai,
+  );
+
+  const routing = await smart(router, "nenu Banglore ki pampinchali");
+
+  assert.equal(routing.agentId, "older");
+  assert.equal(routing.via, "local");
+  assert.equal(seen.length, 0);
 });

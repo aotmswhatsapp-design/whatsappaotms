@@ -149,6 +149,39 @@ export const envSchema = z.object({
    */
   SEARCH_MIN_TRGM: z.coerce.number().min(0).max(1).default(0.5),
   /**
+   * The key that lets a model write the reply.
+   *
+   * Optional on purpose: with no key the reply path keeps its extractive
+   * answer, so a deployment without a model still answers customers, and the
+   * suite runs without a network. The name carries an underscore after OPEN —
+   * a key under any other spelling is read by nothing and fails silently.
+   */
+  OPEN_ROUTER_API_KEY: z
+    .string()
+    .min(20)
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+  /** Used when an agent names no model of its own, spelled `vendor/model`. */
+  OPENROUTER_MODEL: z.string().min(3).default("openai/gpt-4o"),
+  /** Sent as HTTP-Referer. OpenRouter uses it for attribution, not for auth. */
+  OPENROUTER_SITE_URL: z
+    .string()
+    .url()
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  OPENROUTER_SITE_NAME: z.string().min(1).default("AOTMS"),
+  /**
+   * One reply's budget. Capped at 14 s because a customer waits for it behind a
+   * one-second worker tick, and the promise to the business is fifteen.
+   */
+  OPENROUTER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(14_000)
+    .default(10_000),
+  /**
    * Private bucket for training files. Third of its kind, created on first
    * upload, and separate because a source outlives every conversation.
    */

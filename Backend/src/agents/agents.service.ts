@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { AgentRunKind, AgentRunStatus } from "@prisma/client";
 
@@ -15,10 +16,12 @@ import type { AskAgentDto } from "./dto/ask-agent.dto";
 import type { CreateAgentDto } from "./dto/create-agent.dto";
 import type { ListRunsDto } from "./dto/list-runs.dto";
 import type { UpdateAgentDto } from "./dto/update-agent.dto";
+import { OpenRouter } from "./ai.openrouter";
 import { KnowledgeService, sourceView, type SourceView } from "./knowledge.service";
+import { detectLanguage } from "./language.detect";
+import { handoffLine } from "./reply.prompt";
 import { RetrievalService } from "./retrieval.service";
-import { HANDOFF_MESSAGE, cleanReply } from "./reply.prompt";
-import { composeAnswer } from "./search/compose";
+import { answerFrom } from "./search/answer";
 
 /** What a draft starts with, so an agent is usable before it is tuned. */
 const DEFAULT_PROMPT =
@@ -98,6 +101,8 @@ export class AgentsService {
     private readonly knowledge: KnowledgeService,
     private readonly retrieval: RetrievalService,
     private readonly media: MediaStorage,
+    /** Absent on a deployment with no key: the extractive answer is the reply. */
+    @Optional() private readonly ai?: OpenRouter,
   ) {}
 
   async list(claims: AuthClaims): Promise<AgentList> {
@@ -327,20 +332,33 @@ export class AgentsService {
         dto.question,
       );
 
-      if (chunks.length === 0) {
-        await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
-          latencyMs: Date.now() - started,
-        });
-
-        return { answer: HANDOFF_MESSAGE, citations: [], reason: "no-context" };
-      }
+      // The playground is the same composer as a real reply, so it is also the
+      // same language decision: an operator who types English sees the English
+      // answer a customer would get, and Telugu sees Telugu.
+      const language = detectLanguage(dto.question);
 
       const full = await this.prisma.agent.findUniqueOrThrow({
         where: { id: agent.id },
-        select: { maxReplyChars: true },
+        select: {
+          name: true,
+          systemPrompt: true,
+          model: true,
+          maxReplyChars: true,
+        },
       });
 
-      const citations = chunks.map((chunk) => ({
+      const answer = await answerFrom({
+        agent: full,
+        question: dto.question,
+        chunks,
+        language,
+        chatter: this.ai,
+      });
+
+      // What the answer stands on. When there is no answer, the chunks that
+      // were read are still shown — that is what tells an operator their
+      // material was found but did not cover the question.
+      const citations = (answer.ok ? answer.used : chunks).map((chunk) => ({
         sourceId: chunk.sourceId,
         title: chunk.title,
         score: Math.round(chunk.score * 1000) / 1000,
@@ -350,37 +368,27 @@ export class AgentsService {
         rowFrom: chunk.rowFrom,
         rowTo: chunk.rowTo,
       }));
-      // No model wrote this answer, so nothing is billed for writing it.
-
-      const composed = composeAnswer({
-        question: dto.question,
-        chunks,
-        maxChars: full.maxReplyChars,
-      });
-
-      const answer = composed
-        ? cleanReply(composed.body, {
-            maxChars: full.maxReplyChars,
-            context: composed.used.map((chunk) => chunk.text).join("\n\n"),
-          })
-        : "";
 
       // The playground has no thread to hand to a person, so a question the
       // material does not cover shows the fixed line and records the same
       // reason a real reply would.
-      if (answer.length === 0) {
+      if (!answer.ok) {
         await this.record(agent.id, workspaceId, "SKIPPED", "no-context", {
           latencyMs: Date.now() - started,
         });
 
-        return { answer: HANDOFF_MESSAGE, citations, reason: "no-context" };
+        return {
+          answer: handoffLine(language.code),
+          citations,
+          reason: "no-context",
+        };
       }
 
       await this.record(agent.id, workspaceId, "SENT", null, {
         latencyMs: Date.now() - started,
       });
 
-      return { answer, citations, reason: null };
+      return { answer: answer.body, citations, reason: null };
     } catch (error) {
       await this.recordFailure(agent.id, workspaceId, {
         latencyMs: Date.now() - started,

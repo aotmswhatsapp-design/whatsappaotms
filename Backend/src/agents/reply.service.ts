@@ -1,4 +1,9 @@
-import { ConflictException, HttpException, Injectable } from "@nestjs/common";
+import {
+  ConflictException,
+  HttpException,
+  Injectable,
+  Optional,
+} from "@nestjs/common";
 import type { Agent } from "@prisma/client";
 
 import { cardTurn, type CardTurn } from "../bots/bot.reply";
@@ -9,9 +14,11 @@ import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
 import { windowOpen, type MessageView } from "../inbox/inbox.view";
 import { PrismaService } from "../prisma/prisma.service";
 import { AgentRouter } from "./agent.router";
-import { HANDOFF_MESSAGE, cleanReply, matchesEscalation } from "./reply.prompt";
+import { OpenRouter } from "./ai.openrouter";
+import { detectLanguage, type LanguageCode } from "./language.detect";
+import { handoffLine, matchesEscalation } from "./reply.prompt";
 import { RetrievalService } from "./retrieval.service";
-import { composeAnswer } from "./search/compose";
+import { answerFrom } from "./search/answer";
 
 /**
  * When a claim is old enough to be treated as abandoned. Answering is now
@@ -67,6 +74,8 @@ export class ReplyService {
     private readonly retrieval: RetrievalService,
     private readonly router: AgentRouter,
     private readonly store: BotStore,
+    /** Absent on a deployment with no key: the extractive answer is the reply. */
+    @Optional() private readonly ai?: OpenRouter,
   ) {}
 
   /**
@@ -263,11 +272,18 @@ export class ReplyService {
       return;
     }
 
+    // Decided once, from the message itself, and carried into every line that
+    // could be sent: the reply, and the handoff if there is to be one. A
+    // customer who wrote Telugu is answered in Telugu or not at all — an
+    // English apology is the same as no apology.
+    const language = detectLanguage(question);
+
     // Who answers. A thread keeps the agent that already owns it — the common
     // path, and it asks nobody — and only a thread that is new, or whose agent
-    // was switched off, is decided here. The decision is a word overlap, so it
-    // is free.
-    const routing = await this.router.choose({
+    // was switched off, is decided here. A question the word overlap settles
+    // is decided by it; one it cannot is put to the model, which is the only
+    // case where a model can read it better.
+    const routing = await this.router.chooseSmart({
       whatsappAccountId: conversation.accountId,
       agentId: conversation.agentId,
       question,
@@ -340,7 +356,15 @@ export class ReplyService {
     });
 
     if (turn.kind !== "none") {
-      await this.act(run.id, conversation.id, target, agent.id, turn, started);
+      await this.act(
+        run.id,
+        conversation.id,
+        target,
+        agent.id,
+        turn,
+        started,
+        language.code,
+      );
       return;
     }
 
@@ -351,7 +375,9 @@ export class ReplyService {
     // complaint typed under a menu still escalates. Before the model, because a
     // complaint must never depend on what a model decides to say about it.
     if (matchesEscalation(question, agent.escalateKeywords)) {
-      await this.handoff(run.id, conversation.id, target, agent.id, "handoff");
+      await this.handoff(run.id, conversation.id, target, agent.id, "handoff", {
+        language: language.code,
+      });
       return;
     }
 
@@ -369,6 +395,7 @@ export class ReplyService {
         agent.id,
         { kind: "card", flow, card: ruled.card },
         started,
+        language.code,
       );
       return;
     }
@@ -391,64 +418,41 @@ export class ReplyService {
         question,
       );
 
-      if (chunks.length === 0) {
-        await this.handoff(
-          run.id,
-          conversation.id,
-          target,
-          agent.id,
-          "no-context",
-          { latencyMs: Date.now() - started },
-        );
-        return;
-      }
-
-      // The answer is a sentence from the material, not a sentence about it.
-      // Nothing here can invent a price, a policy or a web address: every
-      // character of the reply was written by the business and stored in a
-      // chunk.
-      const composed = composeAnswer({
+      // Two engines in one decision: the model writes the reply from the
+      // material, and the business's own sentences answer when it cannot. Both
+      // are cleaned, length-capped and link-stripped inside `answerFrom`, so
+      // this call site never learns which one spoke — and never has to.
+      const answer = await answerFrom({
+        agent: {
+          name: agent.name,
+          systemPrompt: agent.systemPrompt,
+          model: agent.model,
+          maxReplyChars: agent.maxReplyChars,
+        },
         question,
         chunks,
-        maxChars: agent.maxReplyChars,
+        language,
+        chatter: this.ai,
       });
 
-      // No sentence in the material shared a word with the question. That is
-      // the same situation the prompt used to express as `[handoff]`, and it
-      // is handled the same way: one fixed line, a paused thread, and a place
-      // in the team's queue.
-      if (!composed) {
+      // Neither engine found an answer: nothing was retrieved, or nothing in
+      // it speaks to the question. One fixed line in the customer's own
+      // language, a paused thread, and a place in the team's queue.
+      if (!answer.ok) {
         await this.handoff(
           run.id,
           conversation.id,
           target,
           agent.id,
           "no-context",
-          { latencyMs: Date.now() - started },
-        );
-        return;
-      }
-
-      const body = cleanReply(composed.body, {
-        maxChars: agent.maxReplyChars,
-        context: composed.used.map((chunk) => chunk.text).join("\n\n"),
-      });
-
-      if (!body) {
-        await this.handoff(
-          run.id,
-          conversation.id,
-          target,
-          agent.id,
-          "no-context",
-          { latencyMs: Date.now() - started },
+          { usage: { latencyMs: Date.now() - started }, language: language.code },
         );
         return;
       }
 
       const sent = await this.sender.text({
         ...target,
-        body,
+        body: answer.body,
         quote: null,
         agentId: agent.id,
       });
@@ -502,8 +506,11 @@ export class ReplyService {
         target,
         agent.id,
         "unavailable",
-        { latencyMs: Date.now() - started },
-        sentenceOf(error),
+        {
+          usage: { latencyMs: Date.now() - started },
+          note: sentenceOf(error),
+          language: language.code,
+        },
       );
     }
   }
@@ -568,10 +575,12 @@ export class ReplyService {
     agentId: string,
     turn: Exclude<CardTurn, { kind: "none" }>,
     started: number,
+    language: LanguageCode,
   ): Promise<void> {
     if (turn.kind === "handoff") {
       await this.handoff(runId, conversationId, target, agentId, "handoff", {
-        latencyMs: Date.now() - started,
+        usage: { latencyMs: Date.now() - started },
+        language,
       });
       return;
     }
@@ -623,8 +632,7 @@ export class ReplyService {
         target,
         agentId,
         "unavailable",
-        { latencyMs: Date.now() - started },
-        sentenceOf(error),
+        { usage: { latencyMs: Date.now() - started }, note: sentenceOf(error), language },
       );
     }
   }
@@ -639,16 +647,22 @@ export class ReplyService {
     target: SendTarget,
     agentId: string,
     reason: string,
-    usage: RunUsage = {},
-    /** Why the AI could not answer, when it failed rather than found nothing. */
-    note?: string,
+    options: {
+      usage?: RunUsage;
+      /** Why the AI could not answer, when it failed rather than found nothing. */
+      note?: string;
+      /** The customer's language, so the apology is in it. */
+      language?: LanguageCode;
+    } = {},
   ): Promise<void> {
+    const { usage = {}, note, language } = options;
+
     await this.pause(conversationId, reason);
 
     try {
       const sent = await this.sender.text({
         ...target,
-        body: HANDOFF_MESSAGE,
+        body: handoffLine(language),
         quote: null,
         agentId,
       });

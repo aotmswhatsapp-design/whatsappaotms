@@ -11,6 +11,7 @@ import { AgentsRunner } from "./agents.runner";
 import { AgentsService } from "./agents.service";
 import { AgentRouter } from "./agent.router";
 import { AiController } from "./ai.controller";
+import { OpenRouter } from "./ai.openrouter";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeService } from "./knowledge.service";
 import { RetrievalService } from "./retrieval.service";
@@ -38,6 +39,7 @@ import { LocalKnowledgeSearch } from "./search/local.search";
     AgentsRunner,
     LocalKnowledgeSearch,
     MediaStorage,
+    OpenRouter,
     {
       provide: MEDIA_BUCKET,
       inject: [ConfigService],

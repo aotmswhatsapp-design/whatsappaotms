@@ -1,6 +1,39 @@
+import type { LanguageCode } from "./language.detect";
+
 /** What a customer sees when no answer exists, or a human was asked for. */
 export const HANDOFF_MESSAGE =
   "I'm not able to answer that one from what I have, so I've asked a member of the team to pick it up. They'll reply here shortly.";
+
+/**
+ * The one word a model may say instead of an answer.
+ *
+ * A sentence asking the model to decline in prose would have to be recognised
+ * afterwards, and recognising a refusal is guesswork. A token nobody would
+ * write otherwise is not: its presence is the decision, and the customer never
+ * sees it.
+ */
+export const HANDOFF_SENTINEL = "[handoff]";
+
+/**
+ * The same handoff, in the language the customer wrote in.
+ *
+ * A customer who wrote in Telugu and then received English has been told, in
+ * the clearest possible way, that nobody here speaks their language. The line
+ * is static rather than generated: it is the one message that must arrive even
+ * when the model is the thing that failed.
+ */
+const HANDOFF_LINES: Record<LanguageCode, string> = {
+  te: "ఈ ప్రశ్నకు నా దగ్గర ఉన్న సమాచారంతో సమాధానం చెప్పలేకపోతున్నాను. మా టీమ్ సభ్యుడికి తెలియజేశాను, వారు కొద్దిసేపట్లో ఇక్కడే రిప్లై ఇస్తారు.",
+  "te-en":
+    "Naa daggara unna information tho ee question ki answer cheppalekapothunnanu. Team ki cheppanu, vaallu konchem sepatlo ikkade reply istharu.",
+  en: HANDOFF_MESSAGE,
+  hi: "मेरे पास मौजूद जानकारी से इस सवाल का जवाब नहीं दे पा रहा हूँ। मैंने हमारी टीम को बता दिया है, वे थोड़ी देर में यहीं जवाब देंगे।",
+};
+
+/** The handoff line for a language, English when none was detected. */
+export function handoffLine(language?: LanguageCode): string {
+  return language ? HANDOFF_LINES[language] : HANDOFF_MESSAGE;
+}
 
 /**
  * The answer as WhatsApp renders it, not as it was written.
