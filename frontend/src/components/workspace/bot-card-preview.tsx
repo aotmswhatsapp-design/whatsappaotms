@@ -41,13 +41,21 @@ export function isInteractive(card: BotCard): boolean {
   return shape === "buttons" || shape === "list";
 }
 
-/** One sentence for the owner, naming the shape and why. */
+/**
+ * One sentence for the owner, naming the shape and why — followed, when it
+ * applies, by what happens to the card's name. Two sentences at most: a shape
+ * that drops the name is exactly the case this line exists to make honest.
+ */
 export function shapeNote(card: BotCard): string {
+  return `${shapeSentence(card)} ${nameNote(card)}`.trim();
+}
+
+function shapeSentence(card: BotCard): string {
   const buttons = shownButtons(card).length;
 
   switch (shapeOfCard(card)) {
     case "text": {
-      const pictures = card.imageUrls.length;
+      const pictures = picturesOf(card);
 
       return pictures > 0
         ? `The card arrives as plain text because it has no buttons; ${pictures === 1 ? "its picture is" : `its ${pictures} pictures are`} sent first, each as its own message.`
@@ -60,6 +68,47 @@ export function shapeNote(card: BotCard): string {
     case "numbered":
       return `Arrives as numbered text: a list holds ${MAX_LIST_ROWS} rows, and the customer answers with a number.`;
   }
+}
+
+/** The pictures the customer actually receives; a blank slot is not a picture. */
+function picturesOf(card: BotCard): number {
+  return card.imageUrls.filter((url) => url.trim().length > 0).length;
+}
+
+/**
+ * What becomes of the card's name, in one sentence — empty when there is
+ * nothing worth saying.
+ *
+ * Mirrors `deliverCard`/`headerOf` in `Backend/src/bots/bot.render.ts` rather
+ * than describing the bubble above. The name is the text header only when the
+ * card goes out interactive and no single picture has taken the header: a
+ * picture header drops it, and the numbered fallback is plain text that never
+ * carries it. The preview draws the name in both of those cases anyway, which
+ * is the whole reason this line exists.
+ */
+function nameNote(card: BotCard): string {
+  const name = card.title.trim();
+
+  if (!name) return "";
+
+  // The name is the heading the customer reads, so the bubble already agrees.
+  if (isInteractive(card) && picturesOf(card) !== 1) return "";
+
+  // Meta rejects a blank body, so `bodyText` falls back to the name: the one
+  // shape that drops the header and still shows the customer the name.
+  if (card.info.trim().length === 0) {
+    return `The information is blank, so the name "${name}" is what the customer reads.`;
+  }
+
+  if (shapeOfCard(card) === "numbered") {
+    return `The name "${name}" is not sent: the numbered text carries only the information.`;
+  }
+
+  if (isInteractive(card)) {
+    return `The name "${name}" is not sent: the picture is this bubble's header, so WhatsApp shows no heading above the information.`;
+  }
+
+  return `The name "${name}" is not sent: the plain text carries only the information.`;
 }
 
 /**

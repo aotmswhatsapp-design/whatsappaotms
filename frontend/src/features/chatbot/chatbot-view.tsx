@@ -39,6 +39,15 @@ import { RuleList } from "./components/rule-list";
 
 const nav = getNavItem("/workspace/chatbot");
 
+/**
+ * The one label a card is called by: the card list, the editor's heading and
+ * the caption above the preview all read it, so a rename cannot leave the
+ * preview naming a card the list has already stopped showing.
+ */
+function cardName(card: BotCard): string {
+  return card.title.trim() || "Untitled card";
+}
+
 /** A flow as loaded, with the agent it belongs to, so a switch cannot show the wrong one. */
 interface Loaded {
   agentId: string;
@@ -563,7 +572,7 @@ export function ChatbotView() {
                             onClick={() => setSelectedCardId(card.id)}
                           >
                             <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-                              {card.title.trim() || "Untitled card"}
+                              {cardName(card)}
                             </span>
                             {entry ? (
                               <span className="shrink-0 rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
@@ -585,7 +594,7 @@ export function ChatbotView() {
                   <section className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                       <h2 className="text-sm font-semibold text-foreground">
-                        {activeCard.title.trim() || "Untitled card"}
+                        {cardName(activeCard)}
                       </h2>
                       <label className="flex items-center gap-2 text-[11.5px] font-medium text-foreground">
                         <input
@@ -623,9 +632,28 @@ export function ChatbotView() {
               </div>
 
               <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
-                <p className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-                  Preview
-                </p>
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <p className="shrink-0 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                    Preview
+                  </p>
+                  {/* Which card the bubble below belongs to: the name the list
+                      shows and the heading the customer reads, side by side, so
+                      a switch is never guessed at. */}
+                  {activeCard ? (
+                    <p
+                      className="min-w-0 truncate text-[11.5px] font-semibold text-foreground"
+                      title={cardName(activeCard)}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="mr-1.5 font-normal text-muted-foreground/60"
+                      >
+                        ·
+                      </span>
+                      {cardName(activeCard)}
+                    </p>
+                  ) : null}
+                </div>
                 {activeCard ? (
                   <>
                     <BotCardPreview card={activeCard} />
