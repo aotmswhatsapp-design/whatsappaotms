@@ -80,3 +80,24 @@ test("a request with no noun at all picks nothing", () => {
 test("an agent with no files has nothing to send", () => {
   assert.equal(pickDocument("send me the brochure", []), null);
 });
+
+test("a filename misspelt by the customer is still the file meant", () => {
+  // The way it was actually typed: "brocher" for "brochure", which drops the
+  // `u` and swaps `er`. Refusing that would look like the request was ignored.
+  const duo = file("duo", "DUO Brochure.pdf");
+  const innov = file("innov", "Innov Plus Brochure.pdf");
+
+  assert.equal(pickDocument("Send me DUO brocher", [duo, innov])?.id, "duo");
+  assert.equal(
+    pickDocument("Innov plus brocher send me", [duo, innov])?.id,
+    "innov",
+  );
+  assert.equal(pickDocument("send me the brouchre", [duo])?.id, "duo");
+});
+
+test("a short word is matched exactly, never fuzzily", () => {
+  // `duo` and `dua` are different products, and `price` is five letters, so it
+  // is never compared against `pricing`.
+  assert.equal(pickDocument("send me dua", [file("duo", "DUO Brochure.pdf")]), null);
+  assert.equal(pickDocument("send me the price list", [pricing]), null);
+});

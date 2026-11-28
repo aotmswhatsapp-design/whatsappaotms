@@ -224,6 +224,60 @@ export function wantsDocument(question: string): boolean {
 }
 
 /**
+ * Shortest word compared fuzzily.
+ *
+ * At six letters a couple of edits is a typo — `brocher` for `brochure`. At
+ * three it is a different word, and `duo` must never match `dua`.
+ */
+const NEAR_MIN = 6;
+
+/**
+ * Most edits still read as the same word.
+ *
+ * Two, because the typo customers actually type is two: `brocher` both drops the
+ * `u` and swaps `er`. One would have refused the request this was built for.
+ */
+const NEAR_EDITS = 2;
+
+/** Levenshtein distance, two rows at a time, over code points. */
+function editsBetween(a: string, b: string): number {
+  const left = [...a];
+  const right = [...b];
+
+  let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  let current = new Array<number>(right.length + 1);
+
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i;
+
+    for (let j = 1; j <= right.length; j += 1) {
+      const substitution =
+        previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1);
+
+      current[j] = Math.min(substitution, previous[j] + 1, current[j - 1] + 1);
+    }
+
+    [previous, current] = [current, previous];
+  }
+
+  return previous[right.length];
+}
+
+/** Whether the filename contains this word, allowing a misspelling in a long one. */
+function names(named: Set<string>, token: string): boolean {
+  if (named.has(token)) return true;
+  if (token.length < NEAR_MIN) return false;
+
+  for (const candidate of named) {
+    if (candidate.length < NEAR_MIN) continue;
+    if (Math.abs(candidate.length - token.length) > NEAR_EDITS) continue;
+    if (editsBetween(candidate, token) <= NEAR_EDITS) return true;
+  }
+
+  return false;
+}
+
+/**
  * The file the request names, or null when it names none.
  *
  * Ranked by shared words, not by similarity of the sentences: a filename is a
@@ -252,7 +306,7 @@ export function pickDocument<T extends FileCandidate>(
 
     let score = 0;
     for (const token of asked) {
-      if (named.has(token)) score += 1;
+      if (names(named, token)) score += 1;
     }
 
     if (score === 0) continue;
