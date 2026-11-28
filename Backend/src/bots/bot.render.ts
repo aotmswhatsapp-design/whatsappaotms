@@ -1,4 +1,9 @@
-import { shownButtons, type BotButton, type BotCard } from "./bot.card";
+import {
+  shownButtons,
+  type BotButton,
+  type BotCard,
+  type CardFile,
+} from "./bot.card";
 import {
   BODY_CHARS,
   BUTTON_TITLE,
@@ -47,6 +52,14 @@ export type Rendered =
  * same thing without duplicating the rule.
  */
 export interface CardDelivery {
+  /**
+   * Documents and videos to send as their own messages, before anything else.
+   *
+   * First because they are the thing being handed over: a customer who asked
+   * for the price list should not have to scroll past the menu to reach it.
+   * Never a header — a card's header is a picture or a line of text.
+   */
+  files: CardFile[];
   /** Pictures to send as their own image messages, in the order given. */
   photos: string[];
   /** The card message itself, sent after them. */
@@ -54,20 +67,22 @@ export interface CardDelivery {
 }
 
 export function deliverCard(card: BotCard): CardDelivery {
+  const files = card.files.filter((file) => file.url.trim().length > 0);
   const photos = card.imageUrls.filter((url) => url.trim().length > 0);
   const rendered = renderCard(card);
 
   // One picture and something to tap: the picture is the bubble's header,
-  // exactly as a card has always looked.
+  // exactly as a card has always looked. Files never take the header, so they
+  // change nothing about which shape is sent.
   if (photos.length === 0 || (photos.length === 1 && rendered.kind !== "text")) {
-    return { photos: [], message: rendered };
+    return { files, photos: [], message: rendered };
   }
 
   // Everything else: the pictures arrive first, one message each, and the card
   // follows with a text header so no picture is shown twice. A card with no
   // buttons is in this branch too — its picture used to be dropped entirely,
   // which is indefensible once a card can carry several.
-  return { photos, message: renderCard(card, "title") };
+  return { files, photos, message: renderCard(card, "title") };
 }
 
 /** Copy, not business information: this is the label on the list's opener. */

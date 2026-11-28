@@ -21,6 +21,7 @@ const card = (buttons: BotButton[]): BotCard => ({
   name: "Menu",
   title: "Menu",
   imageUrls: [],
+  files: [],
   info: "Dosa 80. Idli 40.",
   buttons,
 });

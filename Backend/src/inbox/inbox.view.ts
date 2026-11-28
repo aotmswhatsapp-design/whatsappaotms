@@ -172,6 +172,13 @@ export type MessagePayload =
    * address has nothing else to draw from.
    */
   | { kind: "image"; link: string }
+  /**
+   * A document we sent by link. `name` is what the phone calls the download,
+   * which is the only thing that says a card's price list from its form.
+   */
+  | { kind: "document"; link: string; name: string | null }
+  /** A video we sent by link, which plays from the address in the thread. */
+  | { kind: "video"; link: string }
   | null;
 
 export interface MessageView {
@@ -329,7 +336,10 @@ function cardOf(raw: Prisma.JsonValue): BotCard | null {
   return snapshot?.flow.cards.find((card) => card.id === snapshot.cardId) ?? null;
 }
 
-/** A location, a contact card and a sent picture are read back as the shape the bubble draws. */
+/**
+ * A location, a contact card, a sent picture or a card's file, read back as the
+ * shape the bubble draws.
+ */
 function payloadView(
   kind: MessageKind,
   raw: Prisma.JsonValue,
@@ -363,6 +373,41 @@ function payloadView(
     const link = (image as Record<string, unknown>).link;
 
     return typeof link === "string" && link.length > 0 ? { kind: "image", link } : null;
+  }
+
+  if (kind === "DOCUMENT") {
+    const document = value.document;
+
+    if (
+      document === null ||
+      typeof document !== "object" ||
+      Array.isArray(document)
+    ) {
+      return null;
+    }
+
+    const row = document as Record<string, unknown>;
+    const link = row.link;
+
+    if (typeof link !== "string" || link.length === 0) return null;
+
+    return {
+      kind: "document",
+      link,
+      name: typeof row.name === "string" && row.name.length > 0 ? row.name : null,
+    };
+  }
+
+  if (kind === "VIDEO") {
+    const video = value.video;
+
+    if (video === null || typeof video !== "object" || Array.isArray(video)) {
+      return null;
+    }
+
+    const link = (video as Record<string, unknown>).link;
+
+    return typeof link === "string" && link.length > 0 ? { kind: "video", link } : null;
   }
 
   if (kind === "CONTACTS" && Array.isArray(value.contacts)) {

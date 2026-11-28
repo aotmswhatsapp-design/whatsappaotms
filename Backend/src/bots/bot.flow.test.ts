@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import type { BotAction, BotCard, BotButton, BotFlow, BotRule } from "./bot.card";
 import { emptyFlow, flowProblem, MAX_CARDS } from "./bot.flow";
-import { MAX_CARD_IMAGES } from "./bot.limits";
+import { MAX_CARD_FILES, MAX_CARD_IMAGES } from "./bot.limits";
 
 const button = (id: string, label: string, action: BotAction): BotButton => ({
   id,
@@ -16,6 +16,7 @@ const card = (id: string, buttons: BotButton[] = []): BotCard => ({
   name: id,
   title: id,
   imageUrls: [],
+  files: [],
   info: "Dosa 80.",
   buttons,
 });
@@ -177,4 +178,44 @@ test("the same picture twice on one card is refused, not silently deduplicated",
   twice.imageUrls = ["https://example.test/one.jpg", "https://example.test/one.jpg"];
 
   assert.match(flowProblem(flow([twice])) ?? "", /same picture twice/);
+});
+
+test("one file more than the limit is refused with the limit", () => {
+  const loaded = card("c-root");
+
+  loaded.files = Array.from({ length: MAX_CARD_FILES + 1 }, (_, at) => ({
+    url: `https://example.test/${at}.pdf`,
+    name: `${at}.pdf`,
+    kind: "document" as const,
+  }));
+
+  assert.match(
+    flowProblem(flow([loaded])) ?? "",
+    new RegExp(`at most ${MAX_CARD_FILES}`),
+  );
+});
+
+test("the same file twice on one card is refused", () => {
+  const twice = card("c-root");
+  const file = {
+    url: "https://example.test/menu.pdf",
+    name: "Menu.pdf",
+    kind: "document" as const,
+  };
+
+  twice.files = [file, { ...file, name: "Menu (copy).pdf" }];
+
+  assert.match(flowProblem(flow([twice])) ?? "", /same file twice/);
+});
+
+test("three files on one card are legal", () => {
+  const loaded = card("c-root");
+
+  loaded.files = Array.from({ length: MAX_CARD_FILES }, (_, at) => ({
+    url: `https://example.test/${at}.pdf`,
+    name: `${at}.pdf`,
+    kind: "document" as const,
+  }));
+
+  assert.equal(flowProblem(flow([loaded])), null);
 });

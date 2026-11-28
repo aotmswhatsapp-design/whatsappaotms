@@ -1,4 +1,11 @@
-import type { BotAction, BotButton, BotCard, BotFlow, BotRule } from "./bot.card";
+import type {
+  BotAction,
+  BotButton,
+  BotCard,
+  BotFlow,
+  BotRule,
+  CardFile,
+} from "./bot.card";
 
 /**
  * What a sent card leaves in `messages.payload`.
@@ -112,6 +119,7 @@ function cardAt(value: unknown): BotCard | null {
     name: nameAt(card),
     title: stringAt(card.title) ?? "",
     imageUrls: imageUrlsAt(card),
+    files: filesAt(card),
     info: stringAt(card.info) ?? "",
     buttons,
   };
@@ -156,6 +164,47 @@ function imageUrlsAt(card: Json): string[] {
   const single = stringAt(card.imageUrl);
 
   return single ? [single] : [];
+}
+
+/**
+ * The card's files, in order.
+ *
+ * Absent on every flow written before cards could carry one, and that is not an
+ * error: a card with no files behaves exactly as it always did. A row with no
+ * address, or with a kind this version does not send, is dropped rather than
+ * handed to the sender — Meta would reject the message and the customer would
+ * get a card with a hole in front of it.
+ */
+function filesAt(card: Json): CardFile[] {
+  if (!Array.isArray(card.files)) return [];
+
+  const files: CardFile[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of card.files) {
+    const row = objectAt(raw);
+    const url = stringAt(row?.url)?.trim();
+    const kind = stringAt(row?.kind);
+
+    if (!url || (kind !== "document" && kind !== "video")) continue;
+    if (seen.has(url)) continue;
+
+    seen.add(url);
+    files.push({ url, name: stringAt(row?.name) ?? nameFromUrl(url), kind });
+  }
+
+  return files;
+}
+
+/** The last segment of an address, for a file stored without a name. */
+function nameFromUrl(url: string): string {
+  const base = url.split(/[?#]/u)[0]?.split("/").pop() ?? "";
+
+  try {
+    return decodeURIComponent(base) || "file";
+  } catch {
+    return base || "file";
+  }
 }
 
 function buttonAt(value: unknown): BotButton | null {

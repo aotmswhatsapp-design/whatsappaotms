@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { MessageKind } from "@prisma/client";
 
+import type { CardFileKind } from "../bots/bot.card";
 import type { InteractiveMessage } from "../bots/bot.render";
 import {
   MetaRequestError,
@@ -151,6 +152,46 @@ export class InboxGraph {
           image: {
             link: input.link,
             ...(input.caption ? { caption: input.caption } : {}),
+          },
+          ...contextOf(input.contextWamid),
+        },
+      },
+    );
+
+    return wamidOf(payload);
+  }
+
+  /**
+   * One document or video, by public link.
+   *
+   * The same reasoning as `sendImageLink`: a card file already lives on a
+   * public bucket, because Meta fetches it whenever the card is sent. A
+   * document carries the file name the customer sees, so the upload's own name
+   * travels with it rather than a number.
+   */
+  async sendFileLink(input: {
+    version: string;
+    token: string;
+    phoneNumberId: string;
+    to: string;
+    kind: CardFileKind;
+    link: string;
+    fileName: string;
+    contextWamid: string | null;
+  }): Promise<string> {
+    const payload = await this.request<SendResponse>(
+      this.messagesUrl(input.version, input.phoneNumberId),
+      {
+        method: "POST",
+        token: input.token,
+        json: {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: input.kind,
+          [input.kind]: {
+            link: input.link,
+            ...(input.kind === "document" ? { filename: input.fileName } : {}),
           },
           ...contextOf(input.contextWamid),
         },

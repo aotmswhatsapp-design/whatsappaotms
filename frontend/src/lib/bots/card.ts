@@ -32,6 +32,24 @@ export interface BotButton {
   action: BotAction;
 }
 
+/** How WhatsApp classifies a file handed over with a card. */
+export type CardFileKind = "document" | "video";
+
+/**
+ * A document or a video a card hands over, as its own WhatsApp message.
+ *
+ * WhatsApp has no attachment on an interactive message, so a file travels just
+ * before the card — one message per file, in this order, the way extra
+ * pictures do.
+ */
+export interface CardFile {
+  /** Permanent public address; Meta fetches it when the card is sent. */
+  url: string;
+  /** What the customer's phone calls the download, extension included. */
+  name: string;
+  kind: CardFileKind;
+}
+
 export interface BotCard {
   id: string;
   /**
@@ -56,6 +74,11 @@ export interface BotCard {
    * local path.
    */
   imageUrls: string[];
+  /**
+   * Documents and videos handed over with this card, in the order the customer
+   * receives them. Each is sent as its own message before the card.
+   */
+  files: CardFile[];
   /** The information itself: the body of the message. */
   info: string;
   /** In the order the customer sees them. */
@@ -116,6 +139,7 @@ export function newCard(): BotCard {
     name: "",
     title: "",
     imageUrls: [],
+    files: [],
     info: "",
     buttons: [],
   };

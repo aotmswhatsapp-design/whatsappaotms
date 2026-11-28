@@ -150,6 +150,13 @@ type MessagePayload =
    * is nothing to sign.
    */
   | { kind: "image"; link: string }
+  /**
+   * A document or a video sent by address — which is every card file, since
+   * they live in the bot's bucket rather than this inbox's. `name` is what the
+   * customer's phone calls the download.
+   */
+  | { kind: "document"; link: string; name: string | null }
+  | { kind: "video"; link: string }
   | null;
 
 export interface InboxNote {
@@ -358,16 +365,21 @@ export function sendTemplate(
  * the one their tap is routed against. Editing the flow afterwards cannot
  * change what an old tap meant.
  *
- * A card with several pictures leaves as several messages: the pictures go
- * first, in the card's order, and the card itself last. `photos` is those
- * messages, so the thread can show them where they arrived.
+ * A card with several pictures or files leaves as several messages: files go
+ * first, then pictures, in the card's order, and the card itself last. `files`
+ * and `photos` are those messages, so the thread can show them where they
+ * arrived.
  */
 export function sendCard(
   conversationId: string,
   flow: BotFlow,
   cardId: string,
   quotedMessageId?: string | null,
-): Promise<{ message: InboxMessage; photos: InboxMessage[] }> {
+): Promise<{
+  message: InboxMessage;
+  files: InboxMessage[];
+  photos: InboxMessage[];
+}> {
   return request(`/v1/inbox/conversations/${conversationId}/cards`, {
     method: "POST",
     body: JSON.stringify({

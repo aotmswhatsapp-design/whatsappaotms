@@ -1,5 +1,11 @@
 import type { BotCard, BotFlow, BotRule } from "./bot.card";
-import { BODY_CHARS, MAX_CARD_IMAGES, MAX_LIST_ROWS, TEXT_CHARS } from "./bot.limits";
+import {
+  BODY_CHARS,
+  MAX_CARD_FILES,
+  MAX_CARD_IMAGES,
+  MAX_LIST_ROWS,
+  TEXT_CHARS,
+} from "./bot.limits";
 import { wordsOf } from "./bot.rules";
 
 /**
@@ -123,6 +129,26 @@ function cardProblem(card: BotCard, cardIds: Set<string>): string | null {
     }
 
     pictures.add(clean);
+  }
+
+  // Each file is a message of its own before the card, so the cap is what keeps
+  // one card from becoming a forwarding chain. Refused rather than clipped, for
+  // the same reason as the pictures: a dropped attachment would leave the owner
+  // believing it was sent.
+  if (card.files.length > MAX_CARD_FILES) {
+    return `"${named}" sends ${card.files.length} files; a card can send at most ${MAX_CARD_FILES}.`;
+  }
+
+  const files = new Set<string>();
+
+  for (const file of card.files) {
+    const clean = file.url.trim();
+
+    if (files.has(clean)) {
+      return `"${named}" sends the same file twice.`;
+    }
+
+    files.add(clean);
   }
 
   const buttonIds = new Set<string>();

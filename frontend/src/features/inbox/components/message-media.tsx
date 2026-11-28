@@ -39,6 +39,17 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
       ? message.payload.link
       : null;
 
+  /**
+   * A file or a video we sent by address — which is every card file, since
+   * they live in the bot's bucket and there is nothing here to sign. The
+   * bubble draws the link itself; without this the thread would claim a file
+   * it just sent is gone.
+   */
+  const linked =
+    message.payload?.kind === "document" || message.payload?.kind === "video"
+      ? message.payload
+      : null;
+
   const [link, setLink] = React.useState<MediaLink | null>(null);
   const [failure, setFailure] = React.useState<string | null>(null);
 
@@ -79,6 +90,38 @@ export function MessageMedia({ message }: { message: InboxMessage }) {
             className="max-h-64 w-auto max-w-full rounded-lg"
             loading="lazy"
           />
+        </a>
+      );
+    }
+
+    if (linked?.kind === "video") {
+      return (
+        <video
+          controls
+          preload="none"
+          src={linked.link}
+          className="max-h-64 w-full max-w-[17rem] rounded-lg"
+        />
+      );
+    }
+
+    if (linked?.kind === "document") {
+      return (
+        <a
+          href={linked.link}
+          target="_blank"
+          rel="noreferrer"
+          className="flex max-w-xs items-center gap-2.5 rounded-lg border border-border/70 bg-card px-3 py-2 text-foreground transition-colors hover:bg-accent"
+        >
+          <FileText aria-hidden="true" className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[12px] font-medium">
+              {linked.name ?? message.media?.name ?? "Document"}
+            </span>
+            <span className="block text-[10.5px] text-muted-foreground">
+              Download
+            </span>
+          </span>
         </a>
       );
     }

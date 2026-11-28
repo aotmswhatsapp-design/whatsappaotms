@@ -1,10 +1,11 @@
-import { ChevronLeft, MoreVertical } from "lucide-react";
+import { ChevronLeft, FileText, Film, MoreVertical } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import {
   shownButtons,
   type BotCard,
+  type CardFile,
 } from "@/lib/bots/card";
 import { MAX_BUTTONS, MAX_LIST_ROWS } from "@/lib/bots/limits";
 
@@ -42,13 +43,14 @@ export function isInteractive(card: BotCard): boolean {
 }
 
 /**
- * One sentence for the owner, naming the shape and why — followed, when it
- * applies, by what happens to the card's heading. Two sentences at most: a
- * shape that drops the heading is exactly the case this line exists to make
- * honest.
+ * One sentence for the owner, naming the shape and why — followed, when they
+ * apply, by what happens to the card's files and to its heading. A shape that
+ * drops the heading is exactly the case this line exists to make honest.
  */
 export function shapeNote(card: BotCard): string {
-  return `${shapeSentence(card)} ${headingNote(card)}`.trim();
+  return `${shapeSentence(card)} ${filesNote(card)} ${headingNote(card)}`
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function shapeSentence(card: BotCard): string {
@@ -74,6 +76,41 @@ function shapeSentence(card: BotCard): string {
 /** The pictures the customer actually receives; a blank slot is not a picture. */
 function picturesOf(card: BotCard): number {
   return card.imageUrls.filter((url) => url.trim().length > 0).length;
+}
+
+/**
+ * The files the customer actually receives, in order.
+ *
+ * Mirrors `filesAt`/`deliverCard` in `Backend/src/bots/bot.snapshot.ts`: a
+ * blank address is not a file, and a repeated address is sent once.
+ */
+function filesOf(card: BotCard): CardFile[] {
+  const seen = new Set<string>();
+
+  return card.files.filter((file) => {
+    const url = file.url.trim();
+
+    if (url.length === 0 || seen.has(url)) return false;
+
+    seen.add(url);
+    return true;
+  });
+}
+
+/**
+ * What happens to the card's files, in one sentence — empty when it has none.
+ *
+ * A file is never part of the card: WhatsApp's interactive message carries no
+ * attachment, so each file leaves as its own message before the card.
+ */
+function filesNote(card: BotCard): string {
+  const files = filesOf(card).length;
+
+  if (files === 0) return "";
+
+  return files === 1
+    ? "Its file is sent first, as its own message."
+    : `Its ${files} files are sent first, each as its own message.`;
 }
 
 /**
@@ -133,10 +170,15 @@ export function BotCardPreview({
 }) {
   const shape = shapeOfCard(card);
   const buttons = shownButtons(card);
+  const files = filesOf(card);
   const title = card.title.trim();
   const info = card.info.trim();
   const nothing =
-    !title && !info && buttons.length === 0 && card.imageUrls.length === 0;
+    !title &&
+    !info &&
+    buttons.length === 0 &&
+    card.imageUrls.length === 0 &&
+    files.length === 0;
 
   return (
     <div
@@ -174,18 +216,23 @@ export function BotCardPreview({
         ) : shape === "numbered" ? (
           // The fallback is a plain text message, so it is drawn as one: the
           // numbers are the routing key, not decoration.
-          <div className="ml-auto w-[260px] max-w-full min-w-0 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
-            <p className="text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]">
-              {[
-                info,
-                buttons.map((button, at) => `${at + 1}) ${button.label}`).join("\n"),
-                "Reply with a number.",
-              ]
-                .filter((part) => part.trim().length > 0)
-                .join("\n\n")}
-            </p>
-            <Timestamp />
-          </div>
+          <>
+            {files.map((file) => (
+              <FileBubble file={file} key={file.url} />
+            ))}
+            <div className="ml-auto w-[260px] max-w-full min-w-0 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
+              <p className="text-[13.5px] leading-[1.45] break-words whitespace-pre-wrap text-[#111b21]">
+                {[
+                  info,
+                  buttons.map((button, at) => `${at + 1}) ${button.label}`).join("\n"),
+                  "Reply with a number.",
+                ]
+                  .filter((part) => part.trim().length > 0)
+                  .join("\n\n")}
+              </p>
+              <Timestamp />
+            </div>
+          </>
         ) : (
           // One message, one card: the picture is the header *inside* the
           // bubble, and the choices sit at its foot as outlined pills. WhatsApp
@@ -196,13 +243,42 @@ export function BotCardPreview({
           // one always shows what was picked; `shapeNote` says plainly that
           // such a card still arrives as plain text, with the pictures sent
           // ahead of it.
-          <BotCardBody
-            card={card}
-            className="ml-auto w-[260px] max-w-full rounded-tr-none"
-            footer={<Timestamp />}
-          />
+          <>
+            {files.map((file) => (
+              <FileBubble file={file} key={file.url} />
+            ))}
+            <BotCardBody
+              card={card}
+              className="ml-auto w-[260px] max-w-full rounded-tr-none"
+              footer={<Timestamp />}
+            />
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One file as WhatsApp draws it: its own outbound bubble, with the download's
+ * name and what kind of file it is.
+ */
+function FileBubble({ file }: { file: CardFile }) {
+  const Icon = file.kind === "video" ? Film : FileText;
+
+  return (
+    <div className="ml-auto flex w-[260px] max-w-full items-center gap-2 rounded-lg rounded-tr-none bg-white px-2.5 py-2 shadow-sm">
+      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#111b21]/5">
+        <Icon aria-hidden="true" className="size-4 text-[#54656f]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12.5px] font-medium text-[#111b21]">
+          {file.name.trim() || "File"}
+        </span>
+        <span className="block text-[10.5px] text-[#667781]">
+          {file.kind === "video" ? "Video" : "Document"}
+        </span>
+      </span>
     </div>
   );
 }

@@ -10,7 +10,7 @@ import {
 } from "@nestjs/common";
 import type { MessageKind, Prisma } from "@prisma/client";
 
-import type { BotCard, BotFlow } from "../bots/bot.card";
+import type { BotCard, BotFlow, CardFile } from "../bots/bot.card";
 import { deliverCard } from "../bots/bot.render";
 import { snapshotOf } from "../bots/bot.snapshot";
 import { SecretBox } from "../common/crypto/secret-box";
@@ -127,7 +127,7 @@ export class InboxSender {
   }
 
   /**
-   * A card: the pictures, the information, and the buttons under them.
+   * A card: the files, the pictures, the information, and the buttons under it.
    *
    * The message is rendered here rather than passed in, so what is stored and
    * what Meta receives can never disagree about the ladder — three buttons, a
@@ -147,12 +147,32 @@ export class InboxSender {
       quote: Quote | null;
       agentId?: string;
     },
-  ): Promise<{ message: MessageView; photos: MessageView[] }> {
+  ): Promise<{
+    message: MessageView;
+    files: MessageView[];
+    photos: MessageView[];
+  }> {
     const delivery = deliverCard(input.card);
 
-    // Pictures first, in order: the card is the last bubble, so the buttons the
-    // customer is meant to tap sit under the photos rather than above them.
-    // Each is a message of its own because WhatsApp has no album.
+    // Files first: the document is what was asked for, so it sits where a
+    // customer's thumb already is, above the menu it belongs to. Then the
+    // pictures, then the card, whose buttons are the last thing after them.
+    // Each is a message of its own because WhatsApp has no attachment.
+    const files: MessageView[] = [];
+
+    for (const file of delivery.files) {
+      const sent = await this.file({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        waId: input.waId,
+        account: input.account,
+        file,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      });
+
+      if (sent) files.push(sent);
+    }
+
     const photos: MessageView[] = [];
 
     for (const link of delivery.photos) {
@@ -221,10 +241,85 @@ export class InboxSender {
         previewOf(rendered.body, `Card · ${input.card.title}`),
       );
 
-      return { message: messageView(saved, quoteIndex(input.quote)), photos };
+      return {
+        message: messageView(saved, quoteIndex(input.quote)),
+        files,
+        photos,
+      };
     } catch (error) {
       await this.markFailed(row.id, error);
       throw toHttp(error);
+    }
+  }
+
+  /**
+   * One card file as its own message.
+   *
+   * Its row is written before Meta is called, like every other send. A failed
+   * file never stops the card that follows it — the customer still needs the
+   * buttons — and the row carries Meta's own sentence, so the thread can say
+   * what happened instead of hiding it.
+   *
+   * `payload` is what the bubble draws: our bucket is not the inbox's, so there
+   * is no stored path to sign and the link travels instead, exactly as a card
+   * picture from elsewhere does.
+   */
+  private async file(
+    input: SendTarget & { file: CardFile; agentId?: string },
+  ): Promise<MessageView | null> {
+    const path = this.storage.pathInPublicUrl(input.file.url);
+    const document = input.file.kind === "document";
+
+    const row = await this.prisma.message.create({
+      data: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        direction: "OUTBOUND",
+        kind: document ? "DOCUMENT" : "VIDEO",
+        status: "QUEUED",
+        // The name is what the thread and the phone both show, so it is kept
+        // here too rather than read back out of the payload.
+        mediaName: input.file.name,
+        ...(path ? { mediaPath: path } : {}),
+        payload: (document
+          ? { document: { link: input.file.url, name: input.file.name } }
+          : { video: { link: input.file.url } }) as Prisma.InputJsonValue,
+        ...(input.agentId ? { agentId: input.agentId } : {}),
+      },
+      select: MESSAGE_SELECT,
+    });
+
+    try {
+      const wamid = await this.graph.sendFileLink({
+        version: input.account.graphVersion,
+        token: this.tokenOf(input.account),
+        phoneNumberId: input.account.phoneNumberId,
+        to: input.waId,
+        kind: input.file.kind,
+        link: input.file.url,
+        fileName: input.file.name,
+        contextWamid: null,
+      });
+
+      const sentAt = new Date();
+
+      const saved = await this.prisma.message.update({
+        where: { id: row.id },
+        data: { wamid, status: "SENT", sentAt },
+        select: MESSAGE_SELECT,
+      });
+
+      await this.bump(
+        input.conversationId,
+        sentAt,
+        previewOf(input.file.name, document ? "Document" : "Video"),
+      );
+
+      return messageView(saved);
+    } catch (error) {
+      this.logger.warn(`A card file was not delivered: ${reasonOf(error)}`);
+
+      return this.markFailed(row.id, error);
     }
   }
 

@@ -23,6 +23,7 @@ const card = (patch: Partial<BotCard> = {}): BotCard => ({
   name: "Menu",
   title: "Menu",
   imageUrls: [],
+  files: [],
   info: "Dosa 80. Idli 40.",
   buttons: [],
   ...patch,
@@ -341,6 +342,60 @@ test("a card with no buttons delivers its pictures instead of dropping them", ()
   assert.equal(delivery.message.kind, "text");
 });
 
+test("a card's files travel before its pictures, and never take the header", () => {
+  const files = [
+    { url: "https://example.com/menu.pdf", name: "Menu.pdf", kind: "document" as const },
+    { url: "https://example.com/tour.mp4", name: "Tour.mp4", kind: "video" as const },
+  ];
+
+  const delivery = deliverCard(
+    card({
+      files,
+      imageUrls: ["https://example.com/menu.jpg"],
+      buttons: [button("b-1", "Drinks")],
+    }),
+  );
+
+  // In the order the owner listed them: that order is what the customer opens.
+  assert.deepEqual(delivery.files, files);
+
+  // One picture with something to tap is still the bubble's header, and a file
+  // is never a candidate for it.
+  assert.deepEqual(delivery.photos, []);
+  assert.deepEqual(wireOf(delivery.message, "buttons").interactive.header, {
+    type: "image",
+    image: { link: "https://example.com/menu.jpg" },
+  });
+});
+
+test("a file with no address is not delivered at all", () => {
+  const delivery = deliverCard(
+    card({ files: [{ url: "   ", name: "Gone.pdf", kind: "document" }] }),
+  );
+
+  assert.deepEqual(delivery.files, []);
+});
+
+test("a card with no pictures still hands its files over", () => {
+  const delivery = deliverCard(
+    card({
+      files: [{ url: "https://example.com/menu.pdf", name: "Menu.pdf", kind: "document" }],
+      buttons: [],
+    }),
+  );
+
+  assert.equal(delivery.files.length, 1);
+  assert.deepEqual(delivery.photos, []);
+  assert.equal(delivery.message.kind, "text");
+});
+
+test("a card with no pictures is still one message", () => {
+  const delivery = deliverCard(card({ buttons: [button("b-1", "Drinks")] }));
+
+  assert.deepEqual(delivery.photos, []);
+  assert.equal(delivery.message.kind, "buttons");
+});
+
 test("a card too large for a list sends its picture separately rather than losing it", () => {
   const delivery = deliverCard(
     card({
@@ -356,11 +411,4 @@ test("a card too large for a list sends its picture separately rather than losin
   }
 
   assert.match(delivery.message.body, /^1\) Option 1$/m);
-});
-
-test("a card with no pictures is still one message", () => {
-  const delivery = deliverCard(card({ buttons: [button("b-1", "Drinks")] }));
-
-  assert.deepEqual(delivery.photos, []);
-  assert.equal(delivery.message.kind, "buttons");
 });

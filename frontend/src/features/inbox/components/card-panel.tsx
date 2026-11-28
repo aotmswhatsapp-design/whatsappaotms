@@ -45,8 +45,8 @@ export function CardPanel({
   locked: boolean;
   quotedMessageId?: string | null;
   onModeChange: (mode: ComposerMode) => void;
-  /** The card itself, then any pictures sent ahead of it, in delivery order. */
-  onSent: (message: InboxMessage, photos?: InboxMessage[]) => void;
+  /** The card itself, then any files and pictures sent ahead of it, in delivery order. */
+  onSent: (message: InboxMessage, ahead?: InboxMessage[]) => void;
   /** Clears the composer's quote, the way a sent sentence does. */
   onSentQuote?: () => void;
 }) {
@@ -140,14 +140,16 @@ export function CardPanel({
     setError(null);
 
     try {
-      const { message, photos } = await sendCard(
+      const { message, files, photos } = await sendCard(
         conversation.id,
         flow,
         card.id,
         quotedMessageId,
       );
 
-      onSent(message, photos);
+      // Files first, then pictures, then the card — the order the customer's
+      // phone showed.
+      onSent(message, [...files, ...photos]);
       onSentQuote?.();
       onModeChange("reply");
     } catch (cause) {
@@ -276,9 +278,10 @@ export function CardPanel({
           </p>
           <BotCardPreview card={card} />
           {/* The bubble draws the card's cover even though the rest of the
-              pictures arrive as their own messages; saying so keeps the
-              preview from promising an album WhatsApp does not have. */}
-          {card.imageUrls.length > 0 ? (
+              pictures arrive as their own messages, and each file arrives as
+              its own message too; saying so keeps the preview from promising
+              an album or an attachment WhatsApp does not have. */}
+          {card.imageUrls.length > 0 || card.files.length > 0 ? (
             <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">
               {shapeNote(card)}
             </p>

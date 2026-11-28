@@ -1,5 +1,5 @@
 import { request, upload } from "@/lib/api/http";
-import type { BotFlow, BotView } from "@/lib/bots/card";
+import type { BotFlow, BotView, CardFileKind } from "@/lib/bots/card";
 
 export { ApiError } from "@/lib/api/http";
 
@@ -39,52 +39,77 @@ export function saveBot(agentId: string, flow: BotFlow): Promise<BotView> {
   });
 }
 
-/** One picture a card can use, with the address Meta will fetch. */
+/** One upload a card can use, with the address Meta will fetch. */
 export interface CardImage {
   url: string;
   path: string;
 }
 
-/** What an upload adds: the optimised dimensions, for the thumbnail's label. */
+/** What a picture upload adds: the optimised dimensions, for the thumbnail's label. */
 export interface UploadedCardImage extends CardImage {
   width: number | null;
   height: number | null;
 }
 
-/** The pictures already stored for this agent, newest first. */
-export function fetchCardImages(
-  agentId: string,
-): Promise<{ images: (CardImage & { updatedAt: string | null })[] }> {
+/** One stored document or video, as a card records it. */
+export interface CardFileUpload extends CardImage {
+  /** The name the customer's phone shows on the download. */
+  name: string;
+  kind: CardFileKind;
+}
+
+/**
+ * What one upload answers with.
+ *
+ * `type` rather than `kind`: the screen has to tell "a picture" from "a file"
+ * before it decides which part of the card it belongs to, and `kind` is
+ * already taken by a file's own document-or-video.
+ */
+export type UploadedCardMedia =
+  | ({ type: "image" } & UploadedCardImage)
+  | ({ type: "file" } & CardFileUpload);
+
+/** Everything already uploaded for this agent, newest first. */
+export interface CardMediaLibrary {
+  images: (CardImage & { updatedAt: string | null })[];
+  files: (CardFileUpload & { updatedAt: string | null })[];
+}
+
+/** The pictures and files already stored for this agent, newest first. */
+export function fetchCardMedia(agentId: string): Promise<CardMediaLibrary> {
   return request(`/v1/agents/${agentId}/bot/media`, { method: "GET" });
 }
 
 /**
- * Stores one picture and answers its permanent address.
+ * Stores one upload and answers its permanent address.
  *
- * The API validates the bytes and re-encodes them (rotated, resized to 1080 px,
- * JPEG), so what comes back is already the file every customer will download.
+ * A picture is validated and re-encoded (rotated, resized to 1080 px, JPEG), so
+ * what comes back is already the file every customer will receive. A PDF,
+ * Office file or video is stored byte for byte — re-encoding it would break
+ * the customer's download.
+ *
  * Content type is left to the browser: setting it by hand drops the multipart
  * boundary `fetch` generated.
  */
-export function uploadCardImage(
+export function uploadCardMedia(
   agentId: string,
   file: File,
-): Promise<UploadedCardImage> {
+): Promise<UploadedCardMedia> {
   const form = new FormData();
 
   form.append("file", file);
 
-  return upload<UploadedCardImage>(`/v1/agents/${agentId}/bot/media`, form);
+  return upload<UploadedCardMedia>(`/v1/agents/${agentId}/bot/media`, form);
 }
 
 /**
- * Deletes one uploaded picture from Supabase, for good.
+ * Deletes one upload from Supabase, for good.
  *
- * Owner-only. The server refuses while a saved card still points at the picture
- * (409 `BOT_IMAGE_IN_USE`) and for a path that is not this agent's
- * (400 `BOT_IMAGE_UNKNOWN`); both carry a sentence meant for the screen.
+ * Owner-only. The server refuses while a saved card still points at the upload
+ * (409 `BOT_MEDIA_IN_USE`) and for a path that is not this agent's
+ * (400 `BOT_MEDIA_UNKNOWN`); both carry a sentence meant for the screen.
  */
-export function removeCardImage(
+export function removeCardMedia(
   agentId: string,
   path: string,
 ): Promise<{ removed: boolean }> {

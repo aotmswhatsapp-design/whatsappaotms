@@ -26,5 +26,14 @@ export const HEADER_CHARS = 60;
 /** Pictures on one card; each past the first is its own message. */
 export const MAX_CARD_IMAGES = 10;
 
+/** Documents and videos on one card; each is its own message before it. */
+export const MAX_CARD_FILES = 3;
+
+/** A document or spreadsheet a card hands over. */
+export const MAX_CARD_FILE_BYTES = 20 * 1024 * 1024;
+
+/** A video a card hands over. Meta's own ceiling for a video message. */
+export const MAX_CARD_VIDEO_BYTES = 16 * 1024 * 1024;
+
 /** A plain text message, which is where every fallback lands. */
 export const TEXT_CHARS = 4096;

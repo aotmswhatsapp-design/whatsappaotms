@@ -25,11 +25,15 @@ const storageUrl = (name: string) => `https://storage.test/bot-media/${name}`;
 
 const PICTURES = [storageUrl("one.jpg"), storageUrl("two.jpg")];
 
+const MENU_PDF = storageUrl("menu.pdf");
+const TOUR_MP4 = storageUrl("tour.mp4");
+
 const card = (patch: Partial<BotCard> = {}): BotCard => ({
   id: "c-menu",
   name: "Menu",
   title: "Menu",
   imageUrls: [],
+  files: [],
   info: "Dosa 80.",
   buttons: [{ id: "b-drinks", label: "Drinks", action: { kind: "handoff" } }],
   ...patch,
@@ -107,9 +111,12 @@ class FakePrisma {
   };
 }
 
-/** Records the send calls in order, and refuses exactly one picture. */
+/** Records the send calls in order, and refuses exactly one address. */
 class FakeGraph {
-  readonly sent: { kind: "image" | "interactive" | "text"; link?: string }[] = [];
+  readonly sent: {
+    kind: "image" | "document" | "video" | "interactive" | "text";
+    link?: string;
+  }[] = [];
   refuse: string | null = null;
   private seq = 0;
 
@@ -121,6 +128,20 @@ class FakeGraph {
     this.sent.push({ kind: "image", link: input.link });
 
     return `wamid.image.${++this.seq}`;
+  }
+
+  async sendFileLink(input: {
+    kind: "document" | "video";
+    link: string;
+    fileName: string;
+  }): Promise<string> {
+    if (input.link === this.refuse) {
+      throw new Error("Meta refused this file.");
+    }
+
+    this.sent.push({ kind: input.kind, link: input.link });
+
+    return `wamid.${input.kind}.${++this.seq}`;
   }
 
   async sendInteractive(): Promise<string> {
@@ -253,4 +274,99 @@ test("a picture from somebody else keeps its link, ours keeps a stored path", as
   assert.equal(ours?.mediaPath, "one.jpg");
   assert.deepEqual(ours?.payload, { image: { link: PICTURES[0] } });
   assert.deepEqual(theirs?.payload, { image: { link: pasted } });
+});
+
+test("a card's files go out first, then its pictures, then the card", async () => {
+  const graph = new FakeGraph();
+  const feed = sender(graph);
+  const one = card({
+    files: [
+      { url: MENU_PDF, name: "Menu.pdf", kind: "document" },
+      { url: TOUR_MP4, name: "Tour.mp4", kind: "video" },
+    ],
+    imageUrls: PICTURES,
+  });
+
+  const result = await feed.interactive({
+    ...target,
+    flow: flow(one),
+    card: one,
+    quote: null,
+  });
+
+  assert.deepEqual(graph.sent, [
+    { kind: "document", link: MENU_PDF },
+    { kind: "video", link: TOUR_MP4 },
+    { kind: "image", link: PICTURES[0] },
+    { kind: "image", link: PICTURES[1] },
+    { kind: "interactive" },
+  ]);
+
+  assert.deepEqual(
+    result.files.map((file) => file.kind),
+    ["DOCUMENT", "VIDEO"],
+  );
+  assert.equal(result.photos.length, 2);
+});
+
+test("a refused file is recorded, and the card is still delivered", async () => {
+  const graph = new FakeGraph();
+  const feed = sender(graph);
+  const one = card({
+    files: [
+      { url: MENU_PDF, name: "Menu.pdf", kind: "document" },
+      { url: TOUR_MP4, name: "Tour.mp4", kind: "video" },
+    ],
+  });
+
+  graph.refuse = MENU_PDF;
+
+  const result = await feed.interactive({
+    ...target,
+    flow: flow(one),
+    card: one,
+    quote: null,
+  });
+
+  assert.deepEqual(graph.sent, [
+    { kind: "video", link: TOUR_MP4 },
+    { kind: "interactive" },
+  ]);
+
+  assert.equal(result.files.length, 2, "the failed file is still a row");
+  assert.equal(result.files[0]?.status, "FAILED");
+  assert.match(result.files[0]?.errorReason ?? "", /refused this file/);
+  assert.equal(result.files[1]?.status, "SENT");
+  assert.equal(result.message.status, "SENT", "the card does not depend on its files");
+});
+
+test("a card file keeps its name and link for the thread to draw", async () => {
+  const graph = new FakeGraph();
+  const prisma = new FakePrisma();
+  const feed = sender(graph, prisma);
+  const one = card({
+    files: [
+      { url: MENU_PDF, name: "Menu.pdf", kind: "document" },
+      { url: TOUR_MP4, name: "Tour.mp4", kind: "video" },
+    ],
+  });
+
+  await feed.interactive({
+    ...target,
+    flow: flow(one),
+    card: one,
+    quote: null,
+  });
+
+  const rows = [...prisma.rows.values()];
+  const document = rows.find((entry) => entry.kind === "DOCUMENT");
+  const video = rows.find((entry) => entry.kind === "VIDEO");
+
+  assert.equal(document?.mediaName, "Menu.pdf");
+  assert.deepEqual(document?.payload, {
+    document: { link: MENU_PDF, name: "Menu.pdf" },
+  });
+
+  // A video has no name to show: the phone plays it, so only the address travels.
+  assert.deepEqual(video?.payload, { video: { link: TOUR_MP4 } });
 });

@@ -15,9 +15,9 @@ import { MAX_CARD_IMAGES } from "@/lib/bots/limits";
 import { cn } from "@/lib/utils";
 import {
   ApiError,
-  fetchCardImages,
-  removeCardImage,
-  uploadCardImage,
+  fetchCardMedia,
+  removeCardMedia,
+  uploadCardMedia,
   type CardImage,
 } from "../api";
 
@@ -137,7 +137,7 @@ export function CardImageField({
 
     void (async () => {
       try {
-        const listed = await fetchCardImages(agentId);
+        const listed = await fetchCardMedia(agentId);
 
         if (live) {
           setLibrary({ agentId, images: listed.images, error: null });
@@ -324,7 +324,21 @@ export function CardImageField({
 
         void (async () => {
           try {
-            const stored = await uploadCardImage(agentId, file);
+            const stored = await uploadCardMedia(agentId, file);
+
+            // The picker only takes pictures, so the other arm means the
+            // server read the bytes as something else. Refused rather than
+            // filed as a picture that would never render.
+            if (stored.type !== "image") {
+              setQueue((current) =>
+                current.map((entry) =>
+                  entry.id === row.id
+                    ? { ...entry, error: "That file is not a picture." }
+                    : entry,
+                ),
+              );
+              return;
+            }
 
             setLibrary((current) => ({
               agentId,
@@ -394,7 +408,7 @@ export function CardImageField({
       setRemoveError(null);
 
       try {
-        await removeCardImage(agentId, tile.path);
+        await removeCardMedia(agentId, tile.path);
 
         setLibrary((current) =>
           current?.agentId === agentId

@@ -117,8 +117,8 @@ export function MessageThread({
    * the poll, so two quick changes cannot undo each other.
    */
   onWritten: () => void;
-  /** The sent message, plus any pictures a card sent ahead of itself. */
-  onMessage: (message: InboxMessage, photos?: InboxMessage[]) => void;
+  /** The sent message, plus any files and pictures a card sent ahead of itself. */
+  onMessage: (message: InboxMessage, ahead?: InboxMessage[]) => void;
   /** A reaction replaced or removed; null means nothing is left to show. */
   onReaction: (targetId: string, message: InboxMessage | null) => void;
   onNote: (note: InboxNote) => void;

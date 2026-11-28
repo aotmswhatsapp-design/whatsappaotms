@@ -15,6 +15,7 @@ import {
   type BotFlow,
 } from "@/lib/bots/card";
 import { BODY_CHARS, BUTTON_TITLE, HEADER_CHARS, TEXT_CHARS } from "@/lib/bots/limits";
+import { CardFileField } from "./card-file-field";
 import { CardImageField } from "./card-image-field";
 
 const FIELD =
@@ -145,6 +146,31 @@ export function CardEditor({
       </div>
 
       <div>
+        <p className="text-[13px] font-medium text-foreground">Files</p>
+        <div className="mt-1.5">
+          <CardFileField
+            agentId={agentId}
+            cardId={card.id}
+            disabled={disabled}
+            // This card is left out, for the same reason the picture field
+            // leaves it out: taking a file off this card is how the card stops
+            // sending it. The others are the ones a delete would break.
+            usedBy={(url) =>
+              flow.cards
+                .filter(
+                  (other) =>
+                    other.id !== card.id &&
+                    other.files.some((file) => file.url === url),
+                )
+                .map((other) => cardLabel(other))
+            }
+            value={card.files}
+            onChange={(files) => patch({ files })}
+          />
+        </div>
+      </div>
+
+      <div>
         <Label htmlFor="card-info">Information</Label>
         <textarea
           id="card-info"
@@ -184,8 +210,8 @@ export function CardEditor({
         {card.buttons.length === 0 ? (
           <p className="mt-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
             No buttons yet, so this card arrives as plain text. A button is what
-            lets the customer choose. Pictures are still sent, each on its own,
-            before it.
+            lets the customer choose. Pictures and files are still sent, each on
+            its own, before it.
           </p>
         ) : null}
 

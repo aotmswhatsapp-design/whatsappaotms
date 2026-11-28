@@ -9,6 +9,7 @@ const card = (id: string): BotCard => ({
   name: id,
   title: id,
   imageUrls: [],
+  files: [],
   info: id,
   buttons: [],
 });

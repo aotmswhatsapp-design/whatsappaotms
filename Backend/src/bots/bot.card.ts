@@ -35,6 +35,37 @@ export interface BotButton {
   action: BotAction;
 }
 
+/**
+ * The two kinds of file a card can hand over.
+ *
+ * Only two, because they are the two shapes WhatsApp draws differently: a
+ * document arrives as a tappable row with its own file name, and a video plays
+ * in the thread. Anything else a business wants to send is uploaded as one of
+ * these.
+ */
+export type CardFileKind = "document" | "video";
+
+/**
+ * A file that travels with a card.
+ *
+ * WhatsApp has no attachment on an interactive message, so a file is always a
+ * message of its own, sent just before the card. It is never the header: a
+ * card's header is a picture or a line of text, and a customer reading a menu
+ * should still see the menu.
+ */
+export interface CardFile {
+  /** Permanent public address; Meta fetches it when the card is sent. */
+  url: string;
+  /**
+   * What the customer's phone calls the download, extension included.
+   *
+   * WhatsApp shows this instead of the address, so it is the one piece of the
+   * original upload worth keeping.
+   */
+  name: string;
+  kind: CardFileKind;
+}
+
 export interface BotCard {
   id: string;
   /**
@@ -60,6 +91,14 @@ export interface BotCard {
    * message. The first entry is the card's cover.
    */
   imageUrls: string[];
+  /**
+   * Files handed over with this card, in the order the customer receives them.
+   *
+   * Each is its own message, sent before the pictures and before the card. A
+   * card may carry a few — a price list, a booking form, a short clip — because
+   * a business often answers with the document rather than the menu.
+   */
+  files: CardFile[];
   /** The information itself: the body of the message. */
   info: string;
   /** In the order the customer sees them, which is also the order they number in. */

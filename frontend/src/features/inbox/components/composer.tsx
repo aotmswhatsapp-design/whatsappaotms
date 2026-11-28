@@ -70,8 +70,8 @@ export function Composer({
   /** The message the next reply answers, if the agent picked one. */
   quoted: InboxMessage | null;
   onClearQuote: () => void;
-  /** The sent message, plus any pictures a card sent ahead of itself. */
-  onSent: (message: InboxMessage, photos?: InboxMessage[]) => void;
+  /** The sent message, plus any files and pictures a card sent ahead of itself. */
+  onSent: (message: InboxMessage, ahead?: InboxMessage[]) => void;
   onNoted: (note: InboxNote) => void;
 }) {
   const area = React.useRef<HTMLTextAreaElement>(null);

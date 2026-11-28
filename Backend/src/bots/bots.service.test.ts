@@ -56,14 +56,19 @@ class FakePrisma {
   }
 }
 
-const build = (prisma = new FakePrisma(), removed: string[] = []) =>
+const build = (
+  prisma = new FakePrisma(),
+  removed: string[] = [],
+  /** What the fake bucket lists, when a test is about the library. */
+  objects: { name: string; updatedAt: string | null }[] = [],
+) =>
   new BotsService(
     prisma as never,
     { primaryFor: async () => ({ workspaceId: "ws-a", userId: "user-a", role: "OWNER" }) } as never,
     new BotStore(prisma as never),
     {
       upload: async () => undefined,
-      list: async () => [],
+      list: async () => objects,
       publicUrl: (path: string) => `https://storage.test/${path}`,
       remove: async (paths: string[]) => {
         removed.push(...paths);
@@ -76,6 +81,7 @@ const card = (id: string) => ({
   name: id,
   title: id,
   imageUrls: [],
+  files: [],
   info: "Dosa 80.",
   buttons: [],
 });
@@ -287,7 +293,7 @@ test("a picture no card points at is deleted from storage", async () => {
     flow: { id: "agent-1", rootCardId: null, cards: [card("c-root")], rules: [] },
   });
 
-  const answer = await build(prisma, removed).removeImage(CLAIMS, "agent-1", PICTURE);
+  const answer = await build(prisma, removed).removeMedia(CLAIMS, "agent-1", PICTURE);
 
   assert.deepEqual(answer, { removed: true });
   assert.deepEqual(removed, [PICTURE]);
@@ -308,10 +314,10 @@ test("a picture a saved card still shows is refused, naming the card", async () 
   });
 
   await assert.rejects(
-    () => build(prisma, removed).removeImage(CLAIMS, "agent-1", PICTURE),
+    () => build(prisma, removed).removeMedia(CLAIMS, "agent-1", PICTURE),
     (error: any) =>
       error instanceof ConflictException &&
-      (error.getResponse() as { code?: string }).code === "BOT_IMAGE_IN_USE" &&
+      (error.getResponse() as { code?: string }).code === "BOT_MEDIA_IN_USE" &&
       /c-menu/.test((error.getResponse() as { message?: string }).message ?? ""),
   );
 
@@ -323,14 +329,14 @@ test("a picture in another workspace's folder is unknown, not forbidden", async 
 
   await assert.rejects(
     () =>
-      build(new FakePrisma(), removed).removeImage(
+      build(new FakePrisma(), removed).removeMedia(
         CLAIMS,
         "agent-1",
         "bots/ws-b/agent-1/abc.jpg",
       ),
     (error: any) =>
       error instanceof BadRequestException &&
-      (error.getResponse() as { code?: string }).code === "BOT_IMAGE_UNKNOWN",
+      (error.getResponse() as { code?: string }).code === "BOT_MEDIA_UNKNOWN",
   );
 
   assert.deepEqual(removed, []);
@@ -341,14 +347,14 @@ test("a path that climbs out of the folder is refused", async () => {
 
   await assert.rejects(
     () =>
-      build(new FakePrisma(), removed).removeImage(
+      build(new FakePrisma(), removed).removeMedia(
         CLAIMS,
         "agent-1",
         "bots/ws-a/agent-1/../../ws-b/agent-1/abc.jpg",
       ),
     (error: any) =>
       error instanceof BadRequestException &&
-      (error.getResponse() as { code?: string }).code === "BOT_IMAGE_UNKNOWN",
+      (error.getResponse() as { code?: string }).code === "BOT_MEDIA_UNKNOWN",
   );
 
   assert.deepEqual(removed, []);
@@ -360,7 +366,126 @@ test("a database without the flow table still lets a picture be removed", async 
 
   prisma.missing = true;
 
-  await build(prisma, removed).removeImage(CLAIMS, "agent-1", PICTURE);
+  await build(prisma, removed).removeMedia(CLAIMS, "agent-1", PICTURE);
 
   assert.deepEqual(removed, [PICTURE]);
+});
+
+/** A real 1×1 PNG, so the image arm is exercised by real bytes. */
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+const upload = (patch: { buffer: Buffer; mimetype: string; originalname: string }) => ({
+  ...patch,
+  size: patch.buffer.length,
+});
+
+test("a PDF is stored as a file, under the name the customer will see", async () => {
+  const stored = await build().uploadMedia(
+    CLAIMS,
+    "agent-1",
+    upload({
+      buffer: Buffer.from("%PDF-1.7\nMenu\n"),
+      mimetype: "application/pdf",
+      originalname: "Price list.pdf",
+    }),
+  );
+
+  assert.equal(stored.type, "file");
+  if (stored.type !== "file") return;
+
+  assert.equal(stored.kind, "document");
+  assert.equal(stored.name, "Price list.pdf");
+  assert.match(stored.path, /^bots\/ws-a\/agent-1\/.+__Price list\.pdf$/);
+  assert.equal(stored.url, `https://storage.test/${stored.path}`);
+});
+
+test("a picture still goes down the picture path, re-encoded as a JPEG", async () => {
+  const stored = await build().uploadMedia(
+    CLAIMS,
+    "agent-1",
+    upload({ buffer: PNG, mimetype: "image/png", originalname: "logo.png" }),
+  );
+
+  assert.equal(stored.type, "image");
+  if (stored.type !== "image") return;
+
+  assert.equal(stored.width, 1);
+  assert.match(stored.path, /\.jpg$/);
+});
+
+test("a file that is not one we send is refused with a code the screen can read", async () => {
+  await assert.rejects(
+    () =>
+      build().uploadMedia(
+        CLAIMS,
+        "agent-1",
+        upload({
+          buffer: Buffer.from("MZ"),
+          mimetype: "application/x-msdownload",
+          originalname: "installer.exe",
+        }),
+      ),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_FILE_INVALID",
+  );
+});
+
+/** A path and address this agent really owns, for a document. */
+const FILE = "bots/ws-a/agent-1/abc__Menu.pdf";
+const FILE_URL = `https://storage.test/${FILE}`;
+
+test("a file a saved card sends is refused, naming the card", async () => {
+  const removed: string[] = [];
+  const prisma = new FakePrisma();
+
+  prisma.rows.set("agent-1", {
+    workspaceId: "ws-a",
+    flow: {
+      id: "agent-1",
+      rootCardId: "c-menu",
+      cards: [
+        {
+          ...card("c-menu"),
+          files: [{ url: FILE_URL, name: "Menu.pdf", kind: "document" }],
+        },
+      ],
+      rules: [],
+    },
+  });
+
+  await assert.rejects(
+    () => build(prisma, removed).removeMedia(CLAIMS, "agent-1", FILE),
+    (error: any) =>
+      error instanceof ConflictException &&
+      (error.getResponse() as { code?: string }).code === "BOT_MEDIA_IN_USE" &&
+      /c-menu/.test((error.getResponse() as { message?: string }).message ?? ""),
+  );
+
+  assert.deepEqual(removed, []);
+});
+
+test("the library tells pictures from the files handed over with a card", async () => {
+  const library = await build(new FakePrisma(), [], [
+    { name: "aaa.jpg", updatedAt: null },
+    { name: "bbb__Menu.pdf", updatedAt: null },
+    { name: "ccc__Tour.mp4", updatedAt: null },
+  ]).mediaLibrary(CLAIMS, "agent-1");
+
+  assert.deepEqual(
+    library.images.map((image) => image.path),
+    ["bots/ws-a/agent-1/aaa.jpg"],
+  );
+
+  // Newest first, which is the listing reversed: the names start with a stamp.
+  assert.deepEqual(
+    library.files.map((file) => [file.name, file.kind]),
+    [
+      ["Tour.mp4", "video"],
+      ["Menu.pdf", "document"],
+    ],
+  );
 });

@@ -9,14 +9,18 @@ import {
 import type { AuthClaims } from "../auth/auth.types";
 import { MediaStorage } from "../inbox/media.storage";
 import { PrismaService } from "../prisma/prisma.service";
+import { IMAGE_MIME } from "../templates/template-media";
 import { WorkspacesService } from "../workspaces/workspaces.service";
-import type { BotFlow } from "./bot.card";
+import type { BotFlow, CardFileKind } from "./bot.card";
 import { emptyFlow, flowProblem } from "./bot.flow";
 import {
+  cardFilePath,
   cardFolderFor,
   cardImagePath,
-  ownedCardImagePath,
+  ownedCardPath,
+  prepareCardFile,
   prepareCardImage,
+  storedFile,
 } from "./bot.media";
 import { flowIn } from "./bot.snapshot";
 import { BotStore } from "./bot.store";
@@ -39,9 +43,28 @@ export interface UploadedCardImage extends StoredCardImage {
   height: number | null;
 }
 
-/** One entry in the gallery a card's Picture field offers. */
-export interface CardImageLibrary {
+/** One stored document or video, as the card records it. */
+export interface StoredCardFile extends StoredCardImage {
+  /** The name the customer's phone shows on the download. */
+  name: string;
+  kind: CardFileKind;
+}
+
+/**
+ * What one upload answers with.
+ *
+ * `type` rather than `kind`: the field has to tell "a picture" from "a file"
+ * before it decides which arm of the card it belongs to, and `kind` is already
+ * taken by a file's own document-or-video.
+ */
+export type UploadedCardMedia =
+  | ({ type: "image" } & UploadedCardImage)
+  | ({ type: "file" } & StoredCardFile);
+
+/** Everything already uploaded for one agent, newest first. */
+export interface CardMediaLibrary {
   images: (StoredCardImage & { updatedAt: string | null })[];
+  files: (StoredCardFile & { updatedAt: string | null })[];
 }
 
 /** The parts of a multipart upload this feature reads. */
@@ -129,57 +152,94 @@ export class BotsService {
   }
 
   /**
-   * One card picture in, one permanent address out.
+   * One uploaded picture or file in, one permanent address out.
    *
    * The bucket is public on purpose: this URL is written into the flow and
    * fetched by Meta when the customer is shown the card, which is often long
    * after the upload — a signed link would be dead by then.
+   *
+   * Which arm it takes is decided by the type the browser declared. A picture
+   * is re-encoded (rotated, resized, EXIF stripped); a document is kept byte
+   * for byte, because re-writing a `.docx` produces a file nobody can open.
    */
-  async uploadImage(
+  async uploadMedia(
     claims: AuthClaims,
     agentId: string,
     file: UploadedBotImage | undefined,
-  ): Promise<UploadedCardImage> {
+  ): Promise<UploadedCardMedia> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
     await this.assertAgent(workspaceId, agentId);
 
     if (!file?.buffer.length) {
-      throw new BadRequestException("Choose a picture to upload.");
+      throw new BadRequestException("Choose a picture or a file to upload.");
     }
 
-    const prepared = await prepareCardImage(file.buffer);
+    if ((IMAGE_MIME as readonly string[]).includes(file.mimetype)) {
+      const prepared = await prepareCardImage(file.buffer);
+
+      if (!prepared.ok) {
+        throw new BadRequestException({
+          code: "BOT_IMAGE_INVALID",
+          message: [prepared.reason],
+        });
+      }
+
+      const path = cardImagePath({ workspaceId, agentId });
+
+      await this.storage.upload(path, prepared.image.bytes, prepared.image.mime);
+
+      return {
+        type: "image",
+        url: this.storage.publicUrl(path),
+        path,
+        width: prepared.image.width,
+        height: prepared.image.height,
+      };
+    }
+
+    const prepared = prepareCardFile({
+      bytes: file.buffer,
+      mime: file.mimetype,
+      name: file.originalname,
+    });
 
     if (!prepared.ok) {
       throw new BadRequestException({
-        code: "BOT_IMAGE_INVALID",
+        code: "BOT_FILE_INVALID",
         message: [prepared.reason],
       });
     }
 
-    const path = cardImagePath({ workspaceId, agentId });
+    const path = cardFilePath({
+      workspaceId,
+      agentId,
+      name: prepared.file.name,
+    });
 
-    await this.storage.upload(path, prepared.image.bytes, prepared.image.mime);
+    await this.storage.upload(path, prepared.file.bytes, prepared.file.mime);
 
     return {
+      type: "file",
       url: this.storage.publicUrl(path),
       path,
-      width: prepared.image.width,
-      height: prepared.image.height,
+      name: prepared.file.name,
+      kind: prepared.file.kind,
     };
   }
 
   /**
-   * What was already uploaded for this agent, newest first.
+   * What was already uploaded for this agent, newest first, split by kind.
    *
-   * The gallery is the bucket itself rather than a table on the flow: a
-   * picture nobody ends up choosing is harmless, and a list on the row would
-   * drift from the objects it claims exist.
+   * The gallery is the bucket itself rather than a table on the flow: a file
+   * nobody ends up choosing is harmless, and a list on the row would drift
+   * from the objects it claims exist. A stored file knows its own name and
+   * kind from its key, so nothing else has to be kept.
    */
-  async imageLibrary(
+  async mediaLibrary(
     claims: AuthClaims,
     agentId: string,
-  ): Promise<CardImageLibrary> {
+  ): Promise<CardMediaLibrary> {
     const { workspaceId } = await this.workspaces.primaryFor(claims);
 
     await this.assertAgent(workspaceId, agentId);
@@ -187,38 +247,52 @@ export class BotsService {
     const folder = cardFolderFor(workspaceId, agentId);
     const objects = await this.storage.list(folder, { limit: 60 });
 
-    return {
-      images: objects
-        .filter((object) => /\.jpe?g$/i.test(object.name))
-        .map((object) => {
-          const path = `${folder}/${object.name}`;
+    const images: CardMediaLibrary["images"] = [];
+    const files: CardMediaLibrary["files"] = [];
 
-          return {
-            url: this.storage.publicUrl(path),
-            path,
-            updatedAt: object.updatedAt,
-          };
-        })
-        // The storage listing sorts by name; the names start with a timestamp,
-        // so reversing puts the newest upload first.
-        .reverse(),
-    };
+    for (const object of objects) {
+      const path = `${folder}/${object.name}`;
+      const stored = storedFile(path);
+
+      if (stored) {
+        files.push({
+          url: this.storage.publicUrl(path),
+          path,
+          name: stored.name,
+          kind: stored.kind,
+          updatedAt: object.updatedAt,
+        });
+        continue;
+      }
+
+      if (!/\.jpe?g$/i.test(object.name)) continue;
+
+      images.push({
+        url: this.storage.publicUrl(path),
+        path,
+        updatedAt: object.updatedAt,
+      });
+    }
+
+    // The storage listing sorts by name; the names start with a timestamp,
+    // so reversing puts the newest upload first.
+    return { images: images.reverse(), files: files.reverse() };
   }
 
   /**
-   * Removes one uploaded picture from the bucket, for good.
+   * Removes one uploaded picture or file from the bucket, for good.
    *
    * Two refusals before anything is deleted. A path outside this agent's folder
    * is unknown rather than forbidden — another workspace must not be able to
-   * tell the two apart. A picture a saved card still shows is in use: deleting
+   * tell the two apart. An upload a saved card still sends is in use: deleting
    * it would leave that card pointing at a dead address, and Meta fetches the
    * address every time the card is shown.
    *
    * `strict` because this delete is not a side effect of something else the
-   * user asked for: if storage refuses, the picture is still there and the
-   * screen must say so instead of hiding an orphan.
+   * user asked for: if storage refuses, the file is still there and the screen
+   * must say so instead of hiding an orphan.
    */
-  async removeImage(
+  async removeMedia(
     claims: AuthClaims,
     agentId: string,
     path: string,
@@ -227,19 +301,19 @@ export class BotsService {
 
     await this.assertAgent(workspaceId, agentId);
 
-    const owned = ownedCardImagePath({ workspaceId, agentId, path });
+    const owned = ownedCardPath({ workspaceId, agentId, path });
 
     if (!owned) {
       throw new BadRequestException({
-        code: "BOT_IMAGE_UNKNOWN",
-        message: "That picture is not one of this agent's uploads.",
+        code: "BOT_MEDIA_UNKNOWN",
+        message: "That file is not one of this agent's uploads.",
       });
     }
 
     const url = this.storage.publicUrl(owned);
 
     // A database without the flow table has no saved cards, so nothing can be
-    // pointing at the picture yet — that is not a reason to refuse the delete.
+    // pointing at the upload yet — that is not a reason to refuse the delete.
     const flow = await this.store.read(agentId).catch((error: unknown) => {
       if (BotStore.missingTable(error)) return null;
 
@@ -247,17 +321,21 @@ export class BotsService {
     });
 
     const holders =
-      flow?.cards.filter((card) => card.imageUrls.includes(url)) ?? [];
+      flow?.cards.filter(
+        (card) =>
+          card.imageUrls.includes(url) ||
+          card.files.some((file) => file.url === url),
+      ) ?? [];
 
     if (holders.length > 0) {
       const [first] = holders;
-      const name = first.title.trim() || "An untitled card";
+      const name = first.name.trim() || first.title.trim() || "An untitled card";
       const more =
         holders.length > 1 ? ` and ${holders.length - 1} other card(s)` : "";
 
       throw new ConflictException({
-        code: "BOT_IMAGE_IN_USE",
-        message: `${name}${more} still uses this picture. Choose another picture for the card (or save the change) and then remove this one.`,
+        code: "BOT_MEDIA_IN_USE",
+        message: `${name}${more} still sends this upload. Take it off the card (or save the change) and then remove it.`,
       });
     }
 
