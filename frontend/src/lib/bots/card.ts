@@ -230,6 +230,71 @@ export function cardLabel(card: BotCard): string {
   return card.name.trim() || "Untitled card";
 }
 
+/** What shifting these cards would change, before it happens. */
+export interface ShiftImpact {
+  /** Buttons on the cards staying behind that opened one of these. */
+  sourceButtons: number;
+  /** Keyword rules whose card is one of these. */
+  sourceRules: number;
+  /** Buttons on the moving cards that open a card staying behind. */
+  targetButtons: number;
+  /** True when the entry card is among them, so this flow will have none. */
+  entryMoves: boolean;
+  /** Cards that would be left behind. */
+  remaining: number;
+}
+
+/**
+ * What a shift to another agent would give up, for the confirmation step.
+ *
+ * Advisory: the server decides, from the flows it reads at the moment of the
+ * shift. It exists so the confirmation can say what will be repaired instead of
+ * asking the owner to find out afterwards, and it mirrors
+ * `Backend/src/bots/bot.shift.ts` — a change in what a shift repairs is a change
+ * here too.
+ *
+ * The rules are counted for a move only: in a copy the card stays, so its rule
+ * still has something to send.
+ */
+export function shiftImpact(
+  flow: BotFlow,
+  cardIds: readonly string[],
+  mode: "move" | "copy",
+): ShiftImpact {
+  const moving = new Set(cardIds);
+  const impact: ShiftImpact = {
+    sourceButtons: 0,
+    sourceRules: 0,
+    targetButtons: 0,
+    entryMoves: flow.rootCardId !== null && moving.has(flow.rootCardId),
+    remaining: flow.cards.filter((card) => !moving.has(card.id)).length,
+  };
+
+  for (const card of flow.cards) {
+    const leaves = moving.has(card.id);
+
+    for (const button of card.buttons) {
+      if (button.action.kind !== "card") continue;
+
+      const opens = moving.has(button.action.cardId);
+
+      // A button on a card that stays, opening a card that leaves, is the
+      // source's repair. A button on a card that leaves, opening a card that
+      // stays, is the target's — the same pair of facts, two sides.
+      if (leaves && !opens) impact.targetButtons += 1;
+      if (!leaves && opens) impact.sourceButtons += 1;
+    }
+  }
+
+  if (mode === "move") {
+    impact.sourceRules = flow.rules.filter((rule) =>
+      moving.has(rule.replyCardId),
+    ).length;
+  }
+
+  return impact;
+}
+
 /** What a button's action points at, in one line, for the card list. */
 export function actionSummary(action: BotAction, flow: BotFlow): string {
   switch (action.kind) {

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   BadRequestException,
   ConflictException,
@@ -23,12 +25,22 @@ import {
   storedFile,
 } from "./bot.media";
 import { flowIn } from "./bot.snapshot";
+import { shiftCards, type ShiftMode, type ShiftRepairs } from "./bot.shift";
 import { BotStore } from "./bot.store";
 
 /** A flow plus whether anybody has written it down yet. */
 export interface BotView {
   flow: BotFlow;
   stored: boolean;
+}
+
+/** What a shift answers with: this agent's flow, as it is stored now. */
+export interface ShiftView {
+  flow: BotFlow;
+  /** Who received the cards, so the screen can name them in its message. */
+  targetAgentId: string;
+  /** What had to give way to keep both flows valid. */
+  repairs: ShiftRepairs;
 }
 
 /** What the builder gets back once a picture is stored. */
@@ -149,6 +161,95 @@ export class BotsService {
     await this.guard(() => this.store.save(workspaceId, agentId, flow));
 
     return { flow, stored: true };
+  }
+
+  /**
+   * Carries one or more cards from this agent's bot to another agent's.
+   *
+   * Two flows change, so this is not the screen saving one flow and then the
+   * other: the target's flow is read here, at the moment of the shift, and the
+   * browser never has to hold a copy of it that could be stale by the time it
+   * was written back. The repairs are also decided next to the validation they
+   * must satisfy, instead of in a second implementation on the client.
+   *
+   * The target is written first. A shift that dies halfway then leaves the card
+   * in both flows — a copy the owner can delete — rather than in neither. The
+   * pooler offers no interactive transaction, so two rows cannot be written as
+   * one; the order is the whole guarantee there is.
+   */
+  async shift(
+    claims: AuthClaims,
+    agentId: string,
+    dto: { targetAgentId: string; cardIds: string[]; mode: ShiftMode },
+  ): Promise<ShiftView> {
+    const { workspaceId } = await this.workspaces.primaryFor(claims);
+
+    await this.assertAgent(workspaceId, agentId);
+
+    if (dto.targetAgentId === agentId) {
+      throw new BadRequestException({
+        code: "BOT_SHIFT_SAME_AGENT",
+        message: "Those cards are already this agent's. Choose another agent.",
+      });
+    }
+
+    // Checked against the same workspace, so an agent of somebody else's is
+    // unknown here rather than a target that would take the cards.
+    await this.assertAgent(workspaceId, dto.targetAgentId);
+
+    const source = await this.guard(() => this.store.read(agentId));
+
+    if (!source) {
+      throw new BadRequestException({
+        code: "BOT_FLOW_EMPTY",
+        message:
+          "This agent has no saved flow yet, so there is no card to shift. Save it first.",
+      });
+    }
+
+    // A target nobody has written is an empty flow, not a refusal: shifting a
+    // first card into a new agent is the ordinary way to split a bot.
+    const target = await this.guard(() => this.store.read(dto.targetAgentId));
+
+    const outcome = shiftCards({
+      source: { ...source, id: agentId },
+      target: target
+        ? { ...target, id: dto.targetAgentId }
+        : emptyFlow(dto.targetAgentId),
+      cardIds: dto.cardIds,
+      mode: dto.mode,
+      newId: () => `card-${randomUUID().slice(0, 8)}`,
+    });
+
+    if (!outcome.ok) {
+      throw new BadRequestException({
+        code: "BOT_SHIFT_REFUSED",
+        message: outcome.reason,
+      });
+    }
+
+    // A shift only ever turns a card reference into a handoff or drops a rule,
+    // so this should never fire. It is here because writing a flow the builder
+    // cannot open again is worse than not writing it at all.
+    const problem = flowProblem(outcome.target) ?? flowProblem(outcome.source);
+
+    if (problem) {
+      throw new BadRequestException({ code: "BOT_FLOW_INVALID", message: problem });
+    }
+
+    await this.guard(() =>
+      this.store.save(workspaceId, dto.targetAgentId, outcome.target),
+    );
+
+    if (dto.mode === "move") {
+      await this.guard(() => this.store.save(workspaceId, agentId, outcome.source));
+    }
+
+    return {
+      flow: outcome.source,
+      targetAgentId: dto.targetAgentId,
+      repairs: outcome.repairs,
+    };
   }
 
   /**
@@ -288,6 +389,11 @@ export class BotsService {
    * it would leave that card pointing at a dead address, and Meta fetches the
    * address every time the card is shown.
    *
+   * The second check reads every flow in the workspace, not this agent's. A
+   * card can be shifted to another agent and keeps the address it was uploaded
+   * to, so a guard that only looked here would happily delete an upload another
+   * agent's bot is still sending.
+   *
    * `strict` because this delete is not a side effect of something else the
    * user asked for: if storage refuses, the file is still there and the screen
    * must say so instead of hiding an orphan.
@@ -314,28 +420,39 @@ export class BotsService {
 
     // A database without the flow table has no saved cards, so nothing can be
     // pointing at the upload yet — that is not a reason to refuse the delete.
-    const flow = await this.store.read(agentId).catch((error: unknown) => {
-      if (BotStore.missingTable(error)) return null;
+    const flows = await this.store
+      .readWorkspace(workspaceId)
+      .catch((error: unknown) => {
+        if (BotStore.missingTable(error)) return [];
 
-      throw error;
-    });
+        throw error;
+      });
 
-    const holders =
-      flow?.cards.filter(
-        (card) =>
-          card.imageUrls.includes(url) ||
-          card.files.some((file) => file.url === url),
-      ) ?? [];
+    const holders = flows.flatMap(({ agentId: owner, flow }) =>
+      flow.cards
+        .filter(
+          (card) =>
+            card.imageUrls.includes(url) ||
+            card.files.some((file) => file.url === url),
+        )
+        .map((card) => ({ card, elsewhere: owner !== agentId })),
+    );
 
     if (holders.length > 0) {
       const [first] = holders;
-      const name = first.name.trim() || first.title.trim() || "An untitled card";
+      const name =
+        first.card.name.trim() || first.card.title.trim() || "An untitled card";
       const more =
         holders.length > 1 ? ` and ${holders.length - 1} other card(s)` : "";
+      // Named because the owner is looking at this agent's gallery and the
+      // card may be one they cannot see from here.
+      const away = holders.some((holder) => holder.elsewhere)
+        ? " — one of them is on another agent's bot"
+        : "";
 
       throw new ConflictException({
         code: "BOT_MEDIA_IN_USE",
-        message: `${name}${more} still sends this upload. Take it off the card (or save the change) and then remove it.`,
+        message: `${name}${more} still sends this upload${away}. Take it off the card (or save the change) and then remove it.`,
       });
     }
 

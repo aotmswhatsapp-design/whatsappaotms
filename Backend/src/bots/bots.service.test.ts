@@ -21,7 +21,10 @@ const CLAIMS = {} as AuthClaims;
  */
 class FakePrisma {
   /** agentId → workspaceId. Only these agents exist. */
-  readonly agents = new Map<string, string>([["agent-1", "ws-a"]]);
+  readonly agents = new Map<string, string>([
+    ["agent-1", "ws-a"],
+    ["agent-2", "ws-a"],
+  ]);
 
   /** What the table holds, keyed like the unique index on `agent_id`. */
   readonly rows = new Map<string, { workspaceId: string; flow: unknown }>();
@@ -34,8 +37,17 @@ class FakePrisma {
       this.agents.get(where.id) === where.workspaceId ? { id: where.id } : null,
   };
 
-  async $queryRaw(_strings: TemplateStringsArray, ...values: unknown[]) {
+  async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
     if (this.missing) throw new Error('relation "bot_flows" does not exist');
+
+    // Two reads: one flow by agent, and every flow in a workspace — the
+    // second is what the upload guard asks, because a card can be shifted
+    // into another agent's bot and keep the address it was uploaded under.
+    if (strings.join("").includes('"workspace_id"')) {
+      return [...this.rows.entries()]
+        .filter(([, row]) => row.workspaceId === String(values[0]))
+        .map(([agentId, row]) => ({ agentId, data: row.flow }));
+    }
 
     const row = this.rows.get(String(values[0]));
 
@@ -264,6 +276,173 @@ test("a saved rule comes back with its triggers in order", async () => {
   ]);
 });
 
+test("shifting a card moves it into the other agent's flow and out of this one", async () => {
+  const prisma = new FakePrisma();
+  const bots = build(prisma);
+
+  await bots.save(CLAIMS, "agent-1", {
+    flow: {
+      id: "agent-1",
+      rootCardId: "c-menu",
+      cards: [card("c-menu"), card("c-drinks")],
+    },
+  });
+
+  const answer = await bots.shift(CLAIMS, "agent-1", {
+    targetAgentId: "agent-2",
+    cardIds: ["c-drinks"],
+    mode: "move",
+  });
+
+  assert.deepEqual(
+    answer.flow.cards.map((row) => row.id),
+    ["c-menu"],
+  );
+  assert.equal(answer.targetAgentId, "agent-2");
+
+  const target = await bots.read(CLAIMS, "agent-2");
+
+  assert.equal(target.stored, true);
+  assert.equal(target.flow.cards.length, 1);
+  assert.equal(target.flow.cards[0]?.name, "c-drinks");
+  // The id is the target's own: an id is only unique inside one flow.
+  assert.match(target.flow.cards[0]?.id ?? "", /^card-/);
+  // An agent that had no entry starts on the card it was given.
+  assert.equal(target.flow.rootCardId, target.flow.cards[0]?.id);
+});
+
+test("a move repairs the source's dangling button and its rule, in the table too", async () => {
+  const prisma = new FakePrisma();
+  const bots = build(prisma);
+
+  await bots.save(CLAIMS, "agent-1", {
+    flow: {
+      id: "agent-1",
+      rootCardId: "c-menu",
+      cards: [
+        {
+          ...card("c-menu"),
+          buttons: [
+            { id: "b-1", label: "Drinks", action: { kind: "card", cardId: "c-drinks" } },
+          ],
+        },
+        card("c-drinks"),
+      ],
+      rules: [{ id: "r-1", triggers: ["drinks"], replyCardId: "c-drinks", enabled: true }],
+    },
+  });
+
+  const answer = await bots.shift(CLAIMS, "agent-1", {
+    targetAgentId: "agent-2",
+    cardIds: ["c-drinks"],
+    mode: "move",
+  });
+
+  assert.equal(answer.repairs.sourceButtons, 1);
+  assert.equal(answer.repairs.sourceRules, 1);
+  assert.deepEqual(answer.flow.rules, []);
+  assert.deepEqual(answer.flow.cards[0]?.buttons[0]?.action, { kind: "handoff" });
+
+  const stored = await bots.read(CLAIMS, "agent-1");
+
+  assert.deepEqual(stored.flow.cards[0]?.buttons[0]?.action, { kind: "handoff" });
+});
+
+test("a copy leaves this agent's flow exactly as it was", async () => {
+  const prisma = new FakePrisma();
+  const bots = build(prisma);
+
+  await bots.save(CLAIMS, "agent-1", {
+    flow: { id: "agent-1", rootCardId: "c-menu", cards: [card("c-menu")] },
+  });
+
+  const answer = await bots.shift(CLAIMS, "agent-1", {
+    targetAgentId: "agent-2",
+    cardIds: ["c-menu"],
+    mode: "copy",
+  });
+
+  assert.deepEqual(
+    answer.flow.cards.map((row) => row.id),
+    ["c-menu"],
+  );
+
+  const source = await bots.read(CLAIMS, "agent-1");
+  const target = await bots.read(CLAIMS, "agent-2");
+
+  assert.equal(source.flow.cards[0]?.id, "c-menu");
+  assert.equal(target.flow.cards.length, 1);
+  assert.notEqual(target.flow.cards[0]?.id, "c-menu");
+});
+
+test("shifting to the agent that owns the cards is refused", async () => {
+  await assert.rejects(
+    () =>
+      build().shift(CLAIMS, "agent-1", {
+        targetAgentId: "agent-1",
+        cardIds: ["c-menu"],
+        mode: "move",
+      }),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_SHIFT_SAME_AGENT",
+  );
+});
+
+test("a card cannot be shifted into another workspace's agent", async () => {
+  const prisma = new FakePrisma();
+
+  prisma.agents.set("agent-2", "ws-other");
+
+  await assert.rejects(
+    () =>
+      build(prisma).shift(CLAIMS, "agent-1", {
+        targetAgentId: "agent-2",
+        cardIds: ["c-menu"],
+        mode: "move",
+      }),
+    NotFoundException,
+  );
+});
+
+test("an agent with no saved flow has nothing to shift", async () => {
+  await assert.rejects(
+    () =>
+      build().shift(CLAIMS, "agent-1", {
+        targetAgentId: "agent-2",
+        cardIds: ["c-menu"],
+        mode: "move",
+      }),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_FLOW_EMPTY",
+  );
+});
+
+test("a card that is not in the flow is refused, and neither row is written", async () => {
+  const prisma = new FakePrisma();
+  const bots = build(prisma);
+
+  await bots.save(CLAIMS, "agent-1", {
+    flow: { id: "agent-1", rootCardId: null, cards: [card("c-menu")] },
+  });
+
+  await assert.rejects(
+    () =>
+      bots.shift(CLAIMS, "agent-1", {
+        targetAgentId: "agent-2",
+        cardIds: ["c-gone"],
+        mode: "move",
+      }),
+    (error: any) =>
+      error instanceof BadRequestException &&
+      (error.getResponse() as { code?: string }).code === "BOT_SHIFT_REFUSED",
+  );
+
+  // Only the flow that was saved before the attempt is in the table.
+  assert.deepEqual([...prisma.rows.keys()], ["agent-1"]);
+});
+
 test("a database without the table answers 503 with the migration that installs it", async () => {
   const prisma = new FakePrisma();
 
@@ -319,6 +498,35 @@ test("a picture a saved card still shows is refused, naming the card", async () 
       error instanceof ConflictException &&
       (error.getResponse() as { code?: string }).code === "BOT_MEDIA_IN_USE" &&
       /c-menu/.test((error.getResponse() as { message?: string }).message ?? ""),
+  );
+
+  assert.deepEqual(removed, []);
+});
+
+test("an upload a card on another agent still sends is refused here", async () => {
+  const removed: string[] = [];
+  const prisma = new FakePrisma();
+
+  // Shifted to agent-2, keeping the address it was uploaded under, so the
+  // guard has to look past this agent's own flow.
+  prisma.rows.set("agent-2", {
+    workspaceId: "ws-a",
+    flow: {
+      id: "agent-2",
+      rootCardId: "c-moved",
+      cards: [{ ...card("c-moved"), imageUrls: [PICTURE_URL] }],
+      rules: [],
+    },
+  });
+
+  await assert.rejects(
+    () => build(prisma, removed).removeMedia(CLAIMS, "agent-1", PICTURE),
+    (error: any) =>
+      error instanceof ConflictException &&
+      (error.getResponse() as { code?: string }).code === "BOT_MEDIA_IN_USE" &&
+      /another agent's bot/.test(
+        (error.getResponse() as { message?: string }).message ?? "",
+      ),
   );
 
   assert.deepEqual(removed, []);

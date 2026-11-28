@@ -50,6 +50,31 @@ export class BotStore {
   }
 
   /**
+   * Every flow this workspace has written, with the agent each one belongs to.
+   *
+   * For a question that spans agents. A card can be shifted into another
+   * agent's bot, and an upload it sends stays in the folder it was uploaded to,
+   * so "does anything still send this address" is not an agent's question.
+   */
+  async readWorkspace(
+    workspaceId: string,
+  ): Promise<{ agentId: string; flow: BotFlow }[]> {
+    const rows = await this.prisma.$queryRaw<
+      { agentId: string; data: unknown }[]
+    >`
+      SELECT "agent_id" AS "agentId", "data"
+      FROM "bot_flows"
+      WHERE "workspace_id" = ${workspaceId}::uuid
+    `;
+
+    return rows
+      .map((row) => ({ agentId: String(row.agentId), flow: flowIn(row.data) }))
+      .filter(
+        (row): row is { agentId: string; flow: BotFlow } => row.flow !== null,
+      );
+  }
+
+  /**
    * True when the failure is the table not existing.
    *
    * Prisma wraps a raw error rather than exposing the Postgres code, so the

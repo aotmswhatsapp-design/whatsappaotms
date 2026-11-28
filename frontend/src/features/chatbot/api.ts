@@ -39,6 +39,44 @@ export function saveBot(agentId: string, flow: BotFlow): Promise<BotView> {
   });
 }
 
+/** Whether the shifted cards leave this bot or are copied out of it. */
+export type ShiftMode = "move" | "copy";
+
+/** What a shift had to give way so that both flows stayed valid. */
+export interface ShiftRepairs {
+  /** Buttons left behind that now hand off to a person. */
+  sourceButtons: number;
+  /** Keyword rules dropped because the card they replied with left the bot. */
+  sourceRules: number;
+  /** Buttons on the shifted cards that now hand off, their card staying here. */
+  targetButtons: number;
+}
+
+/** What a shift answers with: this agent's flow, as it is stored now. */
+export interface ShiftResult {
+  flow: BotFlow;
+  targetAgentId: string;
+  repairs: ShiftRepairs;
+}
+
+/**
+ * Carries cards into another agent's bot, on the server.
+ *
+ * Not two `saveBot` calls: the other agent's flow is read by the API at the
+ * moment of the shift, so this screen never has to hold a copy of somebody
+ * else's whole bot in order to write one card into it. Both agents are in this
+ * workspace — any other is answered as not existing.
+ */
+export function shiftBot(
+  agentId: string,
+  input: { targetAgentId: string; cardIds: string[]; mode: ShiftMode },
+): Promise<ShiftResult> {
+  return request<ShiftResult>(`/v1/agents/${agentId}/bot/shift`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 /** One upload a card can use, with the address Meta will fetch. */
 export interface CardImage {
   url: string;

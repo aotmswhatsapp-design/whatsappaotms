@@ -1,6 +1,6 @@
 "use client";
 
-import { GripVertical } from "lucide-react";
+import { ArrowRightLeft, GripVertical } from "lucide-react";
 import { Reorder } from "motion/react";
 
 import { cardLabel, type BotCard } from "@/lib/bots/card";
@@ -20,6 +20,10 @@ import { cn } from "@/lib/utils";
  *
  * Sorting is the library's, keyboard included: Tab to a row, Space to pick it
  * up, the arrow keys to move it, Space to drop, Escape to put it back.
+ *
+ * The shift action is a button of its own beside the row, not a gesture on it:
+ * a button cannot be nested inside the row's button, and "move this card to
+ * another agent" is not something a drag can express.
  */
 export function CardList({
   cards,
@@ -28,6 +32,8 @@ export function CardList({
   disabled,
   onSelect,
   onReorder,
+  onShift,
+  shiftDisabled,
 }: {
   cards: BotCard[];
   activeCardId: string | null;
@@ -37,6 +43,10 @@ export function CardList({
   disabled: boolean;
   onSelect: (id: string) => void;
   onReorder: (ids: string[]) => void;
+  /** Absent when there is nowhere to shift a card to. */
+  onShift?: (id: string) => void;
+  /** Present but blocked: unsaved edits, or the shift itself in flight. */
+  shiftDisabled: boolean;
 }) {
   return (
     <Reorder.Group
@@ -67,32 +77,51 @@ export function CardList({
             key={card.id}
             value={card.id}
           >
-            <button
-              aria-pressed={active}
-              className="flex w-full items-center gap-2 py-2 pr-2.5 pl-1.5 text-left"
-              onClick={() => onSelect(card.id)}
-              type="button"
-            >
-              <GripVertical
-                aria-hidden="true"
-                className={cn(
-                  "size-3.5 shrink-0",
-                  disabled ? "opacity-30" : "text-muted-foreground",
-                )}
-              />
-              <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-                {cardLabel(card)}
-              </span>
-              {entry ? (
-                <span className="shrink-0 rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
-                  Entry
+            <div className="flex items-center gap-0.5 pr-1">
+              <button
+                aria-pressed={active}
+                className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-1.5 text-left"
+                onClick={() => onSelect(card.id)}
+                type="button"
+              >
+                <GripVertical
+                  aria-hidden="true"
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    disabled ? "opacity-30" : "text-muted-foreground",
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
+                  {cardLabel(card)}
                 </span>
+                {entry ? (
+                  <span className="shrink-0 rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                    Entry
+                  </span>
+                ) : null}
+                <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
+                  {card.buttons.length}{" "}
+                  {card.buttons.length === 1 ? "button" : "buttons"}
+                </span>
+              </button>
+
+              {onShift ? (
+                <button
+                  aria-label={`Shift ${cardLabel(card)} to another agent`}
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-brand/10 hover:text-brand focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                  disabled={shiftDisabled}
+                  onClick={() => onShift(card.id)}
+                  title={
+                    shiftDisabled
+                      ? "Save or discard your changes first, then shift this card."
+                      : "Shift this card to another agent"
+                  }
+                  type="button"
+                >
+                  <ArrowRightLeft aria-hidden="true" className="size-3.5" />
+                </button>
               ) : null}
-              <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
-                {card.buttons.length}{" "}
-                {card.buttons.length === 1 ? "button" : "buttons"}
-              </span>
-            </button>
+            </div>
           </Reorder.Item>
         );
       })}

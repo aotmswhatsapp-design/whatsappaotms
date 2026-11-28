@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
+  ArrowRightLeft,
   Bot,
   Loader2,
   MessageSquare,
@@ -28,14 +29,25 @@ import {
   newCard,
   newRule,
   reorderCards,
+  shiftImpact,
   type BotAction,
   type BotCard,
   type BotFlow,
   type BotRule,
+  type ShiftImpact,
 } from "@/lib/bots/card";
 import { cn } from "@/lib/utils";
 
-import { ApiError, fetchAgents, fetchBot, saveBot, type BotAgent } from "./api";
+import {
+  ApiError,
+  fetchAgents,
+  fetchBot,
+  saveBot,
+  shiftBot,
+  type BotAgent,
+  type ShiftMode,
+  type ShiftRepairs,
+} from "./api";
 import { CardEditor } from "./components/card-editor";
 import { CardList } from "./components/card-list";
 import { RuleList } from "./components/rule-list";
@@ -47,6 +59,103 @@ interface Loaded {
   agentId: string;
   stored: BotFlow;
   draft: BotFlow;
+}
+
+/**
+ * A shift waiting to be confirmed: which cards, to whom, and how.
+ *
+ * The target is part of the pending shift rather than a separate screen state,
+ * so closing the confirmation forgets it too — a half-chosen target cannot be
+ * left behind for the next card.
+ */
+interface PendingShift {
+  cardIds: string[];
+  targetAgentId: string | null;
+  mode: ShiftMode;
+}
+
+/** "1 card", "2 cards" — the same phrase in the confirmation and the toast. */
+function many(count: number, one: string): string {
+  return `${count} ${count === 1 ? one : `${one}s`}`;
+}
+
+/**
+ * What a shift had to repair, in one sentence, for the toast.
+ *
+ * Written from the counts the server answered with, not from the
+ * confirmation's own estimate: that one was a prediction.
+ */
+function aftermath(repairs: ShiftRepairs, mode: ShiftMode): string {
+  const parts: string[] = [];
+
+  if (mode === "move" && repairs.sourceButtons > 0) {
+    parts.push(
+      `${many(repairs.sourceButtons, "button")} in this bot changed to handoff`,
+    );
+  }
+
+  if (mode === "move" && repairs.sourceRules > 0) {
+    parts.push(`${many(repairs.sourceRules, "keyword rule")} removed`);
+  }
+
+  if (repairs.targetButtons > 0) {
+    parts.push(
+      `${many(repairs.targetButtons, "button")} on the cards changed to handoff`,
+    );
+  }
+
+  if (parts.length === 0) {
+    return "Nothing else pointed at the cards, so neither bot needed any change.";
+  }
+
+  return `Both bots were kept valid: ${parts.join("; ")}.`;
+}
+
+/**
+ * What the confirmation warns about, in the order it matters.
+ *
+ * The same counts the server will answer with, read from the draft: the shift
+ * has not happened yet, so this is the only place the owner can still change
+ * their mind about which cards leave.
+ */
+function shiftNotes(impact: ShiftImpact, mode: ShiftMode): string[] {
+  const notes: string[] = [];
+
+  if (mode === "move" && impact.entryMoves) {
+    notes.push(
+      "This bot will have no entry card until you choose one: the entry is moving with the card.",
+    );
+  }
+
+  if (mode === "move" && impact.remaining > 0) {
+    notes.push(`This bot keeps ${many(impact.remaining, "card")}.`);
+  }
+
+  if (mode === "move" && impact.sourceButtons > 0) {
+    notes.push(
+      `This bot has ${many(impact.sourceButtons, "button")} that will hand off to a person instead: a button cannot open a card of another bot.`,
+    );
+  }
+
+  if (mode === "move" && impact.sourceRules > 0) {
+    notes.push(
+      `This bot has ${many(impact.sourceRules, "keyword rule")} that will be removed, because a rule can only send a card of its own bot.`,
+    );
+  }
+
+  if (impact.targetButtons > 0) {
+    notes.push(
+      `The shifted cards have ${many(impact.targetButtons, "button")} that will hand off to a person instead: the card they opened stays in this bot.`,
+    );
+  }
+
+  if (mode === "copy") {
+    notes.push(
+      "Keyword rules are not copied: the words that fired these cards still belong to this bot.",
+    );
+  }
+
+  return notes;
 }
 
 /**
@@ -96,6 +205,10 @@ export function ChatbotView() {
    * file rather than blaming the request.
    */
   const [missingStore, setMissingStore] = React.useState(false);
+
+  /** The shift being confirmed. Nothing is written until it is confirmed. */
+  const [shift, setShift] = React.useState<PendingShift | null>(null);
+  const [shifting, setShifting] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -182,8 +295,16 @@ export function ChatbotView() {
   const dirty =
     shown !== null && JSON.stringify(shown.draft) !== JSON.stringify(shown.stored);
 
+  /** Every agent but this one: a shift never targets the bot it leaves. */
+  const otherAgents = (agents ?? []).filter((row) => row.id !== agentId);
+
   /** Edits always replace the whole flow, so the editor never holds its own copy. */
   function edit(change: (flow: BotFlow) => BotFlow): void {
+    // A confirmation names cards and counts repairs read from the draft. Once
+    // the draft moves under it, what it promised is no longer what is about to
+    // be shifted, so it closes rather than being confirmed against new facts.
+    setShift(null);
+
     setLoaded((current) =>
       current && current.agentId === agentId
         ? { ...current, draft: change(current.draft) }
@@ -254,6 +375,87 @@ export function ChatbotView() {
           }),
         })),
     }));
+  }
+
+  /**
+   * Opens the confirmation for these cards. Nothing is written until it is
+   * confirmed: the server edits two flows at once, and the source cannot be
+   * put back from this screen.
+   *
+   * Refused while the draft has unsaved changes, because the server shifts the
+   * *saved* cards — the local edit would be quietly replaced by what the shift
+   * answers with.
+   */
+  function beginShift(cardIds: string[]): void {
+    if (!canManage || saving || shifting || dirty || otherAgents.length === 0) {
+      return;
+    }
+
+    setShift({
+      cardIds,
+      targetAgentId: otherAgents[0]?.id ?? null,
+      mode: "move",
+    });
+  }
+
+  /**
+   * The server moves the cards and repairs both flows; the answer is this
+   * agent's flow already stored, so the list redraws from it rather than from
+   * a local guess at what was repaired.
+   */
+  async function confirmShift(): Promise<void> {
+    const pending = shift;
+
+    if (!pending || !pending.targetAgentId || !agentId || shifting) return;
+
+    setShifting(true);
+    setError(null);
+
+    try {
+      const result = await shiftBot(agentId, {
+        targetAgentId: pending.targetAgentId,
+        cardIds: pending.cardIds,
+        mode: pending.mode,
+      });
+
+      setLoaded({ agentId, stored: result.flow, draft: result.flow });
+      setSelectedCardId((current) =>
+        current !== null && result.flow.cards.some((card) => card.id === current)
+          ? current
+          : (result.flow.cards[0]?.id ?? null),
+      );
+      setShift(null);
+
+      const name =
+        agents?.find((row) => row.id === result.targetAgentId)?.name ??
+        "the other agent";
+
+      toast.push({
+        title: `${many(pending.cardIds.length, "card")} ${
+          pending.mode === "move" ? "shifted" : "copied"
+        } to ${name}`,
+        description: aftermath(result.repairs, pending.mode),
+        tone: "success",
+      });
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === "BOT_STORE_MISSING") {
+        setMissingStore(true);
+        setShift(null);
+        return;
+      }
+
+      // The confirmation stays open: a refused shift — a full target, a card
+      // that changed under it — is answered by picking another agent, not by
+      // starting the whole thing again.
+      toast.push({
+        title: "Could not shift the cards",
+        description:
+          caught instanceof ApiError ? caught.message : "Nothing was changed.",
+        tone: "error",
+      });
+    } finally {
+      setShifting(false);
+    }
   }
 
   function addRule(): void {
@@ -331,6 +533,16 @@ export function ChatbotView() {
     ? selectedCardId
     : (cards[0]?.id ?? null);
   const activeCard = cards.find((card) => card.id === activeCardId) ?? null;
+
+  // What the confirmation names and what it warns about. Both are read from
+  // the draft, not from the server: this is the "before", and the server's
+  // answer is what actually happened.
+  const movingCards =
+    shift === null ? [] : cards.filter((card) => shift.cardIds.includes(card.id));
+  const singleMoving = movingCards.length === 1 ? movingCards[0] : null;
+  const impact =
+    shift && draft ? shiftImpact(draft, shift.cardIds, shift.mode) : null;
+  const notes = impact && shift ? shiftNotes(impact, shift.mode) : [];
 
   const selectedAgent = agents?.find((row) => row.id === agentId) ?? null;
 
@@ -454,7 +666,11 @@ export function ChatbotView() {
                 <select
                   className="mt-1 block h-9 w-full min-w-56 rounded-lg border border-input bg-background px-2.5 text-[13px] font-medium text-foreground shadow-xs outline-none transition-shadow focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]"
                   disabled={saving || dirty}
-                  onChange={(event) => setAgentId(event.target.value)}
+                  onChange={(event) => {
+                    // A pending shift belongs to the agent whose cards it names.
+                    setShift(null);
+                    setAgentId(event.target.value);
+                  }}
                   value={agentId}
                 >
                   {(agents ?? []).map((row) => (
@@ -550,15 +766,33 @@ export function ChatbotView() {
                         ({cards.length})
                       </span>
                     </h2>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
-                      disabled={!canManage}
-                      onClick={addCard}
-                    >
-                      <Plus aria-hidden="true" className="size-3.5" />
-                      Add card
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {canManage && otherAgents.length > 0 && cards.length > 1 ? (
+                        <button
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
+                          disabled={saving || shifting || dirty}
+                          onClick={() => beginShift(cards.map((card) => card.id))}
+                          title={
+                            dirty
+                              ? "Save or discard your changes first."
+                              : "Shift every card into another agent's bot"
+                          }
+                          type="button"
+                        >
+                          <ArrowRightLeft aria-hidden="true" className="size-3.5" />
+                          Shift all
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
+                        disabled={!canManage}
+                        onClick={addCard}
+                      >
+                        <Plus aria-hidden="true" className="size-3.5" />
+                        Add card
+                      </button>
+                    </div>
                   </div>
 
                   {cards.length > 1 ? (
@@ -569,13 +803,152 @@ export function ChatbotView() {
                     </p>
                   ) : null}
 
+                  {canManage && otherAgents.length > 0 ? (
+                    <p className="mt-1 px-1 text-[11.5px] leading-relaxed text-muted-foreground">
+                      {dirty
+                        ? "Save or discard your changes to shift a card into another agent's bot."
+                        : "The arrow beside a card shifts it into another agent's bot, with its pictures, files and buttons."}
+                    </p>
+                  ) : null}
+
+                  {shift && impact ? (
+                    <div className="mt-2 rounded-lg border border-brand/40 bg-brand-soft/40 p-3">
+                      <p className="text-[12.5px] font-semibold text-foreground">
+                        {singleMoving
+                          ? `Shift "${cardLabel(singleMoving)}" to another agent`
+                          : `Shift ${many(movingCards.length, "card")} to another agent`}
+                      </p>
+
+                      {movingCards.length > 1 ? (
+                        <ul className="mt-1.5 max-h-28 list-disc space-y-0.5 overflow-y-auto pl-4 text-[11.5px] leading-relaxed text-muted-foreground">
+                          {movingCards.map((card) => (
+                            <li key={card.id}>{cardLabel(card)}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+
+                      <div className="mt-2.5 flex flex-wrap items-end gap-3">
+                        <label className="min-w-0">
+                          <span className="block text-[11px] font-medium text-muted-foreground">
+                            Send to
+                          </span>
+                          <select
+                            className="mt-1 block h-8 w-full min-w-44 rounded-lg border border-input bg-background px-2 text-[12.5px] font-medium text-foreground shadow-xs outline-none transition-shadow focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px]"
+                            disabled={shifting}
+                            onChange={(event) =>
+                              setShift((current) =>
+                                current
+                                  ? { ...current, targetAgentId: event.target.value }
+                                  : current,
+                              )
+                            }
+                            value={shift.targetAgentId ?? ""}
+                          >
+                            {otherAgents.map((row) => (
+                              <option key={row.id} value={row.id}>
+                                {row.name}
+                                {row.isActive ? " · answering" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <fieldset
+                          className="flex items-center gap-3 pb-1.5"
+                          disabled={shifting}
+                        >
+                          <legend className="sr-only">Move or copy</legend>
+                          <label className="flex items-center gap-1.5 text-[11.5px] font-medium text-foreground">
+                            <input
+                              checked={shift.mode === "move"}
+                              className="size-3.5 accent-brand"
+                              name="shift-mode"
+                              onChange={() =>
+                                setShift((current) =>
+                                  current ? { ...current, mode: "move" } : current,
+                                )
+                              }
+                              type="radio"
+                            />
+                            Move
+                          </label>
+                          <label className="flex items-center gap-1.5 text-[11.5px] font-medium text-foreground">
+                            <input
+                              checked={shift.mode === "copy"}
+                              className="size-3.5 accent-brand"
+                              name="shift-mode"
+                              onChange={() =>
+                                setShift((current) =>
+                                  current ? { ...current, mode: "copy" } : current,
+                                )
+                              }
+                              type="radio"
+                            />
+                            Copy
+                          </label>
+                        </fieldset>
+                      </div>
+
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                        {shift.mode === "move"
+                          ? "The cards leave this bot and join the other one, with their pictures, files and buttons."
+                          : "A copy joins the other bot. This one keeps its cards exactly as they are, and the two are edited separately from then on."}
+                      </p>
+
+                      <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-muted-foreground">
+                        {notes.map((note) => (
+                          <li key={note}>{note}</li>
+                        ))}
+                      </ul>
+
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <Button
+                          disabled={
+                            shifting || !shift.targetAgentId || movingCards.length === 0
+                          }
+                          onClick={() => void confirmShift()}
+                          size="sm"
+                          type="button"
+                          variant="brand"
+                        >
+                          {shifting ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            <ArrowRightLeft />
+                          )}
+                          {shift.mode === "move" ? "Move" : "Copy"}{" "}
+                          {many(movingCards.length, "card")}
+                        </Button>
+                        <Button
+                          disabled={shifting}
+                          onClick={() => setShift(null)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Cancel
+                        </Button>
+                        <span className="text-[11px] leading-relaxed text-muted-foreground">
+                          Saved straight away for both agents — not part of Save
+                          flow.
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+
                   <CardList
                     activeCardId={activeCardId}
                     cards={cards}
-                    disabled={!canManage || saving}
+                    disabled={!canManage || saving || shifting}
                     entryCardId={draft?.rootCardId ?? null}
                     onReorder={reorder}
                     onSelect={setSelectedCardId}
+                    onShift={
+                      canManage && otherAgents.length > 0
+                        ? (id) => beginShift([id])
+                        : undefined
+                    }
+                    shiftDisabled={!canManage || saving || shifting || dirty}
                   />
                 </section>
 
