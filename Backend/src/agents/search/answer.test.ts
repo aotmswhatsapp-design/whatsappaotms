@@ -117,16 +117,93 @@ test("an invented web address never reaches the customer", async () => {
   assert.equal(outcome.body.includes("evil"), false);
 });
 
-test("with nothing retrieved, no model is called at all", async () => {
-  const { chatter, seen } = chatterOf({ ok: true, text: "Anything at all." });
+test("a greeting with nothing retrieved is answered, not handed off", async () => {
+  const { chatter, seen } = chatterOf({
+    ok: true,
+    text: "Hello! How can I help you today?",
+  });
 
-  const outcome = await ask({ chatter, chunks: [] });
+  const outcome = await ask({ chatter, chunks: [], question: "hi" });
+
+  assert.ok(outcome.ok);
+  if (!outcome.ok) return;
+
+  assert.equal(outcome.body, "Hello! How can I help you today?");
+  assert.equal(outcome.via, "model");
+  // No material had a part in it, so none may be reported as used.
+  assert.deepEqual(outcome.used, []);
+  assert.equal(seen.length, 1);
+});
+
+test("with nothing retrieved the model is given rules, and no material", async () => {
+  const { chatter, seen } = chatterOf({ ok: true, text: "Hello!" });
+
+  await ask({ chatter, chunks: [], question: "do you know Hindi" });
+
+  const system = seen[0]?.messages[0]?.content ?? "";
+
+  // The point of this branch: with nothing to quote, a business fact is still
+  // the handoff's — so no empty MATERIAL section is offered as though it were
+  // context the model might elaborate on.
+  assert.equal(system.includes("MATERIAL"), false);
+  assert.match(system, /\[handoff\]/);
+  assert.match(system, /Never state or guess a price/);
+  // The customer's words stay the user turn.
+  assert.equal(seen[0]?.messages[1]?.content, "do you know Hindi");
+});
+
+test("with nothing retrieved, a model that declines still hands off", async () => {
+  const { chatter } = chatterOf({ ok: true, text: "[handoff]" });
+
+  const outcome = await ask({
+    chatter,
+    chunks: [],
+    question: "do you deliver to Kurnool?",
+  });
 
   assert.equal(outcome.ok, false);
   if (outcome.ok) return;
 
   assert.equal(outcome.reason, "no-context");
-  assert.equal(seen.length, 0);
+});
+
+test("with nothing retrieved, a provider that fails still hands off", async () => {
+  const { chatter } = chatterOf({ ok: false, reason: "timeout" });
+
+  const outcome = await ask({ chatter, chunks: [], question: "hi" });
+
+  assert.equal(outcome.ok, false);
+  if (outcome.ok) return;
+
+  assert.equal(outcome.reason, "no-context");
+});
+
+test("with nothing retrieved and no key, the handoff is the answer", async () => {
+  const outcome = await ask({ chatter: null, chunks: [], question: "hi" });
+
+  assert.equal(outcome.ok, false);
+  if (outcome.ok) return;
+
+  assert.equal(outcome.reason, "no-context");
+});
+
+test("a link invented without material never reaches the customer", async () => {
+  const { chatter } = chatterOf({
+    ok: true,
+    text: "Sure, reach us at https://evil.example.com.",
+  });
+
+  const outcome = await ask({
+    chatter,
+    chunks: [],
+    question: "where can I read more?",
+  });
+
+  assert.ok(outcome.ok);
+  if (!outcome.ok) return;
+
+  // With no material there is no link to allow, so any link was invented.
+  assert.equal(outcome.body.includes("evil"), false);
 });
 
 test("when both engines come up empty, the caller is told to hand off", async () => {

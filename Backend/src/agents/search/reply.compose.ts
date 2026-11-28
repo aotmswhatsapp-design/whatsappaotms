@@ -32,6 +32,20 @@ export interface ComposeInput {
 }
 
 /**
+ * The business's identity and voice: the opening every prompt shares.
+ *
+ * Kept in one place for the same reason the handoff line is: a message that
+ * arrives in a different voice when the retrieval came up empty tells the
+ * customer the business has two of them.
+ */
+function preamble(agentName: string, systemPrompt: string): string[] {
+  return [
+    `You answer WhatsApp messages on behalf of ${agentName}.`,
+    systemPrompt.trim(),
+  ].filter((part) => part.length > 0);
+}
+
+/**
  * The prompt for one answer: the business's material, the rules that keep the
  * answer inside it, and the customer's question last.
  */
@@ -42,8 +56,7 @@ export function replyMessages(input: ComposeInput): ReplyMessages {
   );
 
   const system = [
-    `You answer WhatsApp messages on behalf of ${input.agentName}.`,
-    input.systemPrompt.trim(),
+    ...preamble(input.agentName, input.systemPrompt),
     [
       "HOW TO ANSWER",
       "- Use only the MATERIAL below. Never add a price, a discount, an address, a phone number, a link, a time or a policy that is not written there.",
@@ -58,6 +71,49 @@ export function replyMessages(input: ComposeInput): ReplyMessages {
     .join("\n\n");
 
   // Sent as written: the question is evidence to weigh, not instructions.
+  return { system, user: input.question.trim() };
+}
+
+/** What a conversation prompt needs: no chunks, because there are none. */
+export interface NoMaterialInput {
+  agentName: string;
+  systemPrompt: string;
+  question: string;
+  language: DetectedLanguage;
+  maxChars: number;
+}
+
+/**
+ * The prompt for a message nothing was retrieved for.
+ *
+ * Every question a business is asked is not a question about the business, and
+ * "hi" answered with a handoff line — followed by a paused thread that swallows
+ * everything the customer says next — reads as an agent that does not work.
+ * So the model is still asked, but with no facts in front of it at all: it can
+ * make conversation, and nothing it says can be a price, an address or a
+ * promise, because it was given none. The handoff stays the answer to any
+ * question that needs one, which is why the material is withheld rather than
+ * merely absent.
+ */
+export function noMaterialMessages(input: NoMaterialInput): ReplyMessages {
+  const system = [
+    ...preamble(input.agentName, input.systemPrompt),
+    [
+      "HOW TO ANSWER",
+      "- No documents about the business matched this message, so there are no facts here to answer from.",
+      "- A greeting, a thank you, a goodbye, a question about what you can help with, or a light remark may still be answered. Keep it short, warm and human.",
+      `- Reply in the same language the customer used. ${input.language.instruction}`,
+      `- Keep it short enough for WhatsApp: at most ${input.maxChars} characters, usually one or two sentences.`,
+      "- Plain text only. *bold* and _italics_ are the only formatting; no headings and no code blocks.",
+      "- Never state or guess a price, a discount, an address, a phone number, an email, a link, an opening time, a delivery time, availability, a policy or a warranty. You have none of these.",
+      "- Never promise, book, order, cancel, refund or confirm anything on the business's behalf.",
+      `- If the message asks for a fact about the business, or asks for anything to be done, reply with exactly ${HANDOFF_SENTINEL} and nothing else. Do not answer it in your own words.`,
+    ].join("\n"),
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+
+  // Sent as written, for the same reason as the grounded prompt.
   return { system, user: input.question.trim() };
 }
 

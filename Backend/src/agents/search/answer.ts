@@ -2,7 +2,7 @@ import type { DetectedLanguage } from "../language.detect";
 import { HANDOFF_SENTINEL, cleanReply } from "../reply.prompt";
 import { composeAnswer } from "./compose";
 import type { ContextChunk } from "./context-chunk";
-import { replyMessages } from "./reply.compose";
+import { noMaterialMessages, replyMessages } from "./reply.compose";
 
 /**
  * The one method an answer needs from a chat provider.
@@ -40,6 +40,18 @@ export type AnswerOutcome =
     }
   | { ok: false; reason: "no-context" };
 
+/** Everything one reply needs: who is speaking, to whom, and what was found. */
+export interface AnswerInput {
+  agent: AnswerAgent;
+  question: string;
+  chunks: ContextChunk[];
+  language: DetectedLanguage;
+  /** Absent when no key is configured: the extractive answer is the answer. */
+  chatter?: Chatter | null;
+  maxContextChars?: number;
+  timeoutMs?: number;
+}
+
 /**
  * The reply, from the model when it can write one and from the business's own
  * sentences when it cannot.
@@ -54,22 +66,18 @@ export type AnswerOutcome =
  * then sends the handoff line and pauses the thread. An empty model answer is
  * not a reason to stop trying — it is a reason to fall back.
  */
-export async function answerFrom(input: {
-  agent: AnswerAgent;
-  question: string;
-  chunks: ContextChunk[];
-  language: DetectedLanguage;
-  /** Absent when no key is configured: the extractive answer is the answer. */
-  chatter?: Chatter | null;
-  maxContextChars?: number;
-  timeoutMs?: number;
-}): Promise<AnswerOutcome> {
-  // Nothing to ground on. A model asked to answer from nothing invents, and
-  // an invention on WhatsApp is a promise the business has to keep.
-  if (input.chunks.length === 0) return { ok: false, reason: "no-context" };
+export async function answerFrom(input: AnswerInput): Promise<AnswerOutcome> {
+  const maxChars = input.agent.maxReplyChars;
+
+  // Nothing was retrieved. This is not automatically a question the business
+  // has to answer by hand: "hi" and "do you speak Telugu" retrieve nothing,
+  // and handing those off pauses the thread, which then swallows everything
+  // the customer says next. So the model is asked anyway, under a prompt that
+  // carries no material at all — it can make conversation, and cannot state a
+  // price, an address or a promise, because it was given none.
+  if (input.chunks.length === 0) return ungrounded(input, maxChars);
 
   const context = input.chunks.map((chunk) => chunk.text).join("\n\n");
-  const maxChars = input.agent.maxReplyChars;
 
   if (input.chatter) {
     const messages = replyMessages({
@@ -107,6 +115,55 @@ export async function answerFrom(input: {
   }
 
   return extractive(input.question, input.chunks, maxChars, context);
+}
+
+/**
+ * The reply to a message no chunk was retrieved for.
+ *
+ * Only conversation is on offer here, so a model that asks for a business fact
+ * — which is every question the rules say to decline — leaves `no-context` as
+ * the outcome and the caller hands the thread to a person, exactly as before.
+ * The empty context is also the link guard: `cleanReply` strips every URL when
+ * the material names none, and here it names none by definition.
+ */
+async function ungrounded(
+  input: AnswerInput,
+  maxChars: number,
+): Promise<AnswerOutcome> {
+  if (!input.chatter) return { ok: false, reason: "no-context" };
+
+  const messages = noMaterialMessages({
+    agentName: input.agent.name,
+    systemPrompt: input.agent.systemPrompt,
+    question: input.question,
+    language: input.language,
+    maxChars,
+  });
+
+  const outcome = await input.chatter.chat({
+    messages: [
+      { role: "system", content: messages.system },
+      { role: "user", content: messages.user },
+    ],
+    model: input.agent.model,
+    temperature: 0.2,
+    maxTokens: tokensFor(maxChars),
+    timeoutMs: input.timeoutMs,
+  });
+
+  // Checked before cleaning, because the sentinel is the model's decision:
+  // a reply that says it and then explains itself is still a decline.
+  if (!outcome.ok || outcome.text.includes(HANDOFF_SENTINEL)) {
+    return { ok: false, reason: "no-context" };
+  }
+
+  const body = cleanReply(outcome.text, { maxChars, context: "" });
+
+  if (body.length === 0) return { ok: false, reason: "no-context" };
+
+  // No chunks were used, and none exist: `used` is empty on purpose, so an
+  // operator reading the trace is not shown material that had no part in it.
+  return { ok: true, body, used: [], via: "model" };
 }
 
 /**
