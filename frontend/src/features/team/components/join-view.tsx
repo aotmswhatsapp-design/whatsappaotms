@@ -5,13 +5,14 @@ import Link from "next/link";
 import { ArrowRight, CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { signOutTo } from "@/features/auth/actions";
 
 import { acceptInvitation, ApiError, fetchTeam } from "../api";
 
 type State =
   | { kind: "joining" }
   | { kind: "joined"; joined: boolean; elsewhere: boolean }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string; code?: string };
 
 /**
  * Accepts the link on arrival: the invitation is the intent, so a second
@@ -20,8 +21,19 @@ type State =
  *
  * The accept call is sent once per mount — the API marks the invitation used,
  * so a duplicate would report a link that has just worked as invalid.
+ *
+ * `signedInAs` is shown when the address is the reason it failed. A typo in the
+ * invited address is invisible from this screen otherwise: the visitor believes
+ * they are the person named, and "sign in with the address it was sent to"
+ * names an address they cannot see.
  */
-export function JoinView({ token }: { token: string }) {
+export function JoinView({
+  token,
+  signedInAs,
+}: {
+  token: string;
+  signedInAs?: string | null;
+}) {
   const [state, setState] = React.useState<State>({ kind: "joining" });
   const [attempt, setAttempt] = React.useState(0);
   const started = React.useRef(false);
@@ -56,6 +68,7 @@ export function JoinView({ token }: { token: string }) {
             caught instanceof ApiError
               ? caught.message
               : "The invitation could not be accepted.",
+          code: caught instanceof ApiError ? caught.code : undefined,
         });
       });
 
@@ -84,6 +97,11 @@ export function JoinView({ token }: { token: string }) {
   }
 
   if (state.kind === "failed") {
+    // The invitation is tied to one address, so "sign in with the address it
+    // was sent to" is only actionable if the visitor can see which address they
+    // are on and switch accounts without losing the token.
+    const wrongAccount = state.code === "INVITE_EMAIL";
+
     return (
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-start gap-3">
@@ -97,24 +115,49 @@ export function JoinView({ token }: { token: string }) {
             <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
               {state.message}
             </p>
-            <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-              An invitation only works for the address it was sent to, so sign
-              in with that address and open the link again.
-            </p>
+            {wrongAccount && signedInAs ? (
+              <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                You are signed in as{" "}
+                <span className="font-medium text-foreground">
+                  {signedInAs}
+                </span>
+                . Ask the owner to check the address they invited for a typing
+                mistake, then sign in with the invited address and open this
+                link again.
+              </p>
+            ) : (
+              <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                An invitation only works for the address it was sent to, so sign
+                in with that address and open the link again.
+              </p>
+            )}
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            onClick={() => {
-              started.current = false;
-              setState({ kind: "joining" });
-              setAttempt((n) => n + 1);
-            }}
-            variant="outline"
-          >
-            Try again
-          </Button>
+          {wrongAccount ? (
+            // Retrying would send the same request as the same person and fail
+            // the same way; the only move is to come back as someone else.
+            <form action={signOutTo}>
+              <input
+                type="hidden"
+                name="next"
+                value={`/workspace/join?token=${encodeURIComponent(token)}`}
+              />
+              <Button type="submit">Sign in with another account</Button>
+            </form>
+          ) : (
+            <Button
+              onClick={() => {
+                started.current = false;
+                setState({ kind: "joining" });
+                setAttempt((n) => n + 1);
+              }}
+              variant="outline"
+            >
+              Try again
+            </Button>
+          )}
           <Button asChild variant="ghost">
             <Link href="/workspace">Open my workspace</Link>
           </Button>

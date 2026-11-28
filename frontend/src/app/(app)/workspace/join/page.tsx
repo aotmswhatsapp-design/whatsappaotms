@@ -56,7 +56,7 @@ async function Join({ searchParams }: { searchParams: Promise<Search> }) {
     redirect(`/login?next=${encodeURIComponent(target)}`);
   }
 
-  return <JoinView token={token} />;
+  return <JoinView token={token} signedInAs={user.email} />;
 }
 
 function JoinSkeleton() {
