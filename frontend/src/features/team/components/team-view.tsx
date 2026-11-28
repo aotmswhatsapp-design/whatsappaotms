@@ -23,6 +23,7 @@ import {
   ApiError,
   changeMemberRole,
   fetchTeam,
+  INVITE_ROLES,
   inviteMember,
   inviteUrl,
   MEMBER_ROLES,
@@ -31,6 +32,7 @@ import {
   ROLE_HINTS,
   ROLE_LABELS,
   type Invitation,
+  type InviteRole,
   type Member,
   type MemberRole,
   type TeamWorkspace,
@@ -275,7 +277,7 @@ function InviteCard({
   const toast = useToast();
 
   const [email, setEmail] = React.useState("");
-  const [role, setRole] = React.useState<MemberRole>("AGENT");
+  const [role, setRole] = React.useState<InviteRole>("AGENT");
   const [pending, setPending] = React.useState(false);
   const [granted, setGranted] = React.useState<{
     email: string;
@@ -357,10 +359,10 @@ function InviteCard({
           <select
             className={cn(SELECT, "mt-1.5 h-9 w-full")}
             id="invite-role"
-            onChange={(event) => setRole(event.target.value as MemberRole)}
+            onChange={(event) => setRole(event.target.value as InviteRole)}
             value={role}
           >
-            {MEMBER_ROLES.map((option) => (
+            {INVITE_ROLES.map((option) => (
               <option key={option} value={option}>
                 {ROLE_LABELS[option]}
               </option>
@@ -511,7 +513,9 @@ function MembersTable({
       ) : null}
     </div>,
 
-    member.owner || !canManage ? (
+    /* The account the workspace was created with keeps its role, and nobody
+       demotes themselves: both rows read as a chip rather than a picker. */
+    member.owner || member.userId === viewerId || !canManage ? (
       <RoleChip key="role" role={member.role} />
     ) : (
       <select

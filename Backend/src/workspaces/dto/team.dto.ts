@@ -16,14 +16,21 @@ const trim = ({ value }: { value: unknown }): unknown =>
 /**
  * The roles an invitation may grant, in the order the PRD describes them.
  *
- * Ownership is deliberately absent: a workspace has one owner, and handing it
- * over is not something a link should be able to do. `ADMIN` runs the product
- * but not the WhatsApp connection, `MANAGER` is the PRD's Manager, and `AGENT`
- * its Support Agent.
+ * Ownership is deliberately absent: a link is answered by whoever holds it, so
+ * a forwarded one must never be able to make its holder an owner. Ownership is
+ * granted from the team screen instead, to somebody the owner already knows.
+ * `ADMIN` runs the product but not the WhatsApp connection, `MANAGER` is the
+ * PRD's Manager, and `AGENT` its Support Agent.
  */
 export const TEAM_ROLES = ["ADMIN", "MANAGER", "AGENT"] as const;
 
 export type TeamRole = (typeof TEAM_ROLES)[number];
+
+/** What an owner may set on somebody already on the team, ownership included:
+ *  a second owner is how the workspace keeps running while the first is away. */
+export const ASSIGNABLE_ROLES = ["OWNER", ...TEAM_ROLES] as const;
+
+export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
 export class InviteMemberDto {
   @Transform(({ value }) =>
@@ -38,8 +45,8 @@ export class InviteMemberDto {
 }
 
 export class ChangeMemberRoleDto {
-  @IsIn(TEAM_ROLES)
-  role!: TeamRole;
+  @IsIn(ASSIGNABLE_ROLES)
+  role!: AssignableRole;
 }
 
 export class AcceptInvitationDto {

@@ -3,7 +3,12 @@ import { test } from "node:test";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 
-import { phoneDigits, UpdateMemberProfileDto } from "./dto/team.dto";
+import {
+  ChangeMemberRoleDto,
+  InviteMemberDto,
+  phoneDigits,
+  UpdateMemberProfileDto,
+} from "./dto/team.dto";
 
 async function errorsFor(input: Record<string, unknown>): Promise<string[]> {
   const dto = plainToInstance(UpdateMemberProfileDto, input);
@@ -36,4 +41,25 @@ test("a designation longer than 40 characters is refused", async () => {
 
 test("an empty body clears nothing but is valid", async () => {
   assert.deepEqual(await errorsFor({}), []);
+});
+
+test("an owner may make a member a second owner", async () => {
+  const dto = plainToInstance(ChangeMemberRoleDto, { role: "OWNER" });
+
+  assert.deepEqual(await validate(dto), []);
+});
+
+test("an invitation cannot grant ownership", async () => {
+  const dto = plainToInstance(InviteMemberDto, {
+    email: "second@buildmarque.test",
+    role: "OWNER",
+  });
+
+  assert.equal((await validate(dto)).length, 1);
+});
+
+test("a role outside the four known ones is refused", async () => {
+  const dto = plainToInstance(ChangeMemberRoleDto, { role: "SUPERUSER" });
+
+  assert.equal((await validate(dto)).length, 1);
 });

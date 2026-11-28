@@ -18,14 +18,22 @@ export {
  */
 export type TeamRole = "OWNER" | "ADMIN" | "MANAGER" | "AGENT";
 
-/** Ownership is not handed out by an invitation, so it is not offerable. */
-export type MemberRole = Exclude<TeamRole, "OWNER">;
+/** Ownership is not handed out by an invitation, so a link cannot grant it. */
+export type InviteRole = Exclude<TeamRole, "OWNER">;
+
+/** The order the invite form offers: least access first. */
+export const INVITE_ROLES: readonly InviteRole[] = ["AGENT", "MANAGER", "ADMIN"];
+
+/** Every role the team screen may set on somebody already on it. Ownership is
+ *  last: it is the one role that sees every module. */
+export type MemberRole = TeamRole;
 
 /** The order the role pickers offer: least access first, ownership last. */
 export const MEMBER_ROLES: readonly MemberRole[] = [
   "AGENT",
   "MANAGER",
   "ADMIN",
+  "OWNER",
 ];
 
 export const ROLE_LABELS: Record<TeamRole, string> = {
@@ -37,7 +45,7 @@ export const ROLE_LABELS: Record<TeamRole, string> = {
 
 /** What each role may do, in the words the invite form uses. */
 export const ROLE_HINTS: Record<TeamRole, string> = {
-  OWNER: "Owns the workspace and its WhatsApp number: team, connection and billing.",
+  OWNER: "Full control: the WhatsApp connection, permissions, team and roles.",
   ADMIN: "Runs campaigns, templates, the chatbot and the inbox, but cannot connect the number.",
   MANAGER: "Runs campaigns, owns contacts and reads analytics. Hands conversations to agents.",
   AGENT: "Answers conversations assigned to them and the unclaimed ones. Leaves notes.",
@@ -49,7 +57,8 @@ export interface Member {
   name: string | null;
   email: string;
   avatarUrl: string | null;
-  /** The workspace owner: role immutable, membership irremovable. */
+  /** The account the workspace was created with: role immutable, membership
+   *  irremovable. A second owner is a normal member holding OWNER. */
   owner: boolean;
   /**
    * The label lead rotation sorts by. Null means the owner has not set one,
@@ -95,7 +104,7 @@ export function fetchTeam(): Promise<TeamWorkspace> {
  */
 export function inviteMember(input: {
   email: string;
-  role: MemberRole;
+  role: InviteRole;
 }): Promise<{ invitation: Invitation; token: string }> {
   return request<{ invitation: Invitation; token: string }>(
     "/v1/workspaces/invitations",

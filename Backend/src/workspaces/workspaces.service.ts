@@ -516,9 +516,13 @@ export class WorkspacesService {
   }
 
   /**
-   * Changes a member's role. Ownership is not transferable through this API,
-   * which also means the owner can never be demoted by accident — there is no
-   * second owner to hand the workspace to.
+   * Changes a member's role, ownership included: a workspace may hold more than
+   * one owner, and this is where a second one is made.
+   *
+   * Two seats are fixed. The account the workspace was created with cannot be
+   * demoted, so no combination of other edits can leave it ownerless; and no
+   * caller may change their own role, so an owner cannot hand away their seat
+   * by a stray click in the row beside their name.
    */
   async changeRole(
     claims: AuthClaims,
@@ -534,7 +538,15 @@ export class WorkspacesService {
     if (userId === workspace.ownerId) {
       throw new ConflictException({
         code: "OWNER_IMMUTABLE",
-        message: "The workspace owner's role cannot be changed.",
+        message:
+          "The account that created this workspace always keeps its role, so the workspace always has an owner.",
+      });
+    }
+
+    if (userId === claims.id) {
+      throw new ConflictException({
+        code: "SELF_ROLE",
+        message: "You cannot change your own role. Ask another owner to do it.",
       });
     }
 
@@ -631,8 +643,9 @@ export class WorkspacesService {
   }
 
   /**
-   * Removes a membership. The owner is refused by name — there is no second
-   * owner to hand the workspace to, so leaving would orphan it.
+   * Removes a membership. The account the workspace was created with is
+   * refused by name — it carries the workspace's owner field, so removing it
+   * would orphan the row. A second owner is removable like anyone else.
    *
    * Their work does not leave with them: an open follow-up moves to the owner
    * (the same fallback intake uses when rotation finds nobody), and their
@@ -640,7 +653,7 @@ export class WorkspacesService {
    * a real member. `FollowUpTask.assignedTo` points at the user, not the
    * membership, so its `SetNull` never fires here.
    *
-   * Reached only by the owner's route today, so a member cannot remove
+   * Reached only by an owner's route today, so a member cannot remove
    * themselves; asking to be removed is the path back until a self-leave
    * route exists.
    */
@@ -655,7 +668,7 @@ export class WorkspacesService {
       throw new ConflictException({
         code: "OWNER_IMMUTABLE",
         message:
-          "The workspace owner cannot be removed, and ownership cannot be transferred yet.",
+          "The account that created this workspace cannot be removed.",
       });
     }
 
