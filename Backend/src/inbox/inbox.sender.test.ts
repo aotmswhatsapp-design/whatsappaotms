@@ -27,6 +27,7 @@ const PICTURES = [storageUrl("one.jpg"), storageUrl("two.jpg")];
 
 const card = (patch: Partial<BotCard> = {}): BotCard => ({
   id: "c-menu",
+  name: "Menu",
   title: "Menu",
   imageUrls: [],
   info: "Dosa 80.",

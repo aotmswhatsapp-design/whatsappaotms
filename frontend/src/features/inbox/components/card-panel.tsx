@@ -8,7 +8,7 @@ import {
   BotCardPreview,
   shapeNote,
 } from "@/components/workspace/bot-card-preview";
-import type { BotFlow } from "@/lib/bots/card";
+import { cardLabel, type BotFlow } from "@/lib/bots/card";
 
 import {
   ApiError,
@@ -237,7 +237,7 @@ export function CardPanel({
               ) : (
                 flow.cards.map((row) => (
                   <option key={row.id} value={row.id}>
-                    {row.title.trim() || "Untitled card"}
+                    {cardLabel(row)}
                   </option>
                 ))
               )}

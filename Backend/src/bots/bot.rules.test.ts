@@ -6,6 +6,7 @@ import { matchesTrigger, ruleReply, wordsOf } from "./bot.rules";
 
 const card = (id: string): BotCard => ({
   id,
+  name: id,
   title: id,
   imageUrls: [],
   info: id,

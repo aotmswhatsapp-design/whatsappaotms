@@ -93,7 +93,11 @@ function ruleProblem(rule: BotRule, cardIds: Set<string>): string | null {
 }
 
 function cardProblem(card: BotCard, cardIds: Set<string>): string | null {
-  const named = card.title.trim() || card.id;
+  // The name is what the owner calls the card, so it is what an error should
+  // say. The heading is the fallback for a card written before names existed,
+  // and the id is the last resort: every message has to identify one card out
+  // of ten.
+  const named = card.name.trim() || card.title.trim() || card.id;
 
   if (card.info.length > BODY_CHARS) {
     return `"${named}" is longer than ${BODY_CHARS} characters.`;

@@ -3,7 +3,7 @@
 import { Trash2 } from "lucide-react";
 
 import type { BotFlow, BotRule } from "@/lib/bots/card";
-import { triggerText, triggersOf } from "@/lib/bots/card";
+import { cardLabel, triggerText, triggersOf } from "@/lib/bots/card";
 import { cn } from "@/lib/utils";
 
 /**
@@ -123,7 +123,7 @@ export function RuleList({
                       >
                         {flow.cards.map((row) => (
                           <option key={row.id} value={row.id}>
-                            {row.title.trim() || "Untitled card"}
+                            {cardLabel(row)}
                           </option>
                         ))}
                       </select>

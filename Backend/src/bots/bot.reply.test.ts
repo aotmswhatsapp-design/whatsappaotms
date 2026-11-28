@@ -12,6 +12,7 @@ const flow = (): BotFlow => ({
   cards: [
     {
       id: "c-menu",
+      name: "Breakfast",
       title: "Breakfast",
       imageUrls: ["https://example.com/menu.jpg"],
       info: "Served 7 to 11.",
@@ -23,6 +24,7 @@ const flow = (): BotFlow => ({
     },
     {
       id: "c-drinks",
+      name: "Drinks",
       title: "Drinks",
       imageUrls: [],
       info: "Filter coffee 30.",

@@ -37,7 +37,19 @@ export interface BotButton {
 
 export interface BotCard {
   id: string;
-  /** The card's own name, shown as the header when the card has no pictures. */
+  /**
+   * What the business calls this card, and nothing else: "Welcome", "Pricing
+   * menu", "Support options".
+   *
+   * Internal. No renderer reads it, so renaming a card cannot change one word
+   * a customer sees — that is the whole reason it is a field of its own rather
+   * than the same string as the heading.
+   */
+  name: string;
+  /**
+   * The heading the customer reads: the header when the card has no pictures,
+   * or when the pictures travel separately.
+   */
   title: string;
   /**
    * Public URLs, in the order the customer receives them.

@@ -34,7 +34,18 @@ export interface BotButton {
 
 export interface BotCard {
   id: string;
-  /** The card's own name, shown as the header when the card has no pictures. */
+  /**
+   * What the business calls this card: "Welcome", "Pricing menu", "Support".
+   *
+   * Internal, and never sent. It is how the card list, the pickers and the
+   * buttons that open the card name it, so renaming a card changes nothing the
+   * customer reads — which is the whole reason it exists apart from `title`.
+   */
+  name: string;
+  /**
+   * The heading the customer reads: the header when there is no picture, or
+   * when the pictures travel separately.
+   */
   title: string;
   /**
    * Public URLs, in the order the customer receives them.
@@ -102,6 +113,7 @@ export function emptyFlow(agentId: string): BotFlow {
 export function newCard(): BotCard {
   return {
     id: newBotId("card"),
+    name: "",
     title: "",
     imageUrls: [],
     info: "",
@@ -152,12 +164,25 @@ export function rootOf(flow: BotFlow): BotCard | null {
   return flow.cards.find((card) => card.id === flow.rootCardId) ?? null;
 }
 
+/**
+ * The line a card is called by, wherever the business reads one: the card list,
+ * the editor's heading, and every picker that points at a card.
+ *
+ * The name only. A card that has not been named yet says so rather than
+ * showing a heading the owner may not think of as the card's name; the
+ * server fills in the heading of a card saved before names existed, so those
+ * keep the label they have always had.
+ */
+export function cardLabel(card: BotCard): string {
+  return card.name.trim() || "Untitled card";
+}
+
 /** What a button's action points at, in one line, for the card list. */
 export function actionSummary(action: BotAction, flow: BotFlow): string {
   switch (action.kind) {
     case "card": {
       const target = flow.cards.find((card) => card.id === action.cardId);
-      return `Open ${target?.title.trim() || "a card that was removed"}`;
+      return target ? `Open ${cardLabel(target)}` : "Open a card that was removed";
     }
     case "link":
       return action.url.trim() || "Open a link";

@@ -73,6 +73,7 @@ const build = (prisma = new FakePrisma(), removed: string[] = []) =>
 
 const card = (id: string) => ({
   id,
+  name: id,
   title: id,
   imageUrls: [],
   info: "Dosa 80.",
@@ -114,6 +115,61 @@ test("a stored flow is read as this agent's, whatever id it carries", async () =
   const view = await build(prisma).read(CLAIMS, "agent-1");
 
   assert.equal(view.flow.id, "agent-1");
+});
+
+test("a card saved before names existed is labelled by its heading", async () => {
+  const prisma = new FakePrisma();
+
+  // No `name` key at all, which is how every card written by an earlier build
+  // is stored. The heading was its only label, so it stays the label.
+  prisma.rows.set("agent-1", {
+    workspaceId: "ws-a",
+    flow: {
+      id: "agent-1",
+      rootCardId: "c-menu",
+      cards: [
+        {
+          id: "c-menu",
+          title: "Menu",
+          imageUrls: [],
+          info: "Dosa 80.",
+          buttons: [],
+        },
+      ],
+      rules: [],
+    },
+  });
+
+  const view = await build(prisma).read(CLAIMS, "agent-1");
+
+  assert.equal(view.flow.cards[0]?.name, "Menu");
+});
+
+test("a card saved with an empty name stays unnamed, whatever its heading says", async () => {
+  const prisma = new FakePrisma();
+
+  prisma.rows.set("agent-1", {
+    workspaceId: "ws-a",
+    flow: {
+      id: "agent-1",
+      rootCardId: "c-menu",
+      cards: [
+        {
+          id: "c-menu",
+          name: "",
+          title: "Menu",
+          imageUrls: [],
+          info: "Dosa 80.",
+          buttons: [],
+        },
+      ],
+      rules: [],
+    },
+  });
+
+  const view = await build(prisma).read(CLAIMS, "agent-1");
+
+  assert.equal(view.flow.cards[0]?.name, "");
 });
 
 test("the flow id is the agent's, whatever the client sent", async () => {

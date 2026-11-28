@@ -23,6 +23,7 @@ import { PageHeader } from "@/components/workspace/page-header";
 import { getNavItem } from "@/config/workspace-nav";
 import { useWorkspaceRole } from "@/hooks/use-workspace-role";
 import {
+  cardLabel,
   emptyFlow,
   newCard,
   newRule,
@@ -38,15 +39,6 @@ import { CardEditor } from "./components/card-editor";
 import { RuleList } from "./components/rule-list";
 
 const nav = getNavItem("/workspace/chatbot");
-
-/**
- * The one label a card is called by: the card list, the editor's heading and
- * the caption above the preview all read it, so a rename cannot leave the
- * preview naming a card the list has already stopped showing.
- */
-function cardName(card: BotCard): string {
-  return card.title.trim() || "Untitled card";
-}
 
 /** A flow as loaded, with the agent it belongs to, so a switch cannot show the wrong one. */
 interface Loaded {
@@ -572,7 +564,7 @@ export function ChatbotView() {
                             onClick={() => setSelectedCardId(card.id)}
                           >
                             <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-                              {cardName(card)}
+                              {cardLabel(card)}
                             </span>
                             {entry ? (
                               <span className="shrink-0 rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
@@ -594,7 +586,7 @@ export function ChatbotView() {
                   <section className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                       <h2 className="text-sm font-semibold text-foreground">
-                        {cardName(activeCard)}
+                        {cardLabel(activeCard)}
                       </h2>
                       <label className="flex items-center gap-2 text-[11.5px] font-medium text-foreground">
                         <input
@@ -632,28 +624,12 @@ export function ChatbotView() {
               </div>
 
               <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
-                <div className="flex min-w-0 items-baseline gap-1.5">
-                  <p className="shrink-0 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-                    Preview
-                  </p>
-                  {/* Which card the bubble below belongs to: the name the list
-                      shows and the heading the customer reads, side by side, so
-                      a switch is never guessed at. */}
-                  {activeCard ? (
-                    <p
-                      className="min-w-0 truncate text-[11.5px] font-semibold text-foreground"
-                      title={cardName(activeCard)}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="mr-1.5 font-normal text-muted-foreground/60"
-                      >
-                        ·
-                      </span>
-                      {cardName(activeCard)}
-                    </p>
-                  ) : null}
-                </div>
+                {/* The card's name is the business's own label and stays in
+                    the list: the bubble below is what the customer receives,
+                    and it carries the heading, not the name. */}
+                <p className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                  Preview
+                </p>
                 {activeCard ? (
                   <>
                     <BotCardPreview card={activeCard} />

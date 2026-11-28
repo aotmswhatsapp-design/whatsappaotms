@@ -20,6 +20,7 @@ const button = (
 
 const card = (patch: Partial<BotCard> = {}): BotCard => ({
   id: "c1",
+  name: "Menu",
   title: "Menu",
   imageUrls: [],
   info: "Dosa 80. Idli 40.",

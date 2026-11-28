@@ -109,11 +109,27 @@ function cardAt(value: unknown): BotCard | null {
 
   return {
     id,
+    name: nameAt(card),
     title: stringAt(card.title) ?? "",
     imageUrls: imageUrlsAt(card),
     info: stringAt(card.info) ?? "",
     buttons,
   };
+}
+
+/**
+ * The card's name, as stored.
+ *
+ * A flow written before cards were named has no `name` key at all, and the
+ * heading was the only label it ever had — so the heading is what keeps such a
+ * card readable in a list. A card saved by a version that knows about names
+ * always carries the key, even when it is empty, and empty means the business
+ * has not named it yet: that is a card the builder labels "Untitled card".
+ */
+function nameAt(card: Json): string {
+  if (typeof card.name === "string") return card.name;
+
+  return stringAt(card.title) ?? "";
 }
 
 /**

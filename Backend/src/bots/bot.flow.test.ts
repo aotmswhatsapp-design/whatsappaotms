@@ -13,6 +13,7 @@ const button = (id: string, label: string, action: BotAction): BotButton => ({
 
 const card = (id: string, buttons: BotButton[] = []): BotCard => ({
   id,
+  name: id,
   title: id,
   imageUrls: [],
   info: "Dosa 80.",
@@ -104,6 +105,36 @@ test("two buttons sharing an id on one card are refused", () => {
   ]);
 
   assert.match(flowProblem(broken) ?? "", /share the id b-1/);
+});
+
+test("a refusal names the card the way its owner named it, not by its heading", () => {
+  const broken = card("c-root", [
+    button("b-1", "One", { kind: "handoff" }),
+    button("b-1", "Two", { kind: "handoff" }),
+  ]);
+
+  broken.name = "Drinks menu";
+  broken.title = "Menu";
+
+  assert.match(
+    flowProblem(flow([broken])) ?? "",
+    /Two buttons on "Drinks menu" share the id b-1/,
+  );
+});
+
+test("a card with no name is still refused by the heading it is read by", () => {
+  const broken = card("c-root", [
+    button("b-1", "One", { kind: "handoff" }),
+    button("b-1", "Two", { kind: "handoff" }),
+  ]);
+
+  broken.name = "   ";
+  broken.title = "Menu";
+
+  assert.match(
+    flowProblem(flow([broken])) ?? "",
+    /Two buttons on "Menu" share the id b-1/,
+  );
 });
 
 test("one card more than the limit is refused with the limit", () => {

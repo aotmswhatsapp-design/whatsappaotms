@@ -6,6 +6,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
+  cardLabel,
   newButton,
   type BotAction,
   type BotActionKind,
@@ -87,7 +88,25 @@ export function CardEditor({
   return (
     <div className="space-y-4">
       <div className="min-w-0">
-        <Label htmlFor="card-title">Name</Label>
+        <Label htmlFor="card-name">Card name</Label>
+        <input
+          id="card-name"
+          className={cn(FIELD, "mt-1.5")}
+          disabled={disabled}
+          placeholder="Welcome"
+          spellCheck
+          value={card.name}
+          onChange={(event) => patch({ name: event.target.value })}
+        />
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          Only you see this. The card list, this screen and every button that
+          opens the card call it by this name; it is never sent, so renaming it
+          changes nothing the customer reads.
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <Label htmlFor="card-title">Heading</Label>
         <input
           id="card-title"
           className={cn(FIELD, "mt-1.5")}
@@ -117,7 +136,7 @@ export function CardEditor({
             usedBy={(url) =>
               flow.cards
                 .filter((other) => other.id !== card.id && other.imageUrls.includes(url))
-                .map((other) => other.title.trim() || "An untitled card")
+                .map((other) => cardLabel(other))
             }
             value={card.imageUrls}
             onChange={(urls) => patch({ imageUrls: urls })}
@@ -243,7 +262,7 @@ export function CardEditor({
                       ) : (
                         otherCards.map((row) => (
                           <option key={row.id} value={row.id}>
-                            {row.title.trim() || "Untitled card"}
+                            {cardLabel(row)}
                           </option>
                         ))
                       )}
