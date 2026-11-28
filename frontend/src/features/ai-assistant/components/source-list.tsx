@@ -52,7 +52,10 @@ function metaOf(source: Source): string {
 
   if (meta.kind === "document") {
     if (!meta.pages) return "";
-    return `${meta.pages} page${meta.pages === 1 ? "" : "s"}`;
+    // A scan is read by OCR, and its accuracy is the file's, not the
+    // extractor's: saying so is what makes a wrong answer traceable.
+    const pages = `${meta.pages} page${meta.pages === 1 ? "" : "s"}`;
+    return meta.ocr ? `${pages} · ${meta.ocr} recognised` : pages;
   }
 
   if (meta.kind === "image") {

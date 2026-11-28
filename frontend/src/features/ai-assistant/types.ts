@@ -43,7 +43,7 @@ export type SourceMeta =
       kind: "table";
       sheets: { name: string; headers: string[]; rowCount: number }[];
     }
-  | { kind: "document"; pages: number | null }
+  | { kind: "document"; pages: number | null; ocr?: number }
   | { kind: "image"; mime: string; width: number | null; height: number | null };
 
 export interface Source {

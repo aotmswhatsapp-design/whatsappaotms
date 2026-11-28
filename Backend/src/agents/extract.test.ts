@@ -3,7 +3,17 @@ import { test } from "node:test";
 import * as ExcelJS from "exceljs";
 
 import { ExtractError } from "./extract.errors";
-import { CSV_SHEET, csvBlocks, docxHtmlToBlocks, extractSource, pagesToBlocks, parseCsv } from "./extract";
+import {
+  CSV_SHEET,
+  csvBlocks,
+  docxHtmlToBlocks,
+  extractSource,
+  mergePages,
+  OCR_MAX_PAGES,
+  pagesNeedingOcr,
+  pagesToBlocks,
+  parseCsv,
+} from "./extract";
 
 /** An xlsx whose rows sit at the numbers given, so gaps are real gaps. */
 const sheetWith = async (name: string, rows: [number, string[]][]) => {
@@ -185,4 +195,100 @@ test("an empty text file is a refusal, not an empty index", async () => {
     () => extractSource({ bytes: Buffer.from("  \n "), mime: "text/plain", name: "notes.txt" }),
     (error: unknown) => error instanceof ExtractError && error.code === "SOURCE_EMPTY",
   );
+});
+
+/** Long enough to be a page that speaks for itself. */
+const PAGE = "Price list for the season, inclusive of taxes and delivery charges.";
+
+/**
+ * A valid PDF with no content streams: no text layer, nothing to draw. Offsets
+ * are counted as the file is written, because a repaired xref would be pdfjs
+ * recovering from this test rather than this test testing pdfjs.
+ */
+function blankPdf(pages = 1): Buffer {
+  const kids = Array.from({ length: pages }, (_, index) => `${index + 3} 0 R`).join(" ");
+
+  const objects = [
+    "<</Type/Catalog/Pages 2 0 R>>",
+    `<</Type/Pages/Kids[${kids}]/Count ${pages}>>`,
+    ...Array.from({ length: pages }, () => "<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]>>"),
+  ];
+
+  let body = "%PDF-1.4\n";
+  const offsets: number[] = [];
+
+  objects.forEach((object, index) => {
+    offsets.push(body.length);
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+
+  const start = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${start}\n%%EOF\n`;
+
+  return Buffer.from(body, "latin1");
+}
+
+test("a page with a readable text layer is never sent to OCR", () => {
+  assert.deepEqual(pagesNeedingOcr([PAGE, "", "Fig. 1"]), [2, 3]);
+});
+
+test("recognised text takes the page number of the page it was read from", () => {
+  const { blocks, ocr } = mergePages(
+    [PAGE, "", "page three body text, long enough to stand on its own"],
+    new Map([[2, "  DUO   brochure, price list inside  "]]),
+  );
+
+  assert.deepEqual(blocks, [
+    { text: PAGE, page: 1 },
+    { text: "DUO brochure, price list inside", page: 2 },
+    { text: "page three body text, long enough to stand on its own", page: 3 },
+  ]);
+  assert.equal(ocr, 1);
+});
+
+test("a page OCR could not read keeps the little its own layer said", () => {
+  const { blocks, ocr } = mergePages(["", "Fig. 1"], new Map([[1, "  "]]));
+
+  assert.deepEqual(blocks, [{ text: "Fig. 1", page: 2 }]);
+  assert.equal(ocr, 0);
+});
+
+test("a scan-only PDF is drawn and read, page numbers intact", async () => {
+  const asked: number[][] = [];
+
+  const { blocks, meta } = await extractSource(
+    { bytes: blankPdf(), mime: "application/pdf", name: "duo-brochure.pdf" },
+    {
+      ocr: async (_bytes, pages) => {
+        asked.push(pages);
+        return new Map(pages.map((page) => [page, "DUO brochure, price list inside."]));
+      },
+    },
+  );
+
+  assert.deepEqual(asked, [[1]]);
+  assert.deepEqual(blocks, [{ text: "DUO brochure, price list inside.", page: 1 }]);
+  assert.deepEqual(meta, { kind: "document", pages: 1, ocr: 1 });
+});
+
+test("a scan wider than the OCR ceiling is refused before a page is drawn", async () => {
+  let drawn = false;
+
+  await assert.rejects(
+    () =>
+      extractSource(
+        { bytes: blankPdf(OCR_MAX_PAGES + 1), mime: "application/pdf", name: "long-scan.pdf" },
+        {
+          ocr: async () => {
+            drawn = true;
+            return new Map();
+          },
+        },
+      ),
+    (error: unknown) => error instanceof ExtractError && error.code === "SOURCE_TOO_LARGE",
+  );
+
+  assert.equal(drawn, false);
 });

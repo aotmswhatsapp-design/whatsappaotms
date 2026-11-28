@@ -4,16 +4,18 @@ import mammoth from "mammoth";
 
 import { ExtractError } from "./extract.errors";
 import { extensionOf } from "./knowledge.file";
+import { ocrPages, tesseractReader } from "./ocr";
 
 const logger = new Logger("Extract");
 
 /**
  * Turning an uploaded file into text.
  *
- * Every reader here is pure JavaScript and runs in this process: the Render
- * build stays `npm ci && npm run build` with no LibreOffice, no container and
- * no native module. `.xls` is deliberately absent — `exceljs` reads the
- * zipped `.xlsx` format only.
+ * Every reader here runs in this process: the Render build stays
+ * `npm ci && npm run build` with no LibreOffice and no container. The one
+ * binary is the canvas the PDF renderer draws on — `@napi-rs/canvas` ships it
+ * prebuilt, so nothing compiles at install time. `.xls` is deliberately absent
+ * — `exceljs` reads the zipped `.xlsx` format only.
  *
  * Text leaves here as blocks, not as one string: a page number or a heading is
  * evidence of where an answer came from, and joining pages erases it.
@@ -57,7 +59,12 @@ export type TableMeta = {
 };
 
 /** The pages that carry text: a blank page is not one a citation can name. */
-export type DocumentMeta = { kind: "document"; pages: number | null };
+export type DocumentMeta = {
+  kind: "document";
+  pages: number | null;
+  /** How many of those pages were read by OCR, not by their own text layer. */
+  ocr?: number;
+};
 
 /** An image's own type and pixel size, read from its bytes before it is read. */
 export type ImageMeta = {
@@ -79,11 +86,30 @@ export interface Extracted {
  *  a retrieved chunk is still one answer's worth of rows. */
 const ROWS_PER_BLOCK = 20;
 
-export async function extractSource(file: {
-  bytes: Buffer;
-  mime: string;
-  name: string;
-}): Promise<Extracted> {
+/** A page carrying less text than this is treated as having none: a broken
+ *  text layer leaves a few stray characters, and a real page of words clears
+ *  this without trying. */
+export const OCR_MIN_CHARS = 24;
+
+/** How many pages one document may send to OCR. Recognition is about a second
+ *  a page of CPU in the process that also answers messages, so the ceiling is
+ *  what keeps one upload from becoming everyone's slow afternoon. */
+export const OCR_MAX_PAGES = 30;
+
+/** The language the OCR model is loaded for. English covers the catalogue
+ *  copy and price lists these brochures are made of. */
+const OCR_LANGUAGE = "eng";
+
+/** What a caller may replace: the OCR engine itself. Production passes
+ *  nothing and gets tesseract; tests pass a fake and get no model. */
+export interface ExtractDeps {
+  ocr?: (bytes: Buffer, pages: number[]) => Promise<Map<number, string>>;
+}
+
+export async function extractSource(
+  file: { bytes: Buffer; mime: string; name: string },
+  deps: ExtractDeps = {},
+): Promise<Extracted> {
   const extension = extensionOf(file.name);
 
   switch (extension) {
@@ -121,14 +147,8 @@ export async function extractSource(file: {
       };
     }
 
-    case "pdf": {
-      const blocks = await readable(() => pdfBlocks(file.bytes), file.name);
-
-      return {
-        blocks,
-        meta: { kind: "document", pages: blocks.length },
-      };
-    }
+    case "pdf":
+      return pdfExtracted(file.bytes, file.name, deps);
 
     case "xls":
       throw new ExtractError(
@@ -202,6 +222,56 @@ async function readable<T>(
 
 export function pagesToBlocks(pages: string[]): SourceBlock[] {
   return pages.flatMap((text, index) => (text.length > 0 ? [{ text, page: index + 1 }] : []));
+}
+
+/**
+ * The pages whose own text cannot speak for them: the ones a scan hides
+ * behind, and the ones OCR has to read.
+ *
+ * Numbered from one, in the file's own numbering, so a citation names the
+ * page the words are printed on rather than the page's position in a list.
+ */
+export function pagesNeedingOcr(pages: string[], min = OCR_MIN_CHARS): number[] {
+  return pages.flatMap((text, index) => (text.trim().length < min ? [index + 1] : []));
+}
+
+/**
+ * The text layer where it speaks for a page, the recognised text where it does
+ * not, in page order and under each page's own number.
+ *
+ * A page below the floor on both sides keeps whatever its layer did say: a
+ * cover with one line is still a page, and dropping it would lose the only
+ * words it has.
+ */
+export function mergePages(
+  pages: string[],
+  recognised: Map<number, string>,
+  min = OCR_MIN_CHARS,
+): { blocks: SourceBlock[]; ocr: number } {
+  const blocks: SourceBlock[] = [];
+  let ocr = 0;
+
+  pages.forEach((text, index) => {
+    const page = index + 1;
+    const own = text.trim();
+
+    if (own.length >= min) {
+      blocks.push({ text: own, page });
+      return;
+    }
+
+    const read = (recognised.get(page) ?? "").replace(/\s+/g, " ").trim();
+
+    if (read.length >= min) {
+      blocks.push({ text: read, page });
+      ocr += 1;
+      return;
+    }
+
+    if (own.length > 0) blocks.push({ text: own, page });
+  });
+
+  return { blocks, ocr };
 }
 
 /**
@@ -484,11 +554,96 @@ async function xlsxBlocks(bytes: Buffer): Promise<{ blocks: SourceBlock[]; meta:
 }
 
 /**
- * The text layer only. No page is rendered, so no canvas is needed — and a
- * scanned PDF, which has no text layer, cannot be read at all until a renderer
- * exists. It says so instead of indexing nothing.
+ * A PDF, read by whichever of its two selves says more about each page.
+ *
+ * A designed export has a text layer and is read from it — no page is drawn,
+ * nothing is recognised, and the result is what this module always produced. A
+ * scan has an image and no words, so its pages are drawn and read. A document
+ * that is both — a printed cover, a scanned body — is read page by page, and
+ * each page keeps its own number either way.
  */
-async function pdfBlocks(bytes: Buffer): Promise<SourceBlock[]> {
+async function pdfExtracted(
+  bytes: Buffer,
+  name: string,
+  deps: ExtractDeps,
+): Promise<Extracted> {
+  const pages = await readable(() => pdfTextPages(bytes), name);
+  const scanned = pagesNeedingOcr(pages);
+
+  // Refused before a single page is drawn: the cost of finding out the hard
+  // way is minutes of the process that also answers customers.
+  if (scanned.length > OCR_MAX_PAGES) {
+    throw new ExtractError(
+      "SOURCE_TOO_LARGE",
+      `This PDF is a scan, and ${scanned.length} of its pages have no text layer. OCR reads up to ${OCR_MAX_PAGES} pages at a time; split the file or upload the part that matters.`,
+    );
+  }
+
+  const recognised =
+    scanned.length === 0 ? new Map<number, string>() : await readByOcr(bytes, scanned, name, deps);
+
+  const { blocks, ocr } = mergePages(pages, recognised);
+
+  if (blocks.length === 0) {
+    throw new ExtractError(
+      "SOURCE_UNSUPPORTED",
+      scanned.length === 0
+        ? "That PDF has no text layer, so nothing could be read. It is probably a scan; upload page images or a text export instead."
+        : "That PDF is a scan and no text could be recognised in it. The file is kept; a sharper scan or the original export reads better.",
+    );
+  }
+
+  return {
+    blocks,
+    meta: ocr > 0 ? { kind: "document", pages: blocks.length, ocr } : { kind: "document", pages: blocks.length },
+  };
+}
+
+/**
+ * The recognised text, or a refusal that says what happened.
+ *
+ * The engine can fail for reasons the file cannot explain — a model that could
+ * not be fetched, a core that would not start — and those are worth retrying,
+ * which the sentence says. The detail goes to the log, where an operator can
+ * act on it.
+ */
+async function readByOcr(
+  bytes: Buffer,
+  pages: number[],
+  name: string,
+  deps: ExtractDeps,
+): Promise<Map<number, string>> {
+  try {
+    if (deps.ocr) return await deps.ocr(bytes, pages);
+
+    const reader = await tesseractReader(OCR_LANGUAGE);
+
+    try {
+      return await ocrPages(bytes, pages, reader);
+    } finally {
+      await reader.stop();
+    }
+  } catch (error) {
+    if (error instanceof ExtractError) throw error;
+
+    logger.warn(
+      `Could not read ${name} with OCR: ${error instanceof Error ? error.message : "unknown failure"}`,
+    );
+
+    throw new ExtractError(
+      "SOURCE_UNSUPPORTED",
+      "That PDF is a scan and the OCR engine failed on it. The file is kept; try again, and upload the original export if it keeps failing.",
+    );
+  }
+}
+
+/**
+ * The text layer, one string per page, empty where the page has none.
+ *
+ * The index of the array is the page number, so an empty page keeps its place
+ * instead of renumbering everything after it.
+ */
+async function pdfTextPages(bytes: Buffer): Promise<string[]> {
   const pdfjs = await import("pdfjs-dist");
 
   // The loading task is what owns the worker, so it is the thing to destroy —
@@ -524,14 +679,5 @@ async function pdfBlocks(bytes: Buffer): Promise<SourceBlock[]> {
     await task.destroy();
   }
 
-  const blocks = pagesToBlocks(pages);
-
-  if (blocks.length === 0) {
-    throw new ExtractError(
-      "SOURCE_UNSUPPORTED",
-      "That PDF has no text layer, so nothing could be read. It is probably a scan; upload page images or a text export instead.",
-    );
-  }
-
-  return blocks;
+  return pages;
 }
