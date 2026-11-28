@@ -2,7 +2,7 @@ import { ConflictException, HttpException, Injectable } from "@nestjs/common";
 import type { Agent } from "@prisma/client";
 
 import { cardTurn, type CardTurn } from "../bots/bot.reply";
-import type { BotCard, BotFlow } from "../bots/bot.card";
+import type { BotFlow } from "../bots/bot.card";
 import { ruleReply } from "../bots/bot.rules";
 import { BotStore } from "../bots/bot.store";
 import { InboxSender, type SendTarget } from "../inbox/inbox.sender";
@@ -22,6 +22,15 @@ const STALE_MS = 600_000;
 
 /** After this many interruptions the run is left FAILED rather than looped. */
 const MAX_ATTEMPTS = 2;
+
+/**
+ * How many of our own messages a tap is matched against.
+ *
+ * Deep enough for a long conversation — several cards, several answers between
+ * them — and still one indexed read. A card older than this is found through
+ * the flow itself, so the number bounds the work, not which taps work.
+ */
+const OUTBOUND_DEPTH = 50;
 
 export interface ClaimedRun {
   id: string;
@@ -309,22 +318,25 @@ export class ReplyService {
       return;
     }
 
-    // Before the model: a complaint must never depend on what a model decides
-    // to say about it.
-    if (matchesEscalation(question, agent.escalateKeywords)) {
-      await this.handoff(run.id, conversation.id, target, agent.id, "handoff");
-      return;
-    }
+    // The flow is read before the tap because the tap needs it: the id is looked
+    // up in what we already sent, and — for a card that has scrolled past the
+    // window we read — in the business's wording as it stands now.
+    const flow = await this.flowOf(agent.id);
 
     // A tap is answered by the card it came from, not by a search for the words
     // printed on the button. This waits until after routing because a tap can
     // be the first thing a customer ever says — a template quick reply — and
     // then the thread still needs an agent. Anything the card does not claim —
     // "do you deliver?" typed under a menu — falls through to the answer below.
+    //
+    // Which card it came from is not decided by the newest message: a customer
+    // can scroll back to a menu from last week and tap it, and that tap means
+    // what it meant then.
     const turn = cardTurn({
       body: inbound?.body ?? null,
       payload: inbound?.payload ?? null,
-      lastOutbound: await this.lastOutbound(conversation.id),
+      outbound: await this.sentPayloads(conversation.id),
+      flow,
     });
 
     if (turn.kind !== "none") {
@@ -332,14 +344,32 @@ export class ReplyService {
       return;
     }
 
+    // After the cards, because a card's own action is the business's answer and
+    // cannot be overruled by a keyword that happens to appear on its button: a
+    // "Talk to staff" button hands off because its action says so, and a
+    // "Pricing" button sends the price list even where "price" is a keyword. A
+    // complaint typed under a menu still escalates. Before the model, because a
+    // complaint must never depend on what a model decides to say about it.
+    if (matchesEscalation(question, agent.escalateKeywords)) {
+      await this.handoff(run.id, conversation.id, target, agent.id, "handoff");
+      return;
+    }
+
     // A keyword rule answers before the knowledge base is searched: the business
     // wrote both the trigger and the card, so the sentence is theirs and cannot
     // be contradicted by a retrieval miss. After the tap check on purpose — a
     // customer picking a button meant exactly that button, not a keyword.
-    const ruled = await this.ruleTurn(agent.id, question);
+    const ruled = flow ? ruleReply(flow, question) : null;
 
-    if (ruled) {
-      await this.act(run.id, conversation.id, target, agent.id, ruled, started);
+    if (flow && ruled) {
+      await this.act(
+        run.id,
+        conversation.id,
+        target,
+        agent.id,
+        { kind: "card", flow, card: ruled.card },
+        started,
+      );
       return;
     }
 
@@ -484,45 +514,43 @@ export class ReplyService {
   // the customer say three messages ago".
 
   /**
-   * The card the agent's keyword rules send for this message, or null.
+   * The agent's flow as it is stored now, or null.
    *
-   * The flow is read here rather than carried on the run because it is the
-   * business's current wording: a rule edited five seconds ago is the one that
-   * should answer. A database that cannot be read (a missing table, a dropped
-   * connection) means "no rules" rather than a handoff — the customer's
-   * question is still better answered from the knowledge base than by a pause.
+   * Read here rather than carried on the run because it is the business's
+   * current wording: a card edited five seconds ago is the one that should
+   * answer. A database that cannot be read (a missing table, a dropped
+   * connection) means "no flow" rather than a handoff — every caller has a way
+   * to answer without one.
    */
-  private async ruleTurn(
-    agentId: string,
-    question: string,
-  ): Promise<{ kind: "card"; flow: BotFlow; card: BotCard } | null> {
-    let flow: BotFlow | null = null;
-
+  private async flowOf(agentId: string): Promise<BotFlow | null> {
     try {
-      flow = await this.store.read(agentId);
+      return await this.store.read(agentId);
     } catch {
       return null;
     }
-
-    const match = flow ? ruleReply(flow, question) : null;
-
-    return match && flow ? { kind: "card", flow, card: match.card } : null;
   }
 
   /**
-   * The newest thing we sent, because a tap answers what is on the customer's
-   * screen. A reply that arrived after the card — an answer, a handoff line —
-   * matches no card and leaves the message to be answered normally, which is
-   * the right reading: the menu is no longer the last thing they were shown.
+   * The payloads of what we sent, newest first.
+   *
+   * A tap answers the card it was drawn on, whenever that card arrived: a
+   * customer who scrolls back to last week's menu and taps "Drinks" means what
+   * they meant then. Each card leaves its flow and its own id behind, so a
+   * bounded read finds it — and a card sent before the window still routes,
+   * through the flow the caller passes in.
+   *
+   * A message that carries no snapshot — an answer, a handoff line, a location
+   * — is skipped by the lookup rather than ending it.
    */
-  private async lastOutbound(conversationId: string): Promise<unknown> {
-    const row = await this.prisma.message.findFirst({
+  private async sentPayloads(conversationId: string): Promise<unknown[]> {
+    const rows = await this.prisma.message.findMany({
       where: { conversationId, direction: "OUTBOUND" },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: OUTBOUND_DEPTH,
       select: { payload: true },
     });
 
-    return row?.payload ?? null;
+    return rows.map((row) => row.payload);
   }
 
   /**

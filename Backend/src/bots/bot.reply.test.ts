@@ -57,7 +57,7 @@ const asked = (patch: { body?: string | null; payload?: unknown } = {}) =>
   cardTurn({
     body: patch.body ?? null,
     payload: patch.payload ?? null,
-    lastOutbound: sent(),
+    outbound: [sent()],
   });
 
 test("a tapped button opens the card it points at", () => {
@@ -77,7 +77,7 @@ test("the card the customer picked from is the one the ids are read against", ()
   const turn = cardTurn({
     body: "Filter coffee",
     payload: { tap: { id: "b-coffee", title: "Filter coffee" } },
-    lastOutbound: sent("c-drinks"),
+    outbound: [sent("c-drinks")],
   });
 
   assert.deepEqual(turn, {
@@ -114,20 +114,110 @@ test("nothing sent yet means nothing to route against", () => {
   const turn = cardTurn({
     body: "Drinks",
     payload: { tap: { id: "b-drinks", title: "Drinks" } },
-    lastOutbound: null,
+    outbound: [],
   });
 
   assert.deepEqual(turn, { kind: "none" });
 });
 
-test("the last message being a location leaves the tap unanswered by a card", () => {
+test("a location sent after the menu does not swallow the next tap", () => {
+  const turn = cardOf(
+    cardTurn({
+      body: "Drinks",
+      payload: { tap: { id: "b-drinks", title: "Drinks" } },
+      outbound: [
+        { latitude: 12.97, longitude: 77.59, name: "Cafe", address: null },
+        sent(),
+      ],
+      flow: flow(),
+    }),
+  );
+
+  assert.equal(turn.card.id, "c-drinks");
+});
+
+test("a tap on a card several messages back still opens its card", () => {
+  const turn = cardOf(
+    cardTurn({
+      body: "Drinks",
+      payload: { tap: { id: "b-drinks", title: "Drinks" } },
+      // Three answers, then the menu they were answering from: nothing on
+      // screen now is a card, and the tap still means what it meant.
+      outbound: [null, null, null, sent()],
+    }),
+  );
+
+  assert.equal(turn.card.id, "c-drinks");
+  assert.equal(turn.flow.id, "f-menu", "the flow travels with the reply");
+});
+
+test("a card older than the window read still routes from the flow", () => {
+  const turn = cardOf(
+    cardTurn({
+      body: "Drinks",
+      payload: { tap: { id: "b-drinks", title: "Drinks" } },
+      outbound: [null, null],
+      flow: flow(),
+    }),
+  );
+
+  assert.equal(turn.card.id, "c-drinks");
+});
+
+test("the newest card holding an id is the one that answers", () => {
+  const twice = flow();
+
+  // The business copied the Drinks button onto the menu, pointing it elsewhere.
+  twice.cards[0].buttons.push({
+    id: "b-coffee",
+    label: "Coffee",
+    action: { kind: "text", body: "Coffee is on the drinks card." },
+  });
+
+  const copied = JSON.parse(JSON.stringify(snapshotOf(twice, "c-menu")));
+
+  const turn = cardTurn({
+    body: "Filter coffee",
+    payload: { tap: { id: "b-coffee", title: "Filter coffee" } },
+    outbound: [copied, sent("c-drinks")],
+  });
+
+  assert.deepEqual(turn, { kind: "say", body: "Coffee is on the drinks card." });
+});
+
+test("typed words are read against the newest card only", () => {
   const turn = cardTurn({
     body: "Drinks",
-    payload: { tap: { id: "b-drinks", title: "Drinks" } },
-    lastOutbound: { latitude: 12.97, longitude: 77.59, name: "Cafe", address: null },
+    payload: null,
+    outbound: [null, sent()],
+    flow: flow(),
+  });
+
+  // A tap is a certainty; the words on a button are not. Only the menu in front
+  // of the customer can be read from them.
+  assert.deepEqual(turn, { kind: "none" });
+});
+
+test("a tap on a button no card holds is not guessed at", () => {
+  const turn = cardTurn({
+    body: "Hours",
+    payload: { tap: { id: "b-gone", title: "Hours" } },
+    outbound: [sent()],
+    flow: flow(),
   });
 
   assert.deepEqual(turn, { kind: "none" });
+});
+
+test("a handoff button on an old card still hands off", () => {
+  assert.deepEqual(
+    cardTurn({
+      body: "Talk to staff",
+      payload: { tap: { id: "b-staff", title: "Talk to staff" } },
+      outbound: [null, sent()],
+    }),
+    { kind: "handoff" },
+  );
 });
 
 test("a payload truncated before the flow survives is not a reason to fail", () => {
@@ -144,7 +234,7 @@ test("a payload truncated before the flow survives is not a reason to fail", () 
     const turn = cardTurn({
       body: "Drinks",
       payload: null,
-      lastOutbound,
+      outbound: [lastOutbound],
     });
 
     assert.deepEqual(turn, { kind: "none" }, JSON.stringify(lastOutbound));
@@ -155,7 +245,7 @@ test("a snapshot naming a card the flow no longer holds routes nothing", () => {
   const turn = cardTurn({
     body: "Drinks",
     payload: null,
-    lastOutbound: sent("c-gone"),
+    outbound: [sent("c-gone")],
   });
 
   assert.deepEqual(turn, { kind: "none" });
@@ -168,7 +258,7 @@ test("an action pointing at a card that is gone says so instead of going quiet",
   const turn = cardTurn({
     body: "Drinks",
     payload: { tap: { id: "b-drinks", title: "Drinks" } },
-    lastOutbound: JSON.parse(JSON.stringify(snapshotOf(trimmed, "c-menu"))),
+    outbound: [JSON.parse(JSON.stringify(snapshotOf(trimmed, "c-menu")))],
   });
 
   assert.deepEqual(turn, { kind: "say", body: CARD_GONE_MESSAGE });
@@ -187,7 +277,7 @@ test("a button whose action cannot be read is dropped, not guessed at", () => {
   const turn = cardTurn({
     body: "1",
     payload: null,
-    lastOutbound: mangled,
+    outbound: [mangled],
   });
 
   // Position 1 is the readable button: the unknown one never occupied a slot.

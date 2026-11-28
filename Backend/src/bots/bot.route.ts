@@ -1,5 +1,22 @@
-import { shownButtons, type BotAction, type BotCard } from "./bot.card";
+import {
+  shownButtons,
+  type BotAction,
+  type BotButton,
+  type BotCard,
+} from "./bot.card";
 import type { TapEvidence } from "./bot.tap";
+
+/**
+ * The button this card offers under this id, or null.
+ *
+ * One definition, because two lookups have to agree: the id half of
+ * `routeTap`, and the search that finds which card a tap came from when it is
+ * no longer the newest message. A blank-labelled button is not one the
+ * customer was shown, so an id can never point at one.
+ */
+export function buttonWith(card: BotCard, id: string): BotButton | null {
+  return shownButtons(card).find((button) => button.id === id) ?? null;
+}
 
 /**
  * Which button of this card the customer picked.
@@ -16,7 +33,7 @@ export function routeTap(card: BotCard, tap: TapEvidence): BotAction | null {
   const buttons = shownButtons(card);
 
   if (tap.id) {
-    const byId = buttons.find((button) => button.id === tap.id);
+    const byId = buttonWith(card, tap.id);
     if (byId) return byId.action;
   }
 

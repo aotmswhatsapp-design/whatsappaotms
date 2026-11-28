@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { BotAction, BotCard, BotButton } from "./bot.card";
-import { routeTap, targetOf } from "./bot.route";
+import { routeTap, targetOf, buttonWith } from "./bot.route";
 import type { TapEvidence } from "./bot.tap";
 
 const handoff: BotAction = { kind: "handoff" };
@@ -74,6 +74,18 @@ test("a blank-labelled button does not occupy a position", () => {
   // The numbered fallback counts only the buttons it prints, so position 1 has
   // to be the first visible one.
   assert.deepEqual(routeTap(withBlank, tap({ number: 1 })), toDrinks);
+});
+
+test("an id on a button that was never shown is not a button", () => {
+  const withBlank = card([
+    button("b-blank", "   ", handoff),
+    button("b-drinks", "Drinks", toDrinks),
+  ]);
+
+  // The tap lookup asks this of every card it reads back, so an id can never
+  // resolve to a button the customer was not offered.
+  assert.equal(buttonWith(withBlank, "b-blank"), null);
+  assert.deepEqual(buttonWith(withBlank, "b-drinks")?.action, toDrinks);
 });
 
 test("two buttons with the same label route to the first", () => {
