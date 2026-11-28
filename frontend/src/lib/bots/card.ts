@@ -189,6 +189,35 @@ export function rootOf(flow: BotFlow): BotCard | null {
 }
 
 /**
+ * The cards, in the order these ids name them.
+ *
+ * A drag in the card list produces a new sequence of ids, and this turns it
+ * back into cards. The order is the editor's own: a card is reached by the
+ * button that points at it and the entry is `rootCardId`, so moving one reorders
+ * the list and nothing a customer receives.
+ *
+ * An ids list that is not a permutation of the cards — a stale drag, a card
+ * added mid-gesture — is refused rather than applied. A reorder must never be
+ * able to drop a card.
+ */
+export function reorderCards(
+  cards: BotCard[],
+  ids: readonly string[],
+): BotCard[] {
+  if (ids.length !== cards.length || new Set(ids).size !== cards.length) {
+    return cards;
+  }
+
+  const byId = new Map(cards.map((card) => [card.id, card]));
+
+  const ordered = ids
+    .map((id) => byId.get(id))
+    .filter((card): card is BotCard => card !== undefined);
+
+  return ordered.length === cards.length ? ordered : cards;
+}
+
+/**
  * The line a card is called by, wherever the business reads one: the card list,
  * the editor's heading, and every picker that points at a card.
  *

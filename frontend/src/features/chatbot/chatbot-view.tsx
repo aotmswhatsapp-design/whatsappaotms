@@ -27,6 +27,7 @@ import {
   emptyFlow,
   newCard,
   newRule,
+  reorderCards,
   type BotAction,
   type BotCard,
   type BotFlow,
@@ -36,6 +37,7 @@ import { cn } from "@/lib/utils";
 
 import { ApiError, fetchAgents, fetchBot, saveBot, type BotAgent } from "./api";
 import { CardEditor } from "./components/card-editor";
+import { CardList } from "./components/card-list";
 import { RuleList } from "./components/rule-list";
 
 const nav = getNavItem("/workspace/chatbot");
@@ -207,6 +209,20 @@ export function ChatbotView() {
       ...flow,
       cards: flow.cards.map((card) => (card.id === next.id ? next : card)),
     }));
+  }
+
+  /**
+   * The card list's order, and nothing more.
+   *
+   * A card opens from the button that points at it and the entry is
+   * `rootCardId`, so this moves where a card sits in the editor and nowhere a
+   * customer can see. It is still an edit: it marks the flow unsaved, and
+   * Discard puts the stored order back.
+   */
+  function reorder(ids: string[]): void {
+    if (!canManage || saving) return;
+
+    edit((flow) => ({ ...flow, cards: reorderCards(flow.cards, ids) }));
   }
 
   /**
@@ -500,7 +516,7 @@ export function ChatbotView() {
             </div>
           ) : cards.length === 0 ? (
             <EmptyState
-              description="A card is one message: a picture, the information, and up to a few buttons. The first card is where the bot starts."
+              description="A card is one message: a picture, the information, and up to a few buttons. The first card you add becomes where the bot starts."
               icon={MessageSquare}
               title="No cards yet"
               action={
@@ -545,41 +561,22 @@ export function ChatbotView() {
                     </button>
                   </div>
 
-                  <ul className="mt-2 space-y-1.5">
-                    {cards.map((card) => {
-                      const active = card.id === activeCardId;
-                      const entry = draft?.rootCardId === card.id;
+                  {cards.length > 1 ? (
+                    <p className="mt-1.5 px-1 text-[11.5px] leading-relaxed text-muted-foreground">
+                      {canManage
+                        ? "Drag a card to move it up or down — or press Space on one and use the arrow keys. The Entry card is where the bot starts, wherever it sits."
+                        : "This is the order the owner arranged. The Entry card is where the bot starts, wherever it sits."}
+                    </p>
+                  ) : null}
 
-                      return (
-                        <li key={card.id}>
-                          <button
-                            type="button"
-                            aria-pressed={active}
-                            className={cn(
-                              "flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-                              active
-                                ? "border-brand/40 bg-brand-soft/60"
-                                : "border-transparent hover:bg-accent",
-                            )}
-                            onClick={() => setSelectedCardId(card.id)}
-                          >
-                            <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-                              {cardLabel(card)}
-                            </span>
-                            {entry ? (
-                              <span className="shrink-0 rounded-full bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
-                                Entry
-                              </span>
-                            ) : null}
-                            <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
-                              {card.buttons.length}{" "}
-                              {card.buttons.length === 1 ? "button" : "buttons"}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <CardList
+                    activeCardId={activeCardId}
+                    cards={cards}
+                    disabled={!canManage || saving}
+                    entryCardId={draft?.rootCardId ?? null}
+                    onReorder={reorder}
+                    onSelect={setSelectedCardId}
+                  />
                 </section>
 
                 {activeCard ? (
